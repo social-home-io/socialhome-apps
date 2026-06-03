@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none';" />
+  <title>Chess — Social Home</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <img src="./icon.svg" alt="" class="app-icon" width="28" height="28" aria-hidden="true" />
+    <h1>Chess</h1>
+  </header>
+
+  <!-- Single root; all views are rendered here by main.ts -->
+  <main id="app-root" aria-label="Chess app"></main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

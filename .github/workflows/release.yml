@@ -1,0 +1,121 @@
+# release.yml — Build, test, and publish the Social Home Apps catalog.
+#
+# Triggers:
+#   - release: published   Build + upload catalog.json and app tarballs as
+#                          release assets. This is the primary production path.
+#   - workflow_dispatch    Build + test without uploading (tag may or may not
+#                          have a matching release; we only upload when it does).
+#
+# Required permissions: contents: write (to upload release assets).
+# The built-in GITHUB_TOKEN is sufficient — no additional secrets needed.
+
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Build & publish catalog
+    runs-on: ubuntu-latest
+
+    steps:
+      # ------------------------------------------------------------------
+      # 1. Source
+      # ------------------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # 2. Runtime: pnpm + Node 24
+      # ------------------------------------------------------------------
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        # Version is read from packageManager field in package.json.
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "pnpm"
+
+      # ------------------------------------------------------------------
+      # 3. Install dependencies
+      # ------------------------------------------------------------------
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ------------------------------------------------------------------
+      # 4. Build (SDK first, then each app)
+      # ------------------------------------------------------------------
+      - name: Build
+        run: pnpm build
+
+      # ------------------------------------------------------------------
+      # 5. Test (gate before publishing)
+      # ------------------------------------------------------------------
+      - name: Test
+        run: pnpm test
+
+      # ------------------------------------------------------------------
+      # 6. Determine the release tag
+      #
+      #    For the `release: published` trigger, github.event.release.tag_name
+      #    is always set.  For workflow_dispatch, fall back to github.ref_name
+      #    (which is the branch or tag that was selected in the UI).
+      # ------------------------------------------------------------------
+      - name: Resolve release tag
+        id: tag
+        run: |
+          TAG="${{ github.event.release.tag_name || github.ref_name }}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Resolved release tag: ${TAG}"
+
+      # ------------------------------------------------------------------
+      # 7. Build catalog.json + dist-tars/*.tgz
+      # ------------------------------------------------------------------
+      - name: Build catalog
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          # REPO_BASE defaults to https://github.com/social-home-io/socialhome-apps
+          # inside the script; override here only if the org/repo name ever changes.
+        run: node scripts/build-catalog.mjs
+
+      # ------------------------------------------------------------------
+      # 8. Upload assets to the GitHub release
+      #
+      #    Only runs when triggered by an actual published release.  For
+      #    workflow_dispatch there may be no matching release, so we skip
+      #    the upload rather than erroring out — the build artefacts are
+      #    still available in the job's working directory for local inspection.
+      # ------------------------------------------------------------------
+      - name: Upload release assets
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          echo "Uploading catalog.json and dist-tars/*.tgz to release ${TAG}…"
+          gh release upload "${TAG}" catalog.json dist-tars/*.tgz --clobber
+          echo "Upload complete."
+
+      # ------------------------------------------------------------------
+      # 8b. workflow_dispatch — log what was built, skip upload
+      # ------------------------------------------------------------------
+      - name: Log built artefacts (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "workflow_dispatch: no release upload performed."
+          echo ""
+          echo "Built artefacts:"
+          ls -lh catalog.json dist-tars/ 2>/dev/null || echo "  (none found — build may have failed)"
+          echo ""
+          echo "To publish these artefacts, create a GitHub release for the tag"
+          echo "  '${{ steps.tag.outputs.tag }}' and re-run via the release trigger,"
+          echo "  or upload manually with:"
+          echo "  gh release upload ${{ steps.tag.outputs.tag }} catalog.json dist-tars/*.tgz --clobber"

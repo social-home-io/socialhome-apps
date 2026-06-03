@@ -1,0 +1,14 @@
+{
+  "name": "@socialhome/app-sdk",
+  "version": "1.0.0",
+  "type": "module",
+  "license": "MPL-2.0",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  }
+}

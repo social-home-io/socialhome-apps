@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Chess knight piece">
+  <!-- Chessboard background squares (2×2 miniature) -->
+  <rect width="64" height="64" rx="8" fill="#1a1a2e"/>
+  <rect x="2" y="2" width="30" height="30" rx="3" fill="#f0d9b5"/>
+  <rect x="32" y="2" width="30" height="30" rx="3" fill="#b58863"/>
+  <rect x="2" y="32" width="30" height="30" rx="3" fill="#b58863"/>
+  <rect x="32" y="32" width="30" height="30" rx="3" fill="#f0d9b5"/>
+  <!-- Knight silhouette centred on the board -->
+  <path
+    d="M22 50 h20 v-3 H38 l-2-5 c4-2 8-6 8-13 0-5-2-9-6-11
+       l1-4 -4 1 -1-4 -5 4 c-2 0-4 1-5 3 l-5-1 3 6
+       c-2 2-3 5-3 8 0 7 4 12 8 14 l-2 5 H22 z"
+    fill="#e94560"
+    stroke="#c0392b"
+    stroke-width="1"
+  />
+</svg>

@@ -1,0 +1,9 @@
+{
+  "app_id": "chess",
+  "name": "Chess",
+  "version": "1.0.0",
+  "description": "Play a game of chess with another household over Social Home federation.",
+  "entry": "index.html",
+  "icon": "icon.svg",
+  "capabilities": ["storage", "federation"]
+}

@@ -1,0 +1,7 @@
+packages:
+  - "packages/*"
+  - "apps/*"
+
+# esbuild ships a platform-native binary fetched by its install script.
+allowBuilds:
+  esbuild: true
