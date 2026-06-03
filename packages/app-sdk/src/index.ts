@@ -53,14 +53,32 @@ export interface Peer {
   display_name: string;
 }
 
+/** A challengeable person returned by {@link SocialHomeClient.contacts}. */
+export interface Contact {
+  instance_id: string;
+  user_ref: string;      // local user_id when is_local, else the remote username
+  display_name: string;
+  is_local: boolean;
+  online: boolean;
+}
+
+/** Addresses a specific person for a session. */
+export interface SessionTarget {
+  instance_id: string;
+  user_ref: string;
+  is_local: boolean;
+}
+
 /**
  * A real-time message relayed from another household. `sessionId` is the
  * game/conversation it belongs to; `fromInstance` is the sender household's
  * `instance_id` (match it against {@link Peer.instance_id} to show a name).
+ * `fromUser` carries the challenger/sender identity when the host includes it.
  */
 export interface AppMessage {
   sessionId: string;
   fromInstance: string;
+  fromUser?: string;   // challenger/sender identity for display (optional)
   payload: unknown;
 }
 
@@ -122,6 +140,7 @@ export class SocialHomeClient {
       const msg: AppMessage = {
         sessionId: String(data["sessionId"] ?? ""),
         fromInstance: String(data["fromInstance"] ?? ""),
+        fromUser: data["fromUser"] != null ? String(data["fromUser"]) : undefined,
         payload: data["payload"],
       };
       const subs = data["kind"] === "session" ? this._sessionSubs : this._messageSubs;
@@ -195,30 +214,35 @@ export class SocialHomeClient {
     return this._call("peers.list").then((r) => (Array.isArray(r) ? (r as Peer[]) : []));
   }
 
+  /** List the people (household members + known remote friends) this app can play with. */
+  contacts(): Promise<Contact[]> {
+    return this._call("contacts.list").then((r) => (Array.isArray(r) ? (r as Contact[]) : []));
+  }
+
   /** Cross-household federation helpers. */
   readonly federation = {
     /**
-     * Open a session (e.g. start a game) with a peer household. The peer
+     * Open a session (e.g. start a game) targeting a specific person. The peer
      * receives a `session` event (see {@link SocialHomeClient.onSession}).
+     * @param target  the person to invite, from {@link SocialHomeClient.contacts}.
      * @returns the session id used in subsequent {@link federation.send} calls.
      */
-    openSession: (peerInstanceId: string): Promise<string> =>
-      this._call("app.openSession", { peer_instance_id: peerInstanceId }).then(
-        (r) => String(r),
-      ),
+    openSession: (target: SessionTarget): Promise<string> =>
+      this._call("app.openSession", { target }).then((r) => String(r)),
 
     /**
-     * Send a payload to a peer household within an existing session. The peer
-     * receives it via {@link SocialHomeClient.onMessage}.
+     * Send a payload to a specific person within an existing session. The
+     * recipient receives it via {@link SocialHomeClient.onMessage}.
+     * @param target  the person to address, from {@link SocialHomeClient.contacts}.
      */
     send: (
       sessionId: string,
-      peerInstanceId: string,
+      target: SessionTarget,
       payload: unknown,
     ): Promise<void> =>
       this._call("app.send", {
         session_id: sessionId,
-        peer_instance_id: peerInstanceId,
+        target,
         payload,
       }).then(() => undefined),
   };

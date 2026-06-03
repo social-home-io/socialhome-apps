@@ -36,11 +36,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Type-check (SDK + apps)
-        run: pnpm -r exec tsc --noEmit
-
+      # Build first: the SDK publishes its types from dist/index.d.ts
+      # (package.json "types"), and every app imports @socialhome/app-sdk
+      # as a workspace dep. Type-checking an app before the SDK is built
+      # fails with TS2307 "Cannot find module '@socialhome/app-sdk'". The
+      # esbuild app bundles strip types, so build can't replace the
+      # type-check — it just has to precede it.
       - name: Build SDK + apps
         run: pnpm build
+
+      - name: Type-check (SDK + apps)
+        run: pnpm -r exec tsc --noEmit
 
       - name: Unit tests
         run: pnpm test

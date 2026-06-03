@@ -18,6 +18,65 @@ import {
   colOf,
 } from "./chess.js";
 import type { Board, GameState, Move, Piece } from "./chess.js";
+import { groupContacts } from "./main.js";
+import type { Contact } from "@socialhome/app-sdk";
+
+// ---------------------------------------------------------------------------
+// groupContacts (pure lobby helper)
+// ---------------------------------------------------------------------------
+
+function contact(over: Partial<Contact> & { user_ref: string }): Contact {
+  return {
+    instance_id: "inst-x",
+    display_name: over.user_ref,
+    is_local: false,
+    online: false,
+    ...over,
+  };
+}
+
+describe("groupContacts", () => {
+  it("splits local members into household and remote into friends", () => {
+    const a = contact({ user_ref: "a", is_local: true });
+    const b = contact({ user_ref: "b", is_local: false });
+    const c = contact({ user_ref: "c", is_local: true });
+    const { household, friends } = groupContacts([a, b, c]);
+    expect(household).toEqual([a, c]);
+    expect(friends).toEqual([b]);
+  });
+
+  it("handles an empty input", () => {
+    const { household, friends } = groupContacts([]);
+    expect(household).toEqual([]);
+    expect(friends).toEqual([]);
+  });
+
+  it("returns all-household when every contact is local", () => {
+    const a = contact({ user_ref: "a", is_local: true });
+    const b = contact({ user_ref: "b", is_local: true });
+    const { household, friends } = groupContacts([a, b]);
+    expect(household).toEqual([a, b]);
+    expect(friends).toEqual([]);
+  });
+
+  it("returns all-friends when no contact is local", () => {
+    const a = contact({ user_ref: "a", is_local: false });
+    const b = contact({ user_ref: "b", is_local: false });
+    const { household, friends } = groupContacts([a, b]);
+    expect(household).toEqual([]);
+    expect(friends).toEqual([a, b]);
+  });
+
+  it("preserves input order within each group", () => {
+    const local1 = contact({ user_ref: "l1", is_local: true });
+    const remote1 = contact({ user_ref: "r1", is_local: false });
+    const local2 = contact({ user_ref: "l2", is_local: true });
+    const remote2 = contact({ user_ref: "r2", is_local: false });
+    const { household, friends } = groupContacts([local1, remote1, local2, remote2]);
+    expect(household).toEqual([local1, local2]);
+    expect(friends).toEqual([remote1, remote2]);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Helpers

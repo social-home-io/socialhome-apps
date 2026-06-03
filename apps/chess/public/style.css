@@ -188,11 +188,31 @@ html, body {
 }
 
 .peer-name {
+  flex: 1;
+  text-align: left;
   font-weight: 500;
   font-size: 0.95rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Presence indicator — green (online) / muted (offline). Sits left of the
+   name; carries an aria-label so it's not a colour-only cue. */
+.presence-dot {
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.presence-online {
+  background: #3fb950;
+  box-shadow: 0 0 0 2px rgba(63,185,80,0.22);
+}
+.presence-offline {
+  background: var(--text-dim);
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.18);
 }
 
 /* Badges */
@@ -497,17 +517,24 @@ html, body {
   transition: transform 0.08s ease;
 }
 
-/* Real white vs black stones: solid glyph filled per side, with a
-   contrasting outline so each piece is crisp on both light and dark squares. */
+/* Real white vs black stones. Each piece carries a thick contrasting
+   outline PLUS an opposite-tone halo so it lifts clearly off a same-tone
+   square (white on a light square / black on a dark square — the weak case).
+   White = bright fill + dark rim + dark halo; black = deep fill + light rim
+   + light halo. Readable on every square at phone sizes. */
 .piece--w {
-  color: #f7f2e8;
-  -webkit-text-stroke: 1.3px #2a2017;
-  text-shadow: 0 1px 1px rgba(0,0,0,0.35);
+  color: #ffffff;
+  -webkit-text-stroke: 2px #15110a;
+  text-shadow:
+    0 0 3px rgba(0,0,0,0.60),
+    0 1px 1px rgba(0,0,0,0.45);
 }
 .piece--b {
-  color: #17171d;
-  -webkit-text-stroke: 1.3px #efe6d6;
-  text-shadow: 0 1px 1px rgba(255,255,255,0.18);
+  color: #0b0b11;
+  -webkit-text-stroke: 2px #f4ecdc;
+  text-shadow:
+    0 0 3px rgba(255,255,255,0.55),
+    0 1px 1px rgba(0,0,0,0.40);
 }
 
 .square.selected .piece {
