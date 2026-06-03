@@ -29,7 +29,7 @@ Every app lives under `apps/<app_id>/` and must contain a `manifest.json`:
 |---|---|---|
 | `app_id` | yes | Stable identifier. Must be unique across all apps. |
 | `name` | yes | Human-readable display name. |
-| `version` | yes | CalVer or SemVer string; must be bumped on every release. |
+| `version` | yes | **CalVer** `YYYY.M.D` (matching Social Home core), bumped on every release. |
 | `description` | yes | Short description shown in the app browser. |
 | `entry` | yes | Entry HTML file relative to `dist/`. Usually `index.html`. |
 | `icon` | yes | Icon file relative to `dist/` (SVG or PNG). |

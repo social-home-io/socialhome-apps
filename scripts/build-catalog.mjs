@@ -175,11 +175,13 @@ for (const appDir of appDirs) {
   // Construct the download URL.
   const bundle_url = `${REPO_BASE}/releases/download/${RELEASE_TAG}/${tarName}`;
 
-  // Determine icon_url: if there's a packaged icon in dist, point at it via
-  // the release asset bundle_url fragment; otherwise null.
-  // (The catalog consumer uses bundle_url to download and unpack the bundle;
-  //  a separate icon CDN link is optional.)
-  const icon_url = null;
+  // The manifest icon is a self-contained data: URI, so it doubles as the
+  // catalog icon_url that Social Home's "Browse Apps" cards render directly
+  // (no external icon CDN, works under any img-src that allows data:).
+  const icon_url =
+    typeof manifest.icon === "string" && manifest.icon.startsWith("data:")
+      ? manifest.icon
+      : null;
 
   catalogEntries.push({
     app_id,

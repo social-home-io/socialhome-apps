@@ -17,6 +17,14 @@
   <!-- Single root; all views are rendered here by main.ts -->
   <main id="app-root" aria-label="Chess app"></main>
 
-  <script type="module" src="./app.js"></script>
+  <!--
+    Classic (non-module) script: the app runs in a sandboxed, opaque-origin
+    iframe (origin "null"). `<script type="module">` is fetched with CORS and
+    would be blocked (no Access-Control-Allow-Origin) AND uncredentialed (the
+    bundle-auth cookie wouldn't be sent). A classic script of an IIFE bundle
+    loads cross-origin without CORS and carries the cookie. Social Home apps
+    MUST ship a classic/IIFE bundle, not an ES module — see the SDK README.
+  -->
+  <script src="./app.js"></script>
 </body>
 </html>
