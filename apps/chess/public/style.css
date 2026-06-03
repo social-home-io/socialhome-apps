@@ -188,11 +188,31 @@ html, body {
 }
 
 .peer-name {
+  flex: 1;
+  text-align: left;
   font-weight: 500;
   font-size: 0.95rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Presence indicator — green (online) / muted (offline). Sits left of the
+   name; carries an aria-label so it's not a colour-only cue. */
+.presence-dot {
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.presence-online {
+  background: #3fb950;
+  box-shadow: 0 0 0 2px rgba(63,185,80,0.22);
+}
+.presence-offline {
+  background: var(--text-dim);
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.18);
 }
 
 /* Badges */
