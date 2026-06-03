@@ -64,6 +64,13 @@ RELEASE_TAG=1.0.0 pnpm catalog
 
 `pnpm catalog` is shorthand for `node scripts/build-catalog.mjs`. It requires `RELEASE_TAG` to be set; optionally set `REPO_BASE` to override the default download URL base (`https://github.com/social-home-io/socialhome-apps`).
 
+### GitHub Actions
+
+| Workflow | Trigger | Does |
+|---|---|---|
+| [`ci.yml`](.github/workflows/ci.yml) | every push to `main` + every PR (+ manual) | type-check, build, test, catalog dry-run — the always-on quality gate |
+| [`release.yml`](.github/workflows/release.yml) | a published GitHub release (+ manual dry-run) | build + test, then publish `catalog.json` + each app tarball as release assets |
+
 ---
 
 ## SDK quickstart
@@ -81,26 +88,50 @@ const raw = await sh.store.get('board');
 // List paired households
 const peers = await sh.peers();
 
-// Open a federation session with a remote peer
+// Start a game with a friend's household (they receive an invite — see onSession)
 const sessionId = await sh.federation.openSession(peers[0].instance_id);
 
-// Send a message to that peer
+// Send a move to that peer within the session
 await sh.federation.send(sessionId, peers[0].instance_id, { move: 'e2e4' });
 
-// Subscribe to incoming messages
-const unsub = sh.onMessage((payload) => {
-  console.log('received:', payload);
+// Receive in-session messages (e.g. the opponent's move). The callback gets
+// { sessionId, fromInstance, payload } so you can route to the right game and
+// identify the sender — this is what makes many concurrent games work.
+const offMsg = sh.onMessage(({ sessionId, fromInstance, payload }) => {
+  console.log(`move in ${sessionId} from ${fromInstance}:`, payload);
+});
+
+// Receive incoming session invites (a friend challenged you)
+const offInvite = sh.onSession(({ sessionId, fromInstance }) => {
+  console.log(`invite to ${sessionId} from ${fromInstance}`);
 });
 
 // Stop listening
-unsub();
+offMsg();
+offInvite();
 ```
 
-The SDK communicates with the host SPA over `postMessage`. All calls are async and time out after 15 seconds.
+The SDK communicates with the host SPA over `postMessage` (it never has the user's auth token). All calls are async and time out after 15 seconds. In the iframe `sh` is non-null; in non-browser/test contexts it is `null`, so use `createClient(...)` in unit tests.
 
 ---
 
-## How releases work
+## Cutting a release (step by step)
+
+To publish a new version of one or more apps:
+
+1. **Bump the version** in each changed app's `apps/<id>/manifest.json` (`"version"`). Commit it to `main`.
+2. **Verify green CI** — the [CI workflow](.github/workflows/ci.yml) runs on every push/PR (type-check + build + test + catalog dry-run). You can also dry-run the release build via **Actions → Release → Run workflow** (`workflow_dispatch`) without publishing.
+3. **Create the GitHub release** with a tag — either:
+   - CLI: `gh release create 1.2.0 --title 1.2.0 --notes "What changed"`, or
+   - UI: **Releases → Draft a new release → Choose a tag → Publish**.
+4. Publishing fires the [**Release** workflow](.github/workflows/release.yml), which builds everything and uploads `catalog.json` + each `<app>-<version>.tgz` (SHA-256-pinned) as **release assets**.
+5. Social Home installs fetch `releases/latest/download/catalog.json`, so the new version is live for the **Browse Apps** page as soon as the workflow finishes. (The tag must be the highest/most-recent release for `latest` to point at it.)
+
+> **Adding a new app:** create `apps/<new-id>/` with a `manifest.json` + a `build` script that emits a self-contained `dist/`, give it a `package.json` (`"build"` script), and the catalog script + workflows pick it up automatically — no workflow edits needed.
+
+---
+
+## How releases work (mechanism)
 
 1. A GitHub release is published (any tag).
 2. The **Release** workflow (`.github/workflows/release.yml`) runs automatically:

@@ -1,0 +1,50 @@
+# ci.yml — Build, type-check, and test every push and pull request.
+#
+# This is the always-on quality gate. The separate `release.yml` reuses the
+# same build + test steps and additionally publishes the catalog on a release.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build & test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        # Version is read from the `packageManager` field in package.json.
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check (SDK + apps)
+        run: pnpm -r exec tsc --noEmit
+
+      - name: Build SDK + apps
+        run: pnpm build
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Catalog dry-run (verify packaging)
+        # Proves build-catalog.mjs packages every app + emits a valid catalog.
+        run: RELEASE_TAG=ci-dry-run pnpm catalog
