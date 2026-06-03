@@ -141,10 +141,15 @@ async function loadAllGames(): Promise<void> {
 // Piece glyphs
 // ---------------------------------------------------------------------------
 
+// Both sides use the SOLID silhouette glyphs; colour (white vs black stone)
+// is applied via the `piece--w` / `piece--b` CSS classes so each side reads as
+// a real white or black piece on any square. (The Unicode "white" glyphs are
+// outline-only and would render the same colour as black under a single fill.)
 const PIECE_GLYPHS: Record<string, string> = {
-  wK: "♔", wQ: "♕", wR: "♖", wB: "♗", wN: "♘", wP: "♙",
+  wK: "♚", wQ: "♛", wR: "♜", wB: "♝", wN: "♞", wP: "♟",
   bK: "♚", bQ: "♛", bR: "♜", bB: "♝", bN: "♞", bP: "♟",
 };
+const pieceColorClass = (key: string): string => (key[0] === "w" ? "piece--w" : "piece--b");
 
 const PIECE_NAMES: Record<string, string> = {
   K: "king", Q: "queen", R: "rook", B: "bishop", N: "knight", P: "pawn",
@@ -426,7 +431,7 @@ function renderBoard(): void {
 
     if (piece) {
       const glyph = make("span", {
-        cls: "piece",
+        cls: ["piece", pieceColorClass(piece.color + piece.type)],
         text: PIECE_GLYPHS[piece.color + piece.type] ?? "?",
         attrs: { "aria-hidden": "true" },
       });
@@ -521,7 +526,7 @@ function renderCapturedPieces(container: HTMLElement, pieces: string[]): void {
   for (const [key, count] of counts) {
     for (let i = 0; i < count; i++) {
       const span = make("span", {
-        cls: "captured-piece",
+        cls: ["captured-piece", pieceColorClass(key)],
         text: PIECE_GLYPHS[key] ?? "?",
         attrs: { "aria-hidden": "true" },
       });

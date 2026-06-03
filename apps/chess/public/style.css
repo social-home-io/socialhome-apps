@@ -493,8 +493,21 @@ html, body {
   line-height: 1;
   pointer-events: none;
   display: block;
-  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5));
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45));
   transition: transform 0.08s ease;
+}
+
+/* Real white vs black stones: solid glyph filled per side, with a
+   contrasting outline so each piece is crisp on both light and dark squares. */
+.piece--w {
+  color: #f7f2e8;
+  -webkit-text-stroke: 1.3px #2a2017;
+  text-shadow: 0 1px 1px rgba(0,0,0,0.35);
+}
+.piece--b {
+  color: #17171d;
+  -webkit-text-stroke: 1.3px #efe6d6;
+  text-shadow: 0 1px 1px rgba(255,255,255,0.18);
 }
 
 .square.selected .piece {
