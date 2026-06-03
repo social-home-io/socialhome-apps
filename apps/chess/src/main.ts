@@ -14,7 +14,7 @@
  */
 
 import sh from "@socialhome/app-sdk";
-import type { AppMessage, Peer } from "@socialhome/app-sdk";
+import type { AppMessage, Contact, SessionTarget } from "@socialhome/app-sdk";
 import {
   initialState,
   legalMoves,
@@ -26,11 +26,10 @@ import {
 } from "./chess.js";
 import type { GameState, Move, Color } from "./chess.js";
 
-// Ensure the SDK is non-null (it is non-null in browser / iframe).
-if (!sh) {
-  throw new Error("Social Home SDK not available — must run inside an iframe.");
-}
-const client = sh;
+// The SDK singleton is non-null in the browser / iframe and `null` outside it
+// (e.g. the Node test runner importing the pure helpers below). `client` is
+// only dereferenced from `main()`, which is gated on a real browser context.
+const client = sh as NonNullable<typeof sh>;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,9 +38,48 @@ const client = sh;
 interface GameEntry {
   sessionId: string;
   opponentInstanceId: string;
+  /** The opponent's `user_ref` (local user_id or remote username) — targets sends to the person. */
+  opponentRef: string;
+  /** Whether the opponent shares our household (local). */
+  opponentIsLocal: boolean;
   opponentName: string;
   myColor: Color;
   state: GameState;
+}
+
+/**
+ * Pure helper: split contacts into the player's own household (`is_local`)
+ * and remote friends. No DOM — unit-tested. Order within each group is
+ * preserved from the input.
+ */
+export function groupContacts(
+  contacts: Contact[],
+): { household: Contact[]; friends: Contact[] } {
+  const household: Contact[] = [];
+  const friends: Contact[] = [];
+  for (const c of contacts) {
+    if (c.is_local) household.push(c);
+    else friends.push(c);
+  }
+  return { household, friends };
+}
+
+/** Build a SessionTarget addressing the opponent of a game entry. */
+function targetForEntry(entry: GameEntry): SessionTarget {
+  return {
+    instance_id: entry.opponentInstanceId,
+    user_ref: entry.opponentRef,
+    is_local: entry.opponentIsLocal,
+  };
+}
+
+/**
+ * Our own household instance id, derived from any local contact (every
+ * `is_local` contact shares our instance id). `null` if none is known yet.
+ */
+function ownInstanceId(): string | null {
+  const local = ui.contacts.find((c) => c.is_local);
+  return local ? local.instance_id : null;
 }
 
 type View = "lobby" | "board";
@@ -49,7 +87,7 @@ type View = "lobby" | "board";
 interface UIState {
   view: View;
   selfUserId: string;
-  peers: Peer[];
+  contacts: Contact[];
   games: Map<string, GameEntry>;
   /** sessionId of the game currently shown on the board view. */
   activeBoardSession: string | null;
@@ -64,7 +102,7 @@ interface UIState {
 const ui: UIState = {
   view: "lobby",
   selfUserId: "",
-  peers: [],
+  contacts: [],
   games: new Map(),
   activeBoardSession: null,
   selectedSquare: null,
@@ -132,7 +170,18 @@ async function loadAllGames(): Promise<void> {
       (e.myColor === "w" || e.myColor === "b") &&
       typeof e.state === "object" && e.state !== null
     ) {
-      ui.games.set(e.sessionId, e as GameEntry);
+      // Be tolerant of games persisted before the person-addressing fields
+      // existed: fall back to "" / false so old games still resume.
+      const entry: GameEntry = {
+        sessionId: e.sessionId,
+        opponentInstanceId: e.opponentInstanceId,
+        opponentRef: typeof e.opponentRef === "string" ? e.opponentRef : "",
+        opponentIsLocal: e.opponentIsLocal === true,
+        opponentName: e.opponentName,
+        myColor: e.myColor,
+        state: e.state as GameState,
+      };
+      ui.games.set(entry.sessionId, entry);
     }
   }
 }
@@ -283,31 +332,60 @@ function renderLobby(): void {
     root.appendChild(section);
   }
 
-  // ---- Friends / peer list ----
-  const section2 = make("section", { cls: "lobby-section" });
-  const h2b = make("h2", { cls: "section-heading", text: "Challenge a friend" });
-  section2.appendChild(h2b);
+  // ---- People to challenge, grouped by household vs. remote friends ----
+  const { household, friends } = groupContacts(ui.contacts);
 
-  if (ui.peers.length === 0) {
-    const msg = make("p", {
-      cls: "empty-state",
-      text: "No paired households yet — pair a friend in Social Home to play.",
-    });
-    section2.appendChild(msg);
-  } else {
-    const list2 = make("ul", { cls: "peer-list" });
-    for (const peer of ui.peers) {
-      const li = make("li", { cls: "peer-item" });
-      const nameEl = make("span", { cls: "peer-name", text: peer.display_name });
-      li.appendChild(nameEl);
-      const challengeBtn = make("button", { cls: "btn btn-primary", text: "Challenge" });
-      challengeBtn.addEventListener("click", () => void onChallengePeer(peer));
-      li.appendChild(challengeBtn);
-      list2.appendChild(li);
-    }
-    section2.appendChild(list2);
+  root.appendChild(
+    buildContactSection(
+      "Your household",
+      household,
+      "No other household members.",
+    ),
+  );
+  root.appendChild(
+    buildContactSection(
+      "Friends",
+      friends,
+      "No paired friends yet — pair a household in Social Home.",
+    ),
+  );
+}
+
+/** Build a lobby section listing challengeable people, with presence + empty state. */
+function buildContactSection(
+  heading: string,
+  people: Contact[],
+  emptyText: string,
+): HTMLElement {
+  const section = make("section", { cls: "lobby-section" });
+  section.appendChild(make("h2", { cls: "section-heading", text: heading }));
+
+  if (people.length === 0) {
+    section.appendChild(make("p", { cls: "empty-state", text: emptyText }));
+    return section;
   }
-  root.appendChild(section2);
+
+  const list = make("ul", { cls: "peer-list" });
+  for (const contact of people) {
+    const li = make("li", { cls: "peer-item" });
+
+    const presenceLabel = contact.online ? "online" : "offline";
+    const dot = make("span", {
+      cls: ["presence-dot", contact.online ? "presence-online" : "presence-offline"],
+      attrs: { role: "img", "aria-label": presenceLabel, title: presenceLabel },
+    });
+    li.appendChild(dot);
+
+    li.appendChild(make("span", { cls: "peer-name", text: contact.display_name }));
+
+    const challengeBtn = make("button", { cls: "btn btn-primary", text: "Challenge" });
+    challengeBtn.addEventListener("click", () => void onChallengeContact(contact));
+    li.appendChild(challengeBtn);
+
+    list.appendChild(li);
+  }
+  section.appendChild(list);
+  return section;
 }
 
 function resultLabel(result: "white" | "black" | "draw", myColor: Color): string {
@@ -677,7 +755,7 @@ async function onMove(entry: GameEntry, move: Move): Promise<void> {
     ui.legalTargets = [];
 
     await persistGame(entry);
-    await client.federation.send(entry.sessionId, entry.opponentInstanceId, {
+    await client.federation.send(entry.sessionId, targetForEntry(entry), {
       type: "move",
       sessionId: entry.sessionId,
       move,
@@ -697,14 +775,21 @@ async function onMove(entry: GameEntry, move: Move): Promise<void> {
 // Session management
 // ---------------------------------------------------------------------------
 
-async function onChallengePeer(peer: Peer): Promise<void> {
+async function onChallengeContact(contact: Contact): Promise<void> {
   try {
-    const sessionId = await client.federation.openSession(peer.instance_id);
+    const target: SessionTarget = {
+      instance_id: contact.instance_id,
+      user_ref: contact.user_ref,
+      is_local: contact.is_local,
+    };
+    const sessionId = await client.federation.openSession(target);
     const entry: GameEntry = {
       sessionId,
-      opponentInstanceId: peer.instance_id,
-      opponentName: peer.display_name,
-      myColor: "w",
+      opponentInstanceId: contact.instance_id,
+      opponentRef: contact.user_ref,
+      opponentIsLocal: contact.is_local,
+      opponentName: contact.display_name,
+      myColor: "w", // the challenger always plays White
       state: initialState(),
     };
     ui.games.set(sessionId, entry);
@@ -714,7 +799,7 @@ async function onChallengePeer(peer: Peer): Promise<void> {
     // The session-open event already reaches them via onSession, but we also
     // send a move-0 payload so they can set up the game with our name.
     // (No-op if the host hasn't yet handled the session — they'll get it from onSession.)
-    await client.federation.send(sessionId, peer.instance_id, {
+    await client.federation.send(sessionId, target, {
       type: "open",
     } satisfies OpenPayload).catch(() => {
       // Best-effort; the session event is enough.
@@ -723,7 +808,7 @@ async function onChallengePeer(peer: Peer): Promise<void> {
     openBoardView(sessionId);
   } catch (err) {
     console.error("Failed to start game:", err);
-    showToast("Could not reach that household — please try again.");
+    showToast("Could not reach that person — please try again.");
   }
 }
 
@@ -772,18 +857,36 @@ function onInboundMessage(msg: AppMessage): void {
 }
 
 function onInboundSession(msg: AppMessage): void {
-  // A friend opened a new game session targeting this household.
+  // A friend opened a new game session targeting this person.
   const sessionId = msg.sessionId;
   const fromInstance = msg.fromInstance;
+  const fromUser = msg.fromUser;
 
-  if (ui.games.has(sessionId)) return; // duplicate
+  if (ui.games.has(sessionId)) {
+    // Structured dedupe instrumentation — never log payload/game content.
+    console.info("chess.onInboundSession", { session_id: sessionId, dedupe: "hit" });
+    return;
+  }
+  console.info("chess.onInboundSession", { session_id: sessionId, dedupe: "miss" });
 
-  const peer = ui.peers.find((p) => p.instance_id === fromInstance);
-  const opponentName = peer?.display_name ?? fromInstance;
+  // Resolve the opponent's display name from the contact directory, matching
+  // both the sender household and the person (user_ref); fall back to the raw
+  // identity, then the household id.
+  const contact = ui.contacts.find(
+    (c) => c.instance_id === fromInstance && c.user_ref === fromUser,
+  );
+  const opponentName = contact?.display_name ?? fromUser ?? fromInstance;
+
+  // The challenger is local iff they share our household instance id. Any
+  // is_local contact carries that id; if we know none yet, default to remote.
+  const ourInstance = ownInstanceId();
+  const opponentIsLocal = ourInstance !== null && fromInstance === ourInstance;
 
   const entry: GameEntry = {
     sessionId,
     opponentInstanceId: fromInstance,
+    opponentRef: fromUser ?? "",
+    opponentIsLocal,
     opponentName,
     myColor: "b", // the invitee always plays Black
     state: initialState(),
@@ -840,6 +943,9 @@ function showInviteToast(opponentName: string, sessionId: string): void {
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
+  if (!sh) {
+    throw new Error("Social Home SDK not available — must run inside an iframe.");
+  }
   // Subscribe to real-time messages immediately so no events are missed.
   client.onMessage(onInboundMessage);
   client.onSession(onInboundSession);
@@ -849,13 +955,13 @@ async function main(): Promise<void> {
   root.innerHTML = `<p class="loading-msg" aria-live="polite">Loading…</p>`;
 
   try {
-    const [ctx, peers, _store] = await Promise.all([
+    const [ctx, contacts, _store] = await Promise.all([
       client.context(),
-      client.peers(),
+      client.contacts(),
       loadAllGames(),
     ]);
     ui.selfUserId = ctx.selfUserId;
-    ui.peers = peers;
+    ui.contacts = contacts;
 
     render();
   } catch (err) {
@@ -864,4 +970,8 @@ async function main(): Promise<void> {
   }
 }
 
-void main();
+// Auto-boot only inside a real browser/iframe. Imported in Node (the test
+// runner) the module exposes its pure helpers without touching the DOM.
+if (typeof window !== "undefined") {
+  void main();
+}
