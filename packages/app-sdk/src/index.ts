@@ -245,6 +245,29 @@ export class SocialHomeClient {
         target,
         payload,
       }).then(() => undefined),
+
+    /**
+     * Drain session invites the host buffered while this app was closed
+     * (e.g. a friend challenged you before you opened the app). Returns each
+     * invite once, as an {@link AppMessage} — feed them into the same handler
+     * you pass to {@link SocialHomeClient.onSession} on startup. Safe to call
+     * every launch; the host clears them on read.
+     */
+    pendingSessions: (): Promise<AppMessage[]> =>
+      this._call("app.pendingSessions").then((r) =>
+        Array.isArray(r)
+          ? r.map((row): AppMessage => {
+              const o = isRecord(row) ? row : {};
+              return {
+                sessionId: String(o["session_id"] ?? ""),
+                fromInstance: String(o["from_instance"] ?? ""),
+                fromUser:
+                  typeof o["from_user"] === "string" ? o["from_user"] : undefined,
+                payload: o["payload"],
+              };
+            })
+          : [],
+      ),
   };
 
   /**

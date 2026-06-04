@@ -460,6 +460,30 @@ html, body {
   flex-shrink: 0;
 }
 
+/* "Your move" cue: a brief accented glow around the board when an inbound
+   opponent move hands the player the turn. Motion is opt-in for users who
+   haven't asked to reduce it. */
+@media (prefers-reduced-motion: no-preference) {
+  .chess-board.your-move-pulse {
+    animation: your-move-pulse 0.8s ease-out 2;
+  }
+
+  @keyframes your-move-pulse {
+    0% {
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6),
+                  0 0 0 0 var(--sq-selected);
+    }
+    40% {
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6),
+                  0 0 18px 6px var(--sq-selected);
+    }
+    100% {
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6),
+                  0 0 0 0 rgba(120,200,120,0);
+    }
+  }
+}
+
 /* ---- Squares ---- */
 .square {
   position: relative;
@@ -507,33 +531,51 @@ html, body {
   border-radius: 50%;
 }
 
+/* Last move (opponent's most recent half-move): a soft amber tint laid
+   UNDER the piece glyph via ::before, so it never fights the figure or the
+   selected/legal indicators. Reads on both light and dark squares because the
+   var is a translucent warm yellow. `.selected` wins (it sets a solid bg via
+   !important), and legal-target's ::after paints over this tint as expected. */
+.square.last-move::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--sq-last-move);
+  pointer-events: none;
+  z-index: 0;
+}
+
 /* ---- Pieces ---- */
 .piece {
   font-size: calc(var(--sq-size) * 0.74);
   line-height: 1;
   pointer-events: none;
   display: block;
+  /* Sit above the .last-move ::before tint */
+  position: relative;
+  z-index: 1;
   filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45));
   transition: transform 0.08s ease;
 }
 
-/* Real white vs black stones. Each piece carries a thick contrasting
-   outline PLUS an opposite-tone halo so it lifts clearly off a same-tone
-   square (white on a light square / black on a dark square — the weak case).
-   White = bright fill + dark rim + dark halo; black = deep fill + light rim
-   + light halo. Readable on every square at phone sizes. */
+/* Solid white vs black figures. The piece reads as its true colour from the
+   FILL; a thin opposite-tone rim is only an edge (not a dominant outline, so a
+   white piece never looks black or vice-versa), and an opposite-tone halo
+   lifts the figure off a same-tone square (white on light / black on dark —
+   the weak case). White = white fill + thin dark rim + dark halo; black =
+   near-black fill + thin light rim + light halo. */
 .piece--w {
   color: #ffffff;
-  -webkit-text-stroke: 2px #15110a;
+  -webkit-text-stroke: 1px #15110a;
   text-shadow:
-    0 0 3px rgba(0,0,0,0.60),
+    0 0 2px rgba(0,0,0,0.55),
     0 1px 1px rgba(0,0,0,0.45);
 }
 .piece--b {
-  color: #0b0b11;
-  -webkit-text-stroke: 2px #f4ecdc;
+  color: #111118;
+  -webkit-text-stroke: 1px #f4ecdc;
   text-shadow:
-    0 0 3px rgba(255,255,255,0.55),
+    0 0 2px rgba(255,255,255,0.65),
     0 1px 1px rgba(0,0,0,0.40);
 }
 

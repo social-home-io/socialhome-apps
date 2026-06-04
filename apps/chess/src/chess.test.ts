@@ -16,6 +16,8 @@ import {
   sq,
   rowOf,
   colOf,
+  lastMove,
+  isMyTurn,
 } from "./chess.js";
 import type { Board, GameState, Move, Piece } from "./chess.js";
 import { groupContacts } from "./main.js";
@@ -96,6 +98,48 @@ function sparseBoard(pieces: Record<string, Piece>): Board {
 function state(board: Board, sideToMove: "w" | "b" = "w"): GameState {
   return { board, sideToMove, history: [], result: null };
 }
+
+// ---------------------------------------------------------------------------
+// lastMove / isMyTurn (pure UX helpers)
+// ---------------------------------------------------------------------------
+
+describe("lastMove", () => {
+  it("is null on the initial state", () => {
+    expect(lastMove(initialState())).toBeNull();
+  });
+
+  it("returns the most recent applied half-move", () => {
+    let s = initialState();
+    // 1. e2-e4
+    const m1: Move = { from: parseSquare("e2"), to: parseSquare("e4") };
+    s = applyMove(s, m1);
+    expect(lastMove(s)).toEqual(m1);
+    // 1... e7-e5
+    const m2: Move = { from: parseSquare("e7"), to: parseSquare("e5") };
+    s = applyMove(s, m2);
+    const lm = lastMove(s);
+    expect(lm).not.toBeNull();
+    expect(lm!.from).toBe(parseSquare("e7"));
+    expect(lm!.to).toBe(parseSquare("e5"));
+  });
+});
+
+describe("isMyTurn", () => {
+  it("is true when it is my color's turn and the game is ongoing", () => {
+    const s = initialState(); // White to move, result null
+    expect(isMyTurn(s, "w")).toBe(true);
+  });
+
+  it("is false when it is the opponent's turn", () => {
+    const s = initialState(); // White to move
+    expect(isMyTurn(s, "b")).toBe(false);
+  });
+
+  it("is false once the game is over, even on my color's turn", () => {
+    const over: GameState = { ...initialState(), result: "draw" };
+    expect(isMyTurn(over, "w")).toBe(false);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Coordinate helpers
