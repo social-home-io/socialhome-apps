@@ -401,6 +401,20 @@ export function isGameOver(state: GameState): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// UX helpers (pure)
+// ---------------------------------------------------------------------------
+
+/** The most recent half-move, or null at the start. */
+export function lastMove(state: GameState): Move | null {
+  return state.history.length ? state.history[state.history.length - 1] : null;
+}
+
+/** True when it's `myColor`'s turn and the game isn't over. */
+export function isMyTurn(state: GameState, myColor: Color): boolean {
+  return state.result === null && state.sideToMove === myColor;
+}
+
+// ---------------------------------------------------------------------------
 // Notation helpers
 // ---------------------------------------------------------------------------
 

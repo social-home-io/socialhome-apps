@@ -23,6 +23,8 @@ import {
   isInCheck,
   rowOf,
   colOf,
+  lastMove,
+  isMyTurn,
 } from "./chess.js";
 import type { GameState, Move, Color } from "./chess.js";
 
@@ -216,6 +218,25 @@ function showToast(message: string): void {
     ui.toasts = ui.toasts.filter((t) => t.id !== id);
     renderToasts();
   }, 5000);
+}
+
+function notifyMyTurn(sessionId: string): void {
+  // Haptic nudge on devices that support it (mobile); silently ignored elsewhere.
+  try {
+    if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+      navigator.vibrate([40, 30, 40]);
+    }
+  } catch { /* vibrate can throw if gated by the UA; ignore */ }
+  // Visual cue: pulse the board if the player is viewing this game.
+  if (ui.view === "board" && ui.activeBoardSession === sessionId) {
+    const grid = document.getElementById("board-grid");
+    if (grid) {
+      grid.classList.remove("your-move-pulse");
+      // force reflow so the animation restarts even on consecutive turns
+      void grid.offsetWidth;
+      grid.classList.add("your-move-pulse");
+    }
+  }
 }
 
 function renderToasts(): void {
@@ -481,9 +502,11 @@ function renderBoard(): void {
   // The 8×8 grid
   const boardGrid = make("div", { cls: "chess-board" });
   boardGrid.setAttribute("role", "grid");
+  boardGrid.id = "board-grid";
 
   const game = entry.state;
-  const isMyTurn = game.sideToMove === entry.myColor && game.result === null;
+  const myTurn = isMyTurn(game, entry.myColor);
+  const lm = lastMove(game);
 
   // Determine rendering order: if I play Black, flip so my pieces are near me
   const squareIndices = buildSquareOrder(entry.myColor);
@@ -502,10 +525,11 @@ function renderBoard(): void {
     const piece = game.board[sqIdx];
     const pieceName = piece ? `${piece.color === "w" ? "white" : "black"} ${PIECE_NAMES[piece.type]}` : "empty";
     cell.setAttribute("aria-label", `${sname}, ${pieceName}`);
-    cell.setAttribute("tabindex", isMyTurn && piece?.color === entry.myColor ? "0" : "-1");
+    cell.setAttribute("tabindex", myTurn && piece?.color === entry.myColor ? "0" : "-1");
 
     if (sqIdx === ui.selectedSquare) cell.classList.add("selected");
     if (ui.legalTargets.includes(sqIdx)) cell.classList.add("legal-target");
+    if (lm && (sqIdx === lm.from || sqIdx === lm.to)) cell.classList.add("last-move");
 
     if (piece) {
       const glyph = make("span", {
@@ -843,6 +867,8 @@ function onInboundMessage(msg: AppMessage): void {
 
   void persistGame(entry);
 
+  const becameMyTurn = isMyTurn(entry.state, entry.myColor);
+
   // Update the live board if this game is being viewed
   if (ui.view === "board" && ui.activeBoardSession === sessionId) {
     ui.selectedSquare = null;
@@ -854,6 +880,10 @@ function onInboundMessage(msg: AppMessage): void {
     // Re-render lobby if visible to update badges
     if (ui.view === "lobby") renderLobby();
   }
+
+  // Alert (vibrate + board pulse) when the opponent's move handed us the turn.
+  // Runs after renderBoard so the freshly-rendered #board-grid is present.
+  if (becameMyTurn) notifyMyTurn(sessionId);
 }
 
 function onInboundSession(msg: AppMessage): void {
