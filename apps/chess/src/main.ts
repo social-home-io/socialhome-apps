@@ -307,7 +307,7 @@ function renderLobby(): void {
 
     const list = make("ul", { cls: "game-list" });
     for (const [sessionId, entry] of ui.games) {
-      const isMyTurn = entry.state.sideToMove === entry.myColor && entry.state.result === null;
+      const myTurn = isMyTurn(entry.state, entry.myColor);
       const isOver = entry.state.result !== null;
 
       const li = make("li", { cls: "game-item" });
@@ -325,7 +325,7 @@ function renderLobby(): void {
         const badge = make("span", { cls: "badge badge-over" });
         badge.textContent = resultLabel(entry.state.result!, entry.myColor);
         info.appendChild(badge);
-      } else if (isMyTurn) {
+      } else if (myTurn) {
         const badge = make("span", { cls: "badge badge-your-turn", text: "Your turn" });
         info.appendChild(badge);
       } else {
@@ -689,10 +689,10 @@ function buildStatusContent(entry: GameEntry): DocumentFragment {
   }
 
   const inCheck = isInCheck(game.board, game.sideToMove);
-  const isMyTurn = game.sideToMove === entry.myColor;
+  const myTurn = isMyTurn(game, entry.myColor);
   const colorLabel = game.sideToMove === "w" ? "White" : "Black";
 
-  if (isMyTurn) {
+  if (myTurn) {
     const p = make("p", { cls: "status-your-turn" });
     p.innerHTML = `<strong>Your move</strong> <span class="status-color-chip">${colorLabel}</span>`;
     if (inCheck) {
