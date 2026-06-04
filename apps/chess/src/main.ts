@@ -963,6 +963,17 @@ async function main(): Promise<void> {
     ui.selfUserId = ctx.selfUserId;
     ui.contacts = contacts;
 
+    // Replay any invites that arrived while the app was closed (the host
+    // buffers them; see SDK federation.pendingSessions). onInboundSession
+    // dedupes by sessionId against the games we just loaded, so a game
+    // already in progress is not re-shown.
+    try {
+      const pending = await client.federation.pendingSessions();
+      for (const invite of pending) onInboundSession(invite);
+    } catch (err) {
+      console.warn("Chess: pending-invite replay failed", err);
+    }
+
     render();
   } catch (err) {
     console.error("Chess: init failed", err);
