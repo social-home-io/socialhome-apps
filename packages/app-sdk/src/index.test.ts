@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createClient, type SocialHomeClient, type Contact, type SessionTarget } from "./index.js";
+import { createClient, type SocialHomeClient, type Contact, type SessionTarget, type AppMessage } from "./index.js";
 
 /**
  * A fake host frame: captures messages posted by the SDK and lets the test
@@ -249,6 +249,53 @@ describe("contacts", () => {
     const h = makeHarness();
     active = h.client;
     const p = h.client.contacts();
+    h.fromHost({ id: h.posted[0].id, ok: true, result: null });
+    await expect(p).resolves.toEqual([]);
+  });
+});
+
+describe("pendingSessions", () => {
+  it("posts app.pendingSessions (no params) and maps snake_case rows to AppMessage", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const p = h.client.federation.pendingSessions();
+    expect(h.posted[0]).toMatchObject({ method: "app.pendingSessions" });
+    expect("params" in h.posted[0]).toBe(false);
+    h.fromHost({
+      id: h.posted[0].id,
+      ok: true,
+      result: [
+        { session_id: "s1", from_instance: "i1", from_user: "u1", payload: { verb: "open" } },
+      ],
+    });
+    const result = await p;
+    expect(result).toEqual<AppMessage[]>([
+      { sessionId: "s1", fromInstance: "i1", fromUser: "u1", payload: { verb: "open" } },
+    ]);
+  });
+
+  it("maps from_user: null to fromUser: undefined", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const p = h.client.federation.pendingSessions();
+    h.fromHost({
+      id: h.posted[0].id,
+      ok: true,
+      result: [{ session_id: "s2", from_instance: "i2", from_user: null, payload: { verb: "open" } }],
+    });
+    const result = await p;
+    expect(result[0].fromUser).toBeUndefined();
+    expect(result[0]).toEqual<AppMessage>({
+      sessionId: "s2",
+      fromInstance: "i2",
+      payload: { verb: "open" },
+    });
+  });
+
+  it("returns empty array when host replies with a non-array result", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const p = h.client.federation.pendingSessions();
     h.fromHost({ id: h.posted[0].id, ok: true, result: null });
     await expect(p).resolves.toEqual([]);
   });
