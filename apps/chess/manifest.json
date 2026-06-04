@@ -1,7 +1,7 @@
 {
   "app_id": "chess",
   "name": "Chess",
-  "version": "2026.6.3.2",
+  "version": "2026.6.4",
   "description": "Play a game of chess with another household over Social Home federation.",
   "entry": "index.html",
   "icon": "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%20role%3D%22img%22%20aria-label%3D%22Chess%20knight%20piece%22%3E%0A%20%20%3C!--%20Chessboard%20background%20squares%20%282%C3%972%20miniature%29%20--%3E%0A%20%20%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%228%22%20fill%3D%22%231a1a2e%22%2F%3E%0A%20%20%3Crect%20x%3D%222%22%20y%3D%222%22%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%223%22%20fill%3D%22%23f0d9b5%22%2F%3E%0A%20%20%3Crect%20x%3D%2232%22%20y%3D%222%22%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%223%22%20fill%3D%22%23b58863%22%2F%3E%0A%20%20%3Crect%20x%3D%222%22%20y%3D%2232%22%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%223%22%20fill%3D%22%23b58863%22%2F%3E%0A%20%20%3Crect%20x%3D%2232%22%20y%3D%2232%22%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%223%22%20fill%3D%22%23f0d9b5%22%2F%3E%0A%20%20%3C!--%20Knight%20silhouette%20centred%20on%20the%20board%20--%3E%0A%20%20%3Cpath%0A%20%20%20%20d%3D%22M22%2050%20h20%20v-3%20H38%20l-2-5%20c4-2%208-6%208-13%200-5-2-9-6-11%0A%20%20%20%20%20%20%20l1-4%20-4%201%20-1-4%20-5%204%20c-2%200-4%201-5%203%20l-5-1%203%206%0A%20%20%20%20%20%20%20c-2%202-3%205-3%208%200%207%204%2012%208%2014%20l-2%205%20H22%20z%22%0A%20%20%20%20fill%3D%22%23e94560%22%0A%20%20%20%20stroke%3D%22%23c0392b%22%0A%20%20%20%20stroke-width%3D%221%22%0A%20%20%2F%3E%0A%3C%2Fsvg%3E%0A",
