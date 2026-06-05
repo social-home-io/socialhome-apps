@@ -36,6 +36,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Lint (ESLint)
+        run: pnpm run lint
+
       # Build first: the SDK publishes its types from dist/index.d.ts
       # (package.json "types"), and every app imports @socialhome/app-sdk
       # as a workspace dep. Type-checking an app before the SDK is built

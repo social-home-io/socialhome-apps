@@ -12,12 +12,18 @@
     "build": "pnpm build:sdk && pnpm build:apps",
     "test": "vitest run",
     "typecheck": "tsc -b",
-    "catalog": "node scripts/build-catalog.mjs"
+    "catalog": "node scripts/build-catalog.mjs",
+    "lint": "eslint \"packages/**/*.ts\" \"apps/**/*.ts\""
   },
   "devDependencies": {
     "esbuild": "^0.28.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.16",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "@eslint/js": "^10.0.1",
+    "@typescript-eslint/eslint-plugin": "^8.60.1",
+    "@typescript-eslint/parser": "^8.60.1",
+    "eslint": "^10.4.1",
+    "globals": "^17.6.0"
   }
 }
