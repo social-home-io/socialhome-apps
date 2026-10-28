@@ -82,6 +82,46 @@ export interface AppMessage {
   payload: unknown;
 }
 
+/**
+ * Why the other side ended a session, carried as `reason` on a
+ * `{verb: "close"}` session event:
+ *
+ * - `"declined"` — the invitee said no (from Social Home's "Needs you").
+ *   Reaches the challenger's app.
+ * - `"withdrawn"` — the challenger took the invite back with
+ *   {@link SocialHomeClient.federation.cancelSession}. Reaches the invitee's app.
+ *
+ * Other values may appear in later Social Home versions: treat an unknown
+ * reason (or none) as a plain close.
+ */
+export type SessionCloseReason = "declined" | "withdrawn";
+
+/**
+ * The control fields of a `session` event's payload ({@link AppMessage.payload}
+ * delivered to {@link SocialHomeClient.onSession}), as read by
+ * {@link parseSessionPayload}.
+ */
+export interface SessionControl {
+  /** `"open"` (an invite), `"accept"` or `"close"`; `undefined` when absent. */
+  verb?: string;
+  /** Only on a `"close"`: see {@link SessionCloseReason}. */
+  reason?: string;
+}
+
+/**
+ * Read the `verb` / `reason` of a session event's payload without trusting
+ * its shape. Non-string fields read as `undefined`.
+ */
+export function parseSessionPayload(payload: unknown): SessionControl {
+  if (!isRecord(payload)) return {};
+  const verb = payload["verb"];
+  const reason = payload["reason"];
+  return {
+    verb: typeof verb === "string" ? verb : undefined,
+    reason: typeof reason === "string" ? reason : undefined,
+  };
+}
+
 /** Unsubscribe function returned by the `on*` subscription methods. */
 export type Unsubscribe = () => void;
 
@@ -247,6 +287,19 @@ export class SocialHomeClient {
       }).then(() => undefined),
 
     /**
+     * Withdraw an invite you sent (e.g. the person never answered and you
+     * cancel the game). The invitee's "Needs you" item goes away and their
+     * app receives a `session` event with payload
+     * `{verb: "close", reason: "withdrawn"}`.
+     * Needs a Social Home host that knows `app.cancelSession` (2026.10+);
+     * older hosts reject the call.
+     * @param sessionId  the id {@link federation.openSession} returned.
+     * @param target     the same person the session was opened with.
+     */
+    cancelSession: (sessionId: string, target: SessionTarget): Promise<void> =>
+      this._call("app.cancelSession", { sessionId, target }).then(() => undefined),
+
+    /**
      * Drain session invites the host buffered while this app was closed
      * (e.g. a friend challenged you before you opened the app). Returns each
      * invite once, as an {@link AppMessage} — feed them into the same handler
@@ -287,7 +340,10 @@ export class SocialHomeClient {
    * Subscribe to incoming session events (e.g. "a friend invited you to play").
    * Fires when a peer calls {@link federation.openSession} targeting this
    * household. The callback receives `{sessionId, fromInstance, payload}`
-   * (payload carries the session info, e.g. `{verb:'open'}`).
+   * (payload carries the session info, e.g. `{verb:'open'}`). The same
+   * subscription receives `{verb: "close", reason}` when the other side ends
+   * the session — read it with {@link parseSessionPayload}; see
+   * {@link SessionCloseReason}.
    * @returns an unsubscribe function.
    */
   onSession(cb: (msg: AppMessage) => void): Unsubscribe {
