@@ -333,6 +333,28 @@ html, body {
   max-width: calc(var(--board-size) + 3rem); /* aligns with board + labels */
 }
 
+/* ---- Our invite is still unanswered ---- */
+.invite-pending {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  width: 100%;
+  max-width: calc(var(--board-size) + 3rem);
+  padding: 0.5rem 0.75rem;
+  background: var(--accent-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.invite-pending-text {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text);
+  min-width: 0;
+}
+
 .board-header-opponent {
   display: flex;
   align-items: center;
@@ -773,8 +795,12 @@ html, body {
     width: calc(var(--board-size) + 2rem);
   }
 
-  .board-header {
+  .board-header,
+  .invite-pending {
     max-width: 100%;
+  }
+
+  .board-header {
     padding: 0 0.25rem;
   }
 

@@ -27,6 +27,14 @@ import {
   isMyTurn,
 } from "./chess.js";
 import type { GameState, Move, Color } from "./chess.js";
+import {
+  classifySessionEvent,
+  declinedMessage,
+  isAwaitingOpponent,
+  senderOf,
+  withdrawnMessage,
+} from "./lifecycle.js";
+import type { GameEntry } from "./lifecycle.js";
 
 // The SDK singleton is non-null in the browser / iframe and `null` outside it
 // (e.g. the Node test runner importing the pure helpers below). `client` is
@@ -36,18 +44,6 @@ const client = sh as NonNullable<typeof sh>;
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-interface GameEntry {
-  sessionId: string;
-  opponentInstanceId: string;
-  /** The opponent's `user_ref` (local user_id or remote username) — targets sends to the person. */
-  opponentRef: string;
-  /** Whether the opponent shares our household (local). */
-  opponentIsLocal: boolean;
-  opponentName: string;
-  myColor: Color;
-  state: GameState;
-}
 
 /**
  * Pure helper: split contacts into the player's own household (`is_local`)
@@ -325,6 +321,9 @@ function renderLobby(): void {
         const badge = make("span", { cls: "badge badge-over" });
         badge.textContent = resultLabel(entry.state.result!, entry.myColor);
         info.appendChild(badge);
+      } else if (isAwaitingOpponent(entry)) {
+        const badge = make("span", { cls: "badge badge-waiting", text: "Invite sent" });
+        info.appendChild(badge);
       } else if (myTurn) {
         const badge = make("span", { cls: "badge badge-your-turn", text: "Your turn" });
         info.appendChild(badge);
@@ -342,9 +341,17 @@ function renderLobby(): void {
       });
       actions.appendChild(resumeBtn);
 
-      const abandonBtn = make("button", { cls: "btn btn-ghost", text: "Abandon" });
-      abandonBtn.addEventListener("click", () => void onAbandonGame(sessionId));
-      actions.appendChild(abandonBtn);
+      if (isAwaitingOpponent(entry)) {
+        // Our invite hasn't been answered: take it back, so the invitee's
+        // "Needs you" item goes too (not just our local copy).
+        const cancelBtn = make("button", { cls: "btn btn-ghost", text: "Cancel invite" });
+        cancelBtn.addEventListener("click", () => void onCancelInvite(sessionId));
+        actions.appendChild(cancelBtn);
+      } else {
+        const abandonBtn = make("button", { cls: "btn btn-ghost", text: "Abandon" });
+        abandonBtn.addEventListener("click", () => void onAbandonGame(sessionId));
+        actions.appendChild(abandonBtn);
+      }
 
       li.appendChild(actions);
       list.appendChild(li);
@@ -472,6 +479,19 @@ function renderBoard(): void {
   header.appendChild(liveDot);
 
   root.appendChild(header);
+
+  // ---- Our invite not answered yet: say so, and let us take it back ----
+  // Sits right under the header so it stays in view on short iframes.
+  if (isAwaitingOpponent(entry)) {
+    const banner = make("div", { cls: "invite-pending" });
+    const note = make("p", { cls: "invite-pending-text" });
+    note.append("Waiting for ", make("strong", { text: entry.opponentName }), " to accept.");
+    banner.appendChild(note);
+    const cancelBtn = make("button", { cls: "btn btn-ghost", text: "Cancel invite" });
+    cancelBtn.addEventListener("click", () => void onCancelInvite(entry.sessionId));
+    banner.appendChild(cancelBtn);
+    root.appendChild(banner);
+  }
 
   // ---- Captured pieces (opponent's captures = your lost pieces) ----
   const { captured } = computeCaptured(entry.state);
@@ -836,14 +856,44 @@ async function onChallengeContact(contact: Contact): Promise<void> {
   }
 }
 
-async function onAbandonGame(sessionId: string): Promise<void> {
+/** Drop a game locally (memory + store) and return to the lobby if it was shown. */
+async function removeGame(sessionId: string): Promise<void> {
   ui.games.delete(sessionId);
   if (ui.activeBoardSession === sessionId) {
     ui.activeBoardSession = null;
+    ui.selectedSquare = null;
+    ui.legalTargets = [];
     ui.view = "lobby";
   }
+  // An invite toast for this game would now open nothing.
+  document
+    .querySelectorAll(`.toast-invite[data-session-id="${CSS.escape(sessionId)}"]`)
+    .forEach((t) => t.remove());
   await deleteGame(sessionId);
-  renderLobby();
+  render();
+}
+
+async function onAbandonGame(sessionId: string): Promise<void> {
+  await removeGame(sessionId);
+}
+
+/**
+ * The challenger takes back an invite nobody answered: tell Social Home
+ * (`federation.cancelSession`) so the invitee's "Needs you" item clears and
+ * their app drops the game, then drop it here. Local removal happens even if
+ * the call fails (e.g. an older host) — the invite then just expires there.
+ */
+async function onCancelInvite(sessionId: string): Promise<void> {
+  const entry = ui.games.get(sessionId);
+  if (!entry) return;
+  try {
+    await client.federation.cancelSession(sessionId, targetForEntry(entry));
+    showToast(`Invite to ${entry.opponentName} cancelled.`);
+  } catch (err) {
+    console.warn("Chess: cancelSession failed", err);
+    showToast(`Couldn't reach ${entry.opponentName} — the invite may still show for them.`);
+  }
+  await removeGame(sessionId);
 }
 
 // ---------------------------------------------------------------------------
@@ -887,10 +937,29 @@ function onInboundMessage(msg: AppMessage): void {
 }
 
 function onInboundSession(msg: AppMessage): void {
+  const action = classifySessionEvent(msg, ui.games);
+  switch (action.kind) {
+    case "declined":
+      showToast(declinedMessage(action.entry.opponentName));
+      void removeGame(action.entry.sessionId);
+      return;
+    case "withdrawn":
+      showToast(withdrawnMessage(action.entry.opponentName));
+      void removeGame(action.entry.sessionId);
+      return;
+    case "ignore":
+      return;
+    case "invite":
+      onInvite(msg);
+      return;
+  }
+}
+
+function onInvite(msg: AppMessage): void {
   // A friend opened a new game session targeting this person.
   const sessionId = msg.sessionId;
   const fromInstance = msg.fromInstance;
-  const fromUser = msg.fromUser;
+  const fromUser = senderOf(msg);
 
   if (ui.games.has(sessionId)) {
     // Structured dedupe instrumentation — never log payload/game content.
@@ -960,6 +1029,7 @@ function showInviteToast(opponentName: string, sessionId: string): void {
   toastEl.appendChild(dismissBtn);
 
   toastEl.dataset["toastId"] = String(id);
+  toastEl.dataset["sessionId"] = sessionId;
   container.appendChild(toastEl);
 
   // Auto-dismiss after 10 s (longer for invites)
