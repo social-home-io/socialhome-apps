@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createClient, type SocialHomeClient, type Contact, type SessionTarget, type AppMessage } from "./index.js";
+import { createClient, parseSessionPayload, type SocialHomeClient, type Contact, type SessionTarget, type AppMessage } from "./index.js";
 
 /**
  * A fake host frame: captures messages posted by the SDK and lets the test
@@ -298,5 +298,70 @@ describe("pendingSessions", () => {
     const p = h.client.federation.pendingSessions();
     h.fromHost({ id: h.posted[0].id, ok: true, result: null });
     await expect(p).resolves.toEqual([]);
+  });
+});
+
+describe("cancelSession", () => {
+  const target: SessionTarget = { instance_id: "inst-b", user_ref: "bob", is_local: false };
+
+  it("posts app.cancelSession with {sessionId, target} and resolves to undefined", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const p = h.client.federation.cancelSession("s1", target);
+    expect(h.posted[0]).toMatchObject({
+      method: "app.cancelSession",
+      params: { sessionId: "s1", target },
+    });
+    h.fromHost({ id: h.posted[0].id, ok: true, result: { ok: true } });
+    await expect(p).resolves.toBeUndefined();
+  });
+
+  it("rejects when the host refuses (e.g. an older host without the method)", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const p = h.client.federation.cancelSession("s1", target);
+    h.fromHost({ id: h.posted[0].id, ok: false, error: "Unknown method: app.cancelSession" });
+    await expect(p).rejects.toThrow("Unknown method");
+  });
+});
+
+describe("session close events", () => {
+  it("a {verb:'close', reason} session event reaches onSession subscribers", () => {
+    const h = makeHarness();
+    active = h.client;
+    const seen: AppMessage[] = [];
+    h.client.onSession((m) => seen.push(m));
+    h.fromHost({
+      type: "app:event",
+      kind: "session",
+      sessionId: "s1",
+      fromInstance: "inst-a",
+      fromUser: "alice",
+      payload: { verb: "close", reason: "declined" },
+    });
+    expect(seen).toHaveLength(1);
+    expect(parseSessionPayload(seen[0].payload)).toEqual({ verb: "close", reason: "declined" });
+  });
+});
+
+describe("parseSessionPayload", () => {
+  it("reads verb and reason", () => {
+    expect(parseSessionPayload({ verb: "close", reason: "withdrawn", app_id: "chess" })).toEqual({
+      verb: "close",
+      reason: "withdrawn",
+    });
+  });
+
+  it("an open has no reason", () => {
+    expect(parseSessionPayload({ verb: "open" })).toEqual({ verb: "open", reason: undefined });
+  });
+
+  it("tolerates non-objects and non-string fields", () => {
+    expect(parseSessionPayload(null)).toEqual({});
+    expect(parseSessionPayload("close")).toEqual({});
+    expect(parseSessionPayload({ verb: 1, reason: { x: 1 } })).toEqual({
+      verb: undefined,
+      reason: undefined,
+    });
   });
 });

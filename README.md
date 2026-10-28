@@ -76,7 +76,7 @@ RELEASE_TAG=1.0.0 pnpm catalog
 ## SDK quickstart
 
 ```ts
-import { sh } from '@socialhome/app-sdk';
+import { sh, parseSessionPayload } from '@socialhome/app-sdk';
 
 // App identity
 const { appId, selfUserId } = await sh.context();
@@ -85,14 +85,16 @@ const { appId, selfUserId } = await sh.context();
 await sh.store.set('board', JSON.stringify(gameState));
 const raw = await sh.store.get('board');
 
-// List paired households
-const peers = await sh.peers();
+// People you can play with (household members + paired friends)
+const contacts = await sh.contacts();
+const { instance_id, user_ref, is_local } = contacts[0];
+const target = { instance_id, user_ref, is_local };
 
-// Start a game with a friend's household (they receive an invite — see onSession)
-const sessionId = await sh.federation.openSession(peers[0].instance_id);
+// Challenge that person (they receive an invite — see onSession)
+const sessionId = await sh.federation.openSession(target);
 
-// Send a move to that peer within the session
-await sh.federation.send(sessionId, peers[0].instance_id, { move: 'e2e4' });
+// Send a move to them within the session
+await sh.federation.send(sessionId, target, { move: 'e2e4' });
 
 // Receive in-session messages (e.g. the opponent's move). The callback gets
 // { sessionId, fromInstance, payload } so you can route to the right game and
@@ -105,6 +107,19 @@ const offMsg = sh.onMessage(({ sessionId, fromInstance, payload }) => {
 const offInvite = sh.onSession(({ sessionId, fromInstance }) => {
   console.log(`invite to ${sessionId} from ${fromInstance}`);
 });
+
+// The other side ended a session: payload {verb: "close", reason}.
+// "declined" reaches the challenger (the invitee said no in Social Home's
+// "Needs you"); "withdrawn" reaches the invitee (see cancelSession below).
+// Treat a missing or unknown reason as a plain close.
+sh.onSession(({ sessionId, payload }) => {
+  const { verb, reason } = parseSessionPayload(payload);
+  if (verb === 'close' && reason === 'declined') { /* end the pending game */ }
+});
+
+// Take back an invite nobody answered: the invitee's "Needs you" item clears
+// and their app gets {verb: "close", reason: "withdrawn"}.
+await sh.federation.cancelSession(sessionId, target);
 
 // Stop listening
 offMsg();
