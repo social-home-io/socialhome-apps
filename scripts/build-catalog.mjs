@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // build-catalog.mjs — builds dist-tars/<app_id>-<version>.tgz for every app
-// under apps/<app>/dist and emits catalog.json at the repo root.
+// under apps/<app>/dist and emits catalog.json (schema 2) at the repo root.
+// Validation + entry shape live in catalog-lib.mjs (unit-tested).
 //
 // Environment:
 //   RELEASE_TAG   (required) — the GitHub release tag, e.g. "1.0.0"
@@ -12,8 +13,16 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+
+import {
+  CatalogError,
+  buildEntry,
+  serializeCatalog,
+  validateChangelog,
+  validateManifest,
+} from "./catalog-lib.mjs";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -38,17 +47,6 @@ const APPS_DIR = join(REPO_ROOT, "apps");
 const DIST_TARS_DIR = join(REPO_ROOT, "dist-tars");
 const CATALOG_PATH = join(REPO_ROOT, "catalog.json");
 
-// Required fields in every app's manifest.json.
-const REQUIRED_MANIFEST_FIELDS = [
-  "app_id",
-  "name",
-  "version",
-  "description",
-  "entry",
-  "icon",
-  "capabilities",
-];
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -56,29 +54,13 @@ const REQUIRED_MANIFEST_FIELDS = [
 /**
  * Read and parse a JSON file; return the parsed object.
  * @param {string} filePath
- * @returns {Record<string, unknown>}
+ * @returns {unknown}
  */
 function readJson(filePath) {
   try {
     return JSON.parse(readFileSync(filePath, "utf8"));
   } catch (err) {
     console.error(`ERROR: Cannot read/parse ${filePath}: ${err.message}`);
-    process.exit(1);
-  }
-}
-
-/**
- * Validate that a manifest has all required fields.
- * Exits with an error message on failure.
- * @param {Record<string, unknown>} manifest
- * @param {string} manifestPath
- */
-function validateManifest(manifest, manifestPath) {
-  const missing = REQUIRED_MANIFEST_FIELDS.filter((f) => !(f in manifest));
-  if (missing.length > 0) {
-    console.error(
-      `ERROR: ${manifestPath} is missing required field(s): ${missing.join(", ")}`
-    );
     process.exit(1);
   }
 }
@@ -143,10 +125,25 @@ const catalogEntries = [];
 
 for (const appDir of appDirs) {
   const manifestPath = join(appDir, "manifest.json");
+  const changelogPath = join(appDir, "CHANGELOG.json");
   const manifest = readJson(manifestPath);
-  validateManifest(manifest, manifestPath);
+  const changelog = existsSync(changelogPath) ? readJson(changelogPath) : null;
+  try {
+    validateManifest(manifest, manifestPath);
+    if (changelog !== null) validateChangelog(changelog, manifest.version, changelogPath);
+  } catch (err) {
+    if (!(err instanceof CatalogError)) throw err;
+    console.error(`ERROR: ${err.message}`);
+    process.exit(1);
+  }
+  if (changelog === null || changelog[0]?.version !== manifest.version) {
+    console.warn(
+      `WARNING: [${manifest.app_id}] CHANGELOG.json has no entry for ${manifest.version}; ` +
+        `"What's new" will not mention this version.`
+    );
+  }
 
-  const { app_id, name, version, description, capabilities } = manifest;
+  const { app_id, version } = manifest;
   const distDir = join(appDir, "dist");
 
   // Verify the dist directory exists (i.e. the app was built).
@@ -169,41 +166,38 @@ for (const appDir of appDirs) {
     stdio: ["ignore", "inherit", "inherit"],
   });
 
-  // SHA-256 of the tarball bytes.
   const bundle_sha256 = sha256File(tarPath);
-
-  // Construct the download URL.
+  const bundle_size = statSync(tarPath).size;
   const bundle_url = `${REPO_BASE}/releases/download/${RELEASE_TAG}/${tarName}`;
 
-  // The manifest icon is a self-contained data: URI, so it doubles as the
-  // catalog icon_url that Social Home's "Browse Apps" cards render directly
-  // (no external icon CDN, works under any img-src that allows data:).
-  const icon_url =
-    typeof manifest.icon === "string" && manifest.icon.startsWith("data:")
-      ? manifest.icon
-      : null;
-
-  catalogEntries.push({
-    app_id,
-    name,
-    latest_version: version,
-    description,
-    icon_url,
-    capabilities: capabilities ?? [],
-    bundle_url,
-    bundle_sha256,
-  });
+  catalogEntries.push(
+    buildEntry({
+      manifest,
+      changelog,
+      bundleUrl: bundle_url,
+      bundleSha256: bundle_sha256,
+      bundleSize: bundle_size,
+    })
+  );
 
   console.log(`  [${app_id}] sha256: ${bundle_sha256}`);
+  console.log(`  [${app_id}] size:   ${bundle_size} bytes`);
   console.log(`  [${app_id}] url:    ${bundle_url}`);
   console.log();
 }
 
-// Write catalog.json.
-const catalog = { apps: catalogEntries };
-writeFileSync(CATALOG_PATH, JSON.stringify(catalog, null, 2) + "\n", "utf8");
+// Write catalog.json (schema 2; size-checked against the receiver bound).
+let catalogText;
+try {
+  catalogText = serializeCatalog(catalogEntries);
+} catch (err) {
+  if (!(err instanceof CatalogError)) throw err;
+  console.error(`ERROR: ${err.message}`);
+  process.exit(1);
+}
+writeFileSync(CATALOG_PATH, catalogText, "utf8");
 
-console.log(`catalog.json written to: ${CATALOG_PATH}`);
+console.log(`catalog.json written to: ${CATALOG_PATH} (${Buffer.byteLength(catalogText)} bytes)`);
 console.log(`Tarballs written to:     ${DIST_TARS_DIR}/`);
 console.log();
 console.log("Done.");
