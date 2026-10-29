@@ -17,9 +17,7 @@ import sh from "@socialhome/app-sdk";
 import type { AppMessage, Contact, SessionTarget } from "@socialhome/app-sdk";
 import {
   initialState,
-  legalMoves,
   applyMove,
-  squareName,
   isInCheck,
   rowOf,
   colOf,
@@ -28,13 +26,31 @@ import {
 } from "./chess.js";
 import type { GameState, Move, Color } from "./chess.js";
 import {
+  abandonButtonLabel,
+  abandonConfirmCopy,
   classifySessionEvent,
   declinedMessage,
   isAwaitingOpponent,
   senderOf,
   withdrawnMessage,
 } from "./lifecycle.js";
-import type { GameEntry } from "./lifecycle.js";
+import type { ConfirmCopy, GameEntry } from "./lifecycle.js";
+import {
+  activateSquare,
+  BOARD_HINT,
+  boardLabel,
+  buildSquareOrder,
+  initialCursor,
+  isNavKey,
+  moveAnnouncement,
+  moveCursor,
+  noneAnnouncement,
+  SELECTION_CLEARED,
+  selectionAnnouncement,
+  squareLabel,
+} from "./board-nav.js";
+import { createAnnouncer } from "./announcer.js";
+import type { Announcer } from "./announcer.js";
 
 // The SDK singleton is non-null in the browser / iframe and `null` outside it
 // (e.g. the Node test runner importing the pure helpers below). `client` is
@@ -93,6 +109,8 @@ interface UIState {
   selectedSquare: number | null;
   /** Legal target square indices for the selected piece. */
   legalTargets: number[];
+  /** The board's keyboard cursor: the one square in the tab order. */
+  cursor: number | null;
   /** Toast queue: each is {id, message} shown for ~4 s. */
   toasts: { id: number; message: string }[];
 }
@@ -105,6 +123,7 @@ const ui: UIState = {
   activeBoardSession: null,
   selectedSquare: null,
   legalTargets: [],
+  cursor: null,
   toasts: [],
 };
 
@@ -198,9 +217,32 @@ const PIECE_GLYPHS: Record<string, string> = {
 };
 const pieceColorClass = (key: string): string => (key[0] === "w" ? "piece--w" : "piece--b");
 
-const PIECE_NAMES: Record<string, string> = {
-  K: "king", Q: "queen", R: "rook", B: "bishop", N: "knight", P: "pawn",
-};
+// ---------------------------------------------------------------------------
+// Live region (screen-reader announcements)
+// ---------------------------------------------------------------------------
+
+/**
+ * One polite live region, created once outside #app-root so re-renders never
+ * replace it (a freshly inserted live region is often not read). Writes go
+ * through a debounced, de-duplicating announcer.
+ */
+let announcer: Announcer | null = null;
+
+function say(text: string): void {
+  if (!announcer) {
+    const region = make("div", {
+      cls: "sr-only",
+      attrs: { id: "chess-live", "aria-live": "polite", "aria-atomic": "true" },
+    });
+    document.body.appendChild(region);
+    announcer = createAnnouncer((t) => {
+      // Empty first so the same sentence later is still a DOM change.
+      region.textContent = "";
+      setTimeout(() => { region.textContent = t; }, 30);
+    });
+  }
+  announcer.announce(text);
+}
 
 // ---------------------------------------------------------------------------
 // Toast helpers
@@ -335,7 +377,11 @@ function renderLobby(): void {
       li.appendChild(info);
 
       const actions = make("div", { cls: "game-item-actions" });
-      const resumeBtn = make("button", { cls: "btn btn-primary", text: "Resume" });
+      const resumeBtn = make("button", {
+        cls: "btn btn-primary",
+        text: "Resume",
+        attrs: { "aria-label": `Resume game with ${entry.opponentName}`, "data-resume": sessionId },
+      });
       resumeBtn.addEventListener("click", () => {
         openBoardView(sessionId);
       });
@@ -348,7 +394,12 @@ function renderLobby(): void {
         cancelBtn.addEventListener("click", () => void onCancelInvite(sessionId));
         actions.appendChild(cancelBtn);
       } else {
-        const abandonBtn = make("button", { cls: "btn btn-ghost", text: "Abandon" });
+        const label = abandonButtonLabel(entry);
+        const abandonBtn = make("button", {
+          cls: "btn btn-ghost",
+          text: label,
+          attrs: { "aria-label": `${label} game with ${entry.opponentName}` },
+        });
         abandonBtn.addEventListener("click", () => void onAbandonGame(sessionId));
         actions.appendChild(abandonBtn);
       }
@@ -430,8 +481,42 @@ function openBoardView(sessionId: string): void {
   ui.activeBoardSession = sessionId;
   ui.selectedSquare = null;
   ui.legalTargets = [];
+  const entry = ui.games.get(sessionId);
+  ui.cursor = entry ? initialCursor(entry.state, entry.myColor) : null;
   ui.view = "board";
   renderBoard();
+  // Opening a game moves focus to the board's single tab stop, so a
+  // keyboard player can start moving at once.
+  focusCursor();
+}
+
+function backToLobby(): void {
+  const from = ui.activeBoardSession;
+  ui.view = "lobby";
+  ui.activeBoardSession = null;
+  ui.selectedSquare = null;
+  ui.legalTargets = [];
+  ui.cursor = null;
+  announcer?.clear();
+  renderLobby();
+  // Land on the game we came from, not on <body>.
+  const resume = from
+    ? document.querySelector<HTMLElement>(`[data-resume="${CSS.escape(from)}"]`)
+    : null;
+  (resume ?? firstControl())?.focus();
+}
+
+/** The first button in the current view, for focus after a removal. */
+function firstControl(): HTMLElement | null {
+  return document.querySelector<HTMLElement>("#app-root button");
+}
+
+/** Focus the cursor square (the board's one tab stop), if it is drawn. */
+function focusCursor(): void {
+  if (ui.cursor === null) return;
+  document
+    .querySelector<HTMLElement>(`#board-grid [data-sq="${ui.cursor}"]`)
+    ?.focus({ preventScroll: true });
 }
 
 function renderBoard(): void {
@@ -441,6 +526,11 @@ function renderBoard(): void {
     renderLobby();
     return;
   }
+
+  // Re-rendering replaces every square; if the player was on the board,
+  // put focus back on the cursor square afterwards so it is never lost.
+  const hadBoardFocus = document.activeElement?.closest("#board-grid") != null;
+  if (ui.cursor === null) ui.cursor = initialCursor(entry.state, entry.myColor);
 
   const root = el("app-root");
   clearChildren(root);
@@ -452,13 +542,7 @@ function renderBoard(): void {
   const backBtn = make("button", { cls: "btn btn-ghost btn-back" });
   backBtn.setAttribute("aria-label", "Back to lobby");
   backBtn.innerHTML = `<span aria-hidden="true">←</span> Lobby`;
-  backBtn.addEventListener("click", () => {
-    ui.view = "lobby";
-    ui.activeBoardSession = null;
-    ui.selectedSquare = null;
-    ui.legalTargets = [];
-    renderLobby();
-  });
+  backBtn.addEventListener("click", backToLobby);
   header.appendChild(backBtn);
 
   const opponentEl = make("div", { cls: "board-header-opponent" });
@@ -505,8 +589,6 @@ function renderBoard(): void {
 
   // ---- Board grid with rank/file labels ----
   const boardWrap = make("div", { cls: "board-wrap" });
-  boardWrap.setAttribute("role", "grid");
-  boardWrap.setAttribute("aria-label", "Chess board");
 
   const boardInner = make("div", { cls: "board-inner" });
 
@@ -522,16 +604,25 @@ function renderBoard(): void {
   // The 8×8 grid
   const boardGrid = make("div", { cls: "chess-board" });
   boardGrid.setAttribute("role", "grid");
+  boardGrid.setAttribute("aria-label", boardLabel(entry.myColor));
+  boardGrid.setAttribute("aria-describedby", "board-hint");
   boardGrid.id = "board-grid";
+  boardGrid.addEventListener("keydown", onBoardKeydown);
 
   const game = entry.state;
-  const myTurn = isMyTurn(game, entry.myColor);
   const lm = lastMove(game);
 
   // Determine rendering order: if I play Black, flip so my pieces are near me
   const squareIndices = buildSquareOrder(entry.myColor);
 
-  for (const sqIdx of squareIndices) {
+  // ARIA grid: 8 rows of 8 gridcells. The row wrappers are
+  // `display: contents`, so the CSS grid still lays out the 64 squares.
+  let row: HTMLElement | null = null;
+  for (const [i, sqIdx] of squareIndices.entries()) {
+    if (i % 8 === 0) {
+      row = make("div", { cls: "board-row", attrs: { role: "row" } });
+      boardGrid.appendChild(row);
+    }
     const r = rowOf(sqIdx);
     const c = colOf(sqIdx);
     const isLight = (r + c) % 2 === 0;
@@ -541,15 +632,18 @@ function renderBoard(): void {
     });
     cell.setAttribute("role", "gridcell");
 
-    const sname = squareName(sqIdx);
     const piece = game.board[sqIdx];
-    const pieceName = piece ? `${piece.color === "w" ? "white" : "black"} ${PIECE_NAMES[piece.type]}` : "empty";
-    cell.setAttribute("aria-label", `${sname}, ${pieceName}`);
-    cell.setAttribute("tabindex", myTurn && piece?.color === entry.myColor ? "0" : "-1");
+    const selected = sqIdx === ui.selectedSquare;
+    const legalTarget = ui.legalTargets.includes(sqIdx);
+    const isLast = lm !== null && (sqIdx === lm.from || sqIdx === lm.to);
+    cell.setAttribute("aria-label", squareLabel(game, sqIdx, { selected, legalTarget, lastMove: isLast }));
+    cell.setAttribute("aria-selected", selected ? "true" : "false");
+    // Roving tabindex: exactly one square (the cursor) is in the tab order.
+    cell.setAttribute("tabindex", sqIdx === ui.cursor ? "0" : "-1");
 
-    if (sqIdx === ui.selectedSquare) cell.classList.add("selected");
-    if (ui.legalTargets.includes(sqIdx)) cell.classList.add("legal-target");
-    if (lm && (sqIdx === lm.from || sqIdx === lm.to)) cell.classList.add("last-move");
+    if (selected) cell.classList.add("selected");
+    if (legalTarget) cell.classList.add("legal-target");
+    if (isLast) cell.classList.add("last-move");
 
     if (piece) {
       const glyph = make("span", {
@@ -562,14 +656,8 @@ function renderBoard(): void {
 
     cell.dataset["sq"] = String(sqIdx);
     cell.addEventListener("click", onSquareClick);
-    cell.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter" || ev.key === " ") {
-        ev.preventDefault();
-        onSquareClick(ev);
-      }
-    });
 
-    boardGrid.appendChild(cell);
+    row!.appendChild(cell);
   }
   boardAndRanks.appendChild(boardGrid);
 
@@ -584,6 +672,7 @@ function renderBoard(): void {
   boardInner.appendChild(buildFileLabels(entry.myColor));
   boardWrap.appendChild(boardInner);
   root.appendChild(boardWrap);
+  root.appendChild(make("p", { cls: "sr-only", text: BOARD_HINT, attrs: { id: "board-hint" } }));
 
   // ---- Captured pieces (mine = bottom row) ----
   const capturedBottom = make("div", { cls: "captured-row captured-bottom" });
@@ -592,32 +681,17 @@ function renderBoard(): void {
   root.appendChild(capturedBottom);
 
   // ---- Status / turn indicator ----
-  const statusEl = make("div", {
-    cls: "game-status",
-    attrs: { "aria-live": "polite", "aria-atomic": "true" },
-  });
+  // Not a live region: moves, check and "your turn" are spoken once through
+  // the shared announcer (#chess-live) instead of on every re-render.
+  const statusEl = make("div", { cls: "game-status" });
   statusEl.appendChild(buildStatusContent(entry));
   root.appendChild(statusEl);
-}
 
-function buildSquareOrder(myColor: Color): number[] {
-  // White: row 0..7, col 0..7 → standard orientation (a8 top-left, h1 bottom-right)
-  // Black: row 7..0, col 7..0 → flipped so Black's pieces are near the player
-  const indices: number[] = [];
-  if (myColor === "w") {
-    for (let i = 0; i < 64; i++) indices.push(i);
-  } else {
-    for (let r = 7; r >= 0; r--) {
-      for (let c = 7; c >= 0; c--) {
-        indices.push(r * 8 + c);
-      }
-    }
-  }
-  return indices;
+  if (hadBoardFocus) focusCursor();
 }
 
 function buildFileLabels(myColor: Color): HTMLElement {
-  const row = make("div", { cls: "file-labels" });
+  const row = make("div", { cls: "file-labels", attrs: { "aria-hidden": "true" } });
   const files = myColor === "w" ? "abcdefgh" : "hgfedcba";
   // Left offset cell to align with rank labels
   row.appendChild(make("span", { cls: "label-corner" }));
@@ -630,7 +704,7 @@ function buildFileLabels(myColor: Color): HTMLElement {
 }
 
 function buildRankLabels(myColor: Color): HTMLElement {
-  const col = make("div", { cls: "rank-labels" });
+  const col = make("div", { cls: "rank-labels", attrs: { "aria-hidden": "true" } });
   const ranks = myColor === "w" ? [8, 7, 6, 5, 4, 3, 2, 1] : [1, 2, 3, 4, 5, 6, 7, 8];
   for (const r of ranks) {
     col.appendChild(make("span", { cls: "rank-label", text: String(r) }));
@@ -750,53 +824,85 @@ function render(): void {
 
 function onSquareClick(ev: Event): void {
   const cell = ev.currentTarget as HTMLElement;
-  const sqIdx = Number(cell.dataset["sq"]);
+  activate(Number(cell.dataset["sq"]));
+}
 
+/**
+ * Board keys (on the grid, so they work from whichever square has focus):
+ * arrows / Home / End / PageUp / PageDown move the cursor, Enter / Space
+ * activate it, Escape puts a picked-up piece back.
+ */
+function onBoardKeydown(ev: KeyboardEvent): void {
+  const entry = ui.activeBoardSession ? ui.games.get(ui.activeBoardSession) : null;
+  if (!entry || ui.cursor === null) return;
+
+  if (isNavKey(ev.key)) {
+    ev.preventDefault();
+    const next = moveCursor(ui.cursor, ev.key, entry.myColor, ev.ctrlKey || ev.metaKey);
+    if (next === ui.cursor) return;
+    // Move the single tab stop in place — no re-render needed.
+    const grid = document.getElementById("board-grid");
+    grid?.querySelector(`[data-sq="${ui.cursor}"]`)?.setAttribute("tabindex", "-1");
+    ui.cursor = next;
+    const cell = grid?.querySelector<HTMLElement>(`[data-sq="${next}"]`);
+    cell?.setAttribute("tabindex", "0");
+    cell?.focus();
+    return;
+  }
+  if (ev.key === "Enter" || ev.key === " ") {
+    ev.preventDefault();
+    activate(ui.cursor);
+    return;
+  }
+  if (ev.key === "Escape" && ui.selectedSquare !== null) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    ui.selectedSquare = null;
+    ui.legalTargets = [];
+    say(SELECTION_CLEARED);
+    renderBoard();
+  }
+}
+
+/** Click or Enter/Space on a square: one decision, see `activateSquare`. */
+function activate(sqIdx: number): void {
   const entry = ui.activeBoardSession ? ui.games.get(ui.activeBoardSession) : null;
   if (!entry) return;
+  ui.cursor = sqIdx;
 
-  const game = entry.state;
-  if (game.result !== null) return;
-  if (game.sideToMove !== entry.myColor) return; // not our turn
-
-  const piece = game.board[sqIdx];
-
-  if (ui.selectedSquare === null) {
-    if (piece && piece.color === entry.myColor) {
-      ui.selectedSquare = sqIdx;
-      ui.legalTargets = legalMoves(game, sqIdx).map((m) => m.to);
-    }
-  } else {
-    if (ui.legalTargets.includes(sqIdx)) {
-      const move: Move = { from: ui.selectedSquare, to: sqIdx };
-      // Auto-promote to queen
-      const movingPiece = game.board[ui.selectedSquare];
-      if (movingPiece?.type === "P") {
-        const promotionRow = movingPiece.color === "w" ? 0 : 7;
-        if (rowOf(sqIdx) === promotionRow) {
-          move.promotion = "Q";
-        }
-      }
-      void onMove(entry, move);
-    } else if (piece && piece.color === entry.myColor) {
-      // Re-select another piece
-      ui.selectedSquare = sqIdx;
-      ui.legalTargets = legalMoves(game, sqIdx).map((m) => m.to);
-    } else {
+  const action = activateSquare(entry.state, entry.myColor, ui.selectedSquare, ui.legalTargets, sqIdx);
+  switch (action.kind) {
+    case "select":
+      ui.selectedSquare = action.square;
+      ui.legalTargets = action.targets;
+      say(selectionAnnouncement(entry.state, action.square, action.targets));
+      break;
+    case "clear":
       ui.selectedSquare = null;
       ui.legalTargets = [];
-    }
+      say(SELECTION_CLEARED);
+      break;
+    case "move":
+      void onMove(entry, action.move);
+      break;
+    case "none":
+      say(noneAnnouncement(action.reason, entry.opponentName));
+      break;
   }
-
   renderBoard();
 }
 
 async function onMove(entry: GameEntry, move: Move): Promise<void> {
   try {
-    const next = applyMove(entry.state, move);
+    const before = entry.state;
+    const next = applyMove(before, move);
     entry.state = next;
     ui.selectedSquare = null;
     ui.legalTargets = [];
+    ui.cursor = move.to;
+    say(moveAnnouncement({
+      before, after: next, move, myColor: entry.myColor, opponentName: entry.opponentName,
+    }));
 
     await persistGame(entry);
     await client.federation.send(entry.sessionId, targetForEntry(entry), {
@@ -863,6 +969,7 @@ async function removeGame(sessionId: string): Promise<void> {
     ui.activeBoardSession = null;
     ui.selectedSquare = null;
     ui.legalTargets = [];
+    ui.cursor = null;
     ui.view = "lobby";
   }
   // An invite toast for this game would now open nothing.
@@ -874,7 +981,49 @@ async function removeGame(sessionId: string): Promise<void> {
 }
 
 async function onAbandonGame(sessionId: string): Promise<void> {
+  const entry = ui.games.get(sessionId);
+  if (!entry) return;
+  if (!(await confirmDialog(abandonConfirmCopy(entry)))) return;
   await removeGame(sessionId);
+  firstControl()?.focus();
+}
+
+/**
+ * In-app confirm (the sandboxed iframe can't use window.confirm). A native
+ * modal <dialog>: focus is trapped inside, Escape and a backdrop click
+ * cancel, and focus starts on the safe choice (cancel). Resolves true only
+ * on the confirm button.
+ */
+function confirmDialog(copy: ConfirmCopy): Promise<boolean> {
+  return new Promise((resolve) => {
+    const returnFocus = document.activeElement as HTMLElement | null;
+    const dlg = make("dialog", {
+      cls: "confirm-dialog",
+      attrs: { "aria-labelledby": "confirm-title", "aria-describedby": "confirm-body" },
+    });
+    dlg.appendChild(make("h2", { cls: "confirm-title", text: copy.title, attrs: { id: "confirm-title" } }));
+    dlg.appendChild(make("p", { cls: "confirm-body", text: copy.body, attrs: { id: "confirm-body" } }));
+    const actions = make("div", { cls: "confirm-actions" });
+    const cancelBtn = make("button", { cls: "btn btn-ghost", text: copy.cancel, attrs: { type: "button" } });
+    const okBtn = make("button", { cls: "btn btn-danger", text: copy.confirm, attrs: { type: "button" } });
+    actions.append(cancelBtn, okBtn);
+    dlg.appendChild(actions);
+
+    let confirmed = false;
+    cancelBtn.addEventListener("click", () => dlg.close());
+    okBtn.addEventListener("click", () => { confirmed = true; dlg.close(); });
+    // A click on the backdrop lands on the <dialog> itself.
+    dlg.addEventListener("click", (ev) => { if (ev.target === dlg) dlg.close(); });
+    dlg.addEventListener("close", () => {
+      dlg.remove();
+      if (!confirmed && returnFocus?.isConnected) returnFocus.focus();
+      resolve(confirmed);
+    });
+
+    document.body.appendChild(dlg);
+    dlg.showModal();
+    cancelBtn.focus();
+  });
 }
 
 /**
@@ -906,6 +1055,7 @@ function onInboundMessage(msg: AppMessage): void {
   const entry = ui.games.get(sessionId);
   if (!entry) return; // unknown session
 
+  const before = entry.state;
   try {
     const verified = applyMove(entry.state, msg.payload.move);
     entry.state = verified;
@@ -923,6 +1073,15 @@ function onInboundMessage(msg: AppMessage): void {
   if (ui.view === "board" && ui.activeBoardSession === sessionId) {
     ui.selectedSquare = null;
     ui.legalTargets = [];
+    // Speak the move once — only when the game actually advanced (a repeat
+    // delivery of the same move changes nothing and says nothing).
+    const played = lastMove(entry.state);
+    if (played && entry.state.history.length > before.history.length) {
+      say(moveAnnouncement({
+        before, after: entry.state, move: played,
+        myColor: entry.myColor, opponentName: entry.opponentName,
+      }));
+    }
     renderBoard();
   } else {
     // Flash a toast so the player notices a move arrived in a background game

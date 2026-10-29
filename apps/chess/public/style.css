@@ -30,6 +30,12 @@
   --sq-last-move:  rgba(255,210,60,0.38);
   --sq-check:      rgba(220,60,60,0.55);
 
+  /* Focus: a two-tone ring (dark band + light band) so it reads on light and
+     dark squares, on the dark app surface and on a light host behind it. */
+  --focus-outer:   #0b0d14;
+  --focus-inner:   #ffffff;
+  --focus-accent:  #8aaeff;
+
   /* Sizing */
   --board-max:     440px;
   --board-size:    min(92vw, var(--board-max));
@@ -286,10 +292,18 @@ html, body {
   min-height: 36px; /* a11y tap target */
 }
 
-.btn:focus-visible {
-  outline: 2px solid var(--accent);
+.btn:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--focus-accent);
   outline-offset: 2px;
+  box-shadow: 0 0 0 5px var(--focus-outer);
 }
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+.btn-danger:hover { background: #ec7480; }
 
 .btn-primary {
   background: var(--accent);
@@ -518,10 +532,29 @@ html, body {
   transition: filter 0.1s;
 }
 
+/* ARIA rows wrap 8 squares each but must not break the CSS grid. */
+.board-row { display: contents; }
+
+.square:focus { outline: none; }
 .square:focus-visible {
-  outline: 3px solid var(--accent);
+  outline: 3px solid var(--focus-outer);
   outline-offset: -3px;
+  box-shadow: inset 0 0 0 6px var(--focus-inner);
   z-index: 2;
+}
+
+/* Visually hidden, still read by screen readers. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 .square.light { background: var(--sq-light); }
@@ -759,7 +792,7 @@ html, body {
   pointer-events: all;
 }
 .btn-toast-accept:hover { background: var(--accent-hover); }
-.btn-toast-accept:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn-toast-accept:focus-visible { outline: 2px solid var(--focus-accent); outline-offset: 2px; }
 
 .btn-toast-dismiss {
   background: transparent;
@@ -776,6 +809,47 @@ html, body {
   pointer-events: all;
 }
 .btn-toast-dismiss:hover { color: var(--text); }
+
+/* ============================================================
+   CONFIRM DIALOG (in-app; the sandbox has no window.confirm)
+   ============================================================ */
+.confirm-dialog {
+  margin: auto;
+  width: min(92vw, 380px);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.1rem 1.15rem 1rem;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+}
+.confirm-dialog::backdrop {
+  background: rgba(5,6,10,0.7);
+}
+.confirm-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-bottom: 0.45rem;
+  overflow-wrap: anywhere;
+}
+.confirm-body {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+  overflow-wrap: anywhere;
+}
+.confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.confirm-actions .btn-ghost { color: var(--text); }
+/* Narrow frames: both choices full width, the safe one on top. */
+@media (max-width: 420px) {
+  .confirm-actions .btn { flex: 1 1 100%; }
+}
 
 /* ============================================================
    RESPONSIVE — 360px mobile

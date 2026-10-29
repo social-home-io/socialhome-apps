@@ -120,3 +120,39 @@ export function declinedMessage(name: string): string {
 export function withdrawnMessage(name: string): string {
   return `${name} took the invite back.`;
 }
+
+/** Copy for the in-app confirm shown before a game is abandoned or removed. */
+export interface ConfirmCopy {
+  title: string;
+  body: string;
+  confirm: string;
+  cancel: string;
+}
+
+/** Lobby button label: "Abandon" for a game in play, "Remove" for a finished one. */
+export function abandonButtonLabel(entry: GameEntry): string {
+  return entry.state.result === null ? "Abandon" : "Remove";
+}
+
+/**
+ * What the confirm says before a game leaves this player's list. States the
+ * real consequence: the game is gone here for good, and (today) the opponent
+ * is not told — their copy stays open.
+ */
+export function abandonConfirmCopy(entry: GameEntry): ConfirmCopy {
+  const name = entry.opponentName;
+  if (entry.state.result !== null) {
+    return {
+      title: `Remove your game with ${name}?`,
+      body: "The finished game is removed from your games. This can't be undone.",
+      confirm: "Remove game",
+      cancel: "Keep it",
+    };
+  }
+  return {
+    title: `Abandon your game with ${name}?`,
+    body: `The game is removed from your games and can't be resumed. ${name} isn't told, so their copy stays open.`,
+    confirm: "Abandon game",
+    cancel: "Keep playing",
+  };
+}
