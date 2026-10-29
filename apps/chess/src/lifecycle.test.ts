@@ -12,6 +12,9 @@ import {
   abandonConfirmCopy,
   classifySessionEvent,
   declinedMessage,
+  INVITE_GONE,
+  isOwnInvite,
+  launchAction,
   isAwaitingOpponent,
   senderOf,
   withdrawnMessage,
@@ -244,5 +247,65 @@ describe("abandon confirm", () => {
       confirm: "Remove game",
       cancel: "Keep it",
     });
+  });
+});
+
+function open(over: Partial<AppMessage> = {}): AppMessage {
+  return {
+    sessionId: "s9",
+    fromInstance: "inst-b",
+    fromUser: "bob",
+    payload: { verb: "open", session_id: "s9" },
+    ...over,
+  };
+}
+
+describe("classifySessionEvent — invites", () => {
+  it("an older host: a live open is an invite (seated, as before)", () => {
+    expect(classifySessionEvent(open(), games()).kind).toBe("invite");
+    expect(classifySessionEvent(open(), games(), { liveInvites: true }).kind).toBe("invite");
+  });
+
+  it("a host with launch contexts: a live open is ignored — it waits in Needs you until Play", () => {
+    expect(classifySessionEvent(open(), games(), { liveInvites: false }).kind).toBe("ignore");
+  });
+
+  it("our own invite echoed back is never an invite to us (the stray toast)", () => {
+    const echo = open({ fromInstance: "inst-a", fromUser: "u-me" });
+    expect(isOwnInvite(echo, "u-me")).toBe(true);
+    expect(classifySessionEvent(echo, games(), { selfUserId: "u-me" }).kind).toBe("ignore");
+    // Someone else's invite still is.
+    expect(classifySessionEvent(open(), games(), { selfUserId: "u-me" }).kind).toBe("invite");
+    // Before the context is known (no self id) nothing is mistaken for ours.
+    expect(isOwnInvite(echo, "")).toBe(false);
+  });
+
+  it("closes are still handled on a host with launch contexts", () => {
+    const e = entry();
+    expect(classifySessionEvent(close("declined"), games(e), { liveInvites: false }).kind).toBe("declined");
+  });
+});
+
+describe("launchAction — Play opens the game you were invited to", () => {
+  const invite = open({ sessionId: "s9" });
+
+  it("opened normally or by an older host: nothing to start", () => {
+    expect(launchAction(undefined, games())).toEqual({ kind: "none" });
+    expect(launchAction({}, games())).toEqual({ kind: "none" });
+  });
+
+  it("an invite accepted for this launch: start that game", () => {
+    expect(launchAction({ sessionId: "s9", invite }, games())).toEqual({ kind: "start", invite });
+  });
+
+  it("a game we already have: open it (no second seat)", () => {
+    const e = entry({ sessionId: "s9", myColor: "b" });
+    expect(launchAction({ sessionId: "s9", invite }, games(e))).toEqual({ kind: "open", sessionId: "s9" });
+    expect(launchAction({ sessionId: "s9" }, games(e))).toEqual({ kind: "open", sessionId: "s9" });
+  });
+
+  it("an invite that no longer waits, for a game we don't have: say so", () => {
+    expect(launchAction({ sessionId: "s9" }, games())).toEqual({ kind: "gone" });
+    expect(INVITE_GONE).toMatch(/isn't open/);
   });
 });

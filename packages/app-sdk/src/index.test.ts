@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createClient, parseSessionPayload, type SocialHomeClient, type Contact, type SessionTarget, type AppMessage } from "./index.js";
+import { createClient, parseLaunchContext, parseSessionPayload, type SocialHomeClient, type Contact, type SessionTarget, type AppMessage } from "./index.js";
 
 /**
  * A fake host frame: captures messages posted by the SDK and lets the test
@@ -100,6 +100,13 @@ describe("RPC calls", () => {
     expect("token" in (ctx as object)).toBe(false);
   });
 
+  it("context() from an older host has no launch (fall back to pendingSessions)", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const p = h.client.context();
+    h.fromHost({ id: h.posted[0].id, ok: true, result: { appId: "chess", selfUserId: "u1" } });
+    expect((await p).launch).toBeUndefined();
+  });
   it("ignores replies from a rogue source", async () => {
     const h = makeHarness();
     active = h.client;
@@ -363,5 +370,46 @@ describe("parseSessionPayload", () => {
       verb: undefined,
       reason: undefined,
     });
+  });
+});
+
+describe("launch context (Play opens the game you were invited to)", () => {
+  async function contextWith(launch: unknown) {
+    const h = makeHarness();
+    active = h.client;
+    const p = h.client.context();
+    h.fromHost({ id: h.posted[0].id, ok: true, result: { appId: "chess", selfUserId: "u1", launch } });
+    return p;
+  }
+
+  it("opened normally: an empty launch — a host that plays invites from Needs you", async () => {
+    expect(await contextWith({})).toEqual({ appId: "chess", selfUserId: "u1", launch: {} });
+  });
+
+  it("opened by Play: the session and the invite it accepted, typed", async () => {
+    const ctx = await contextWith({
+      sessionId: "s1",
+      invite: { sessionId: "s1", fromInstance: "peer", fromUser: "alice", payload: { verb: "open" } },
+    });
+    expect(ctx.launch).toEqual({
+      sessionId: "s1",
+      invite: { sessionId: "s1", fromInstance: "peer", fromUser: "alice", payload: { verb: "open" } },
+    });
+  });
+
+  it("opened by Play for an invite that no longer waits: the session only", async () => {
+    expect((await contextWith({ sessionId: "s1" })).launch).toEqual({ sessionId: "s1" });
+  });
+
+  it("never trusts the shape", () => {
+    expect(parseLaunchContext(undefined)).toBeUndefined();
+    expect(parseLaunchContext("x")).toBeUndefined();
+    expect(parseLaunchContext({ sessionId: 7 })).toEqual({});
+    // An invite for another session than the launch's is dropped.
+    expect(parseLaunchContext({ sessionId: "s1", invite: { sessionId: "s2" } })).toEqual({ sessionId: "s1" });
+    // An invite without a session is dropped.
+    expect(parseLaunchContext({ invite: { sessionId: "s1" } })).toEqual({});
+    const l = parseLaunchContext({ sessionId: "s1", invite: { sessionId: "s1", fromInstance: 3, fromUser: 4 } });
+    expect(l?.invite).toEqual({ sessionId: "s1", fromInstance: "3", fromUser: undefined, payload: undefined });
   });
 });

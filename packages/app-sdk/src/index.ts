@@ -41,10 +41,62 @@ interface PendingCall {
 // Public types
 // ---------------------------------------------------------------------------
 
+/**
+ * Why the app was opened — {@link AppContext.launch}.
+ *
+ * Social Home keeps every game invite in the person's "Needs you" until they
+ * tap **Play** there. Play opens the app with the invite's session: Social
+ * Home accepts that one invite and hands it over here. Opening the app any
+ * other way accepts nothing.
+ *
+ * - `{}` — opened normally (Apps page, a notification): no game to start.
+ * - `{ sessionId, invite }` — opened by Play: `invite` was accepted just now;
+ *   start that game (feed it to your `onSession` invite handler) and show it.
+ * - `{ sessionId }` — opened by Play, but the invite no longer waits (played
+ *   on another device, declined, withdrawn, expired): show that game if you
+ *   already have it, else say the invite is gone.
+ */
+export interface LaunchContext {
+  /** The game Play opened the app for. */
+  sessionId?: string;
+  /** The invite, when Social Home accepted it for this launch. */
+  invite?: AppMessage;
+}
+
 /** App context returned by {@link SocialHomeClient.context}. */
 export interface AppContext {
   appId: string;
   selfUserId: string;
+  /**
+   * Why the app was opened — see {@link LaunchContext}. **`undefined` on a
+   * Social Home from before launch contexts**: that host
+   * hands every waiting invite to {@link SocialHomeClient.federation.pendingSessions}
+   * and accepts them when the app opens, so keep that path for it. When
+   * `launch` is present (even `{}`), invites are played from Social Home:
+   * don't seat live `open` events as games — they still wait in "Needs you".
+   */
+  launch?: LaunchContext;
+}
+
+/** Read an invite as the host sends it in a launch context. */
+function toAppMessage(v: unknown): AppMessage | undefined {
+  if (!isRecord(v) || typeof v["sessionId"] !== "string" || !v["sessionId"]) return undefined;
+  return {
+    sessionId: v["sessionId"],
+    fromInstance: String(v["fromInstance"] ?? ""),
+    fromUser: typeof v["fromUser"] === "string" ? v["fromUser"] : undefined,
+    payload: v["payload"],
+  };
+}
+
+/** Read a launch context without trusting its shape (`undefined` = an older host). */
+export function parseLaunchContext(v: unknown): LaunchContext | undefined {
+  if (!isRecord(v)) return undefined;
+  const out: LaunchContext = {};
+  if (typeof v["sessionId"] === "string" && v["sessionId"]) out.sessionId = v["sessionId"];
+  const invite = toAppMessage(v["invite"]);
+  if (out.sessionId && invite && invite.sessionId === out.sessionId) out.invite = invite;
+  return out;
 }
 
 /** A paired household peer returned by {@link SocialHomeClient.peers}. */
@@ -244,9 +296,22 @@ export class SocialHomeClient {
       this._call("store.list").then((r) => (isRecord(r) ? r : {})),
   };
 
-  /** Identity context for the running app instance (no auth token). */
+  /**
+   * Identity context for the running app instance (no auth token), and why
+   * it was opened ({@link AppContext.launch}). Call it first, as soon as the
+   * app starts — Social Home shows the app once it asks.
+   */
   context(): Promise<AppContext> {
-    return this._call("app.context").then((r) => r as AppContext);
+    return this._call("app.context").then((r) => {
+      const o = isRecord(r) ? r : {};
+      const ctx: AppContext = {
+        appId: String(o["appId"] ?? ""),
+        selfUserId: String(o["selfUserId"] ?? ""),
+      };
+      const launch = parseLaunchContext(o["launch"]);
+      if (launch !== undefined) ctx.launch = launch;
+      return ctx;
+    });
   }
 
   /** List the confirmed peer households this app can play with. */
@@ -300,11 +365,14 @@ export class SocialHomeClient {
       this._call("app.cancelSession", { sessionId, target }).then(() => undefined),
 
     /**
-     * Drain session invites the host buffered while this app was closed
-     * (e.g. a friend challenged you before you opened the app). Returns each
-     * invite once, as an {@link AppMessage} — feed them into the same handler
-     * you pass to {@link SocialHomeClient.onSession} on startup. Safe to call
-     * every launch; the host clears them on read.
+     * For a Social Home **without** launch contexts ({@link AppContext.launch}
+     * `undefined`): drain session invites the host buffered while this app
+     * was closed. Returns each invite once, as an {@link AppMessage} — feed
+     * them into the same handler you pass to {@link SocialHomeClient.onSession}.
+     *
+     * On a Social Home with launch contexts it returns only the invite Play
+     * opened the app for (the same as `launch.invite`), else `[]` — the host
+     * never hands out every waiting invite. Prefer `launch`.
      */
     pendingSessions: (): Promise<AppMessage[]> =>
       this._call("app.pendingSessions").then((r) =>
@@ -339,7 +407,10 @@ export class SocialHomeClient {
   /**
    * Subscribe to incoming session events (e.g. "a friend invited you to play").
    * Fires when a peer calls {@link federation.openSession} targeting this
-   * household. The callback receives `{sessionId, fromInstance, payload}`
+   * person. With launch contexts ({@link AppContext.launch} present) a live
+   * `open` is news only — the invite waits in Social Home's "Needs you" and
+   * reaches you as `launch.invite` when the person taps Play. Your own
+   * invites are never echoed back to you. The callback receives `{sessionId, fromInstance, payload}`
    * (payload carries the session info, e.g. `{verb:'open'}`). The same
    * subscription receives `{verb: "close", reason}` when the other side ends
    * the session — read it with {@link parseSessionPayload}; see

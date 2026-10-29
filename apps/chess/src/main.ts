@@ -30,7 +30,9 @@ import {
   abandonConfirmCopy,
   classifySessionEvent,
   declinedMessage,
+  INVITE_GONE,
   isAwaitingOpponent,
+  launchAction,
   senderOf,
   withdrawnMessage,
 } from "./lifecycle.js";
@@ -113,6 +115,12 @@ interface UIState {
   cursor: number | null;
   /** Toast queue: each is {id, message} shown for ~4 s. */
   toasts: { id: number; message: string }[];
+  /**
+   * Seat live / drained invites as games — only on an older Social Home
+   * (no launch context). A newer one keeps invites in "Needs you" until
+   * Play, which opens chess with that game. `false` until the context says.
+   */
+  liveInvites: boolean;
 }
 
 const ui: UIState = {
@@ -125,6 +133,7 @@ const ui: UIState = {
   legalTargets: [],
   cursor: null,
   toasts: [],
+  liveInvites: false,
 };
 
 let _toastCounter = 0;
@@ -1096,7 +1105,10 @@ function onInboundMessage(msg: AppMessage): void {
 }
 
 function onInboundSession(msg: AppMessage): void {
-  const action = classifySessionEvent(msg, ui.games);
+  const action = classifySessionEvent(msg, ui.games, {
+    liveInvites: ui.liveInvites,
+    selfUserId: ui.selfUserId,
+  });
   switch (action.kind) {
     case "declined":
       showToast(declinedMessage(action.entry.opponentName));
@@ -1114,8 +1126,20 @@ function onInboundSession(msg: AppMessage): void {
   }
 }
 
+/** An older host: seat the invite and offer it with a toast. */
 function onInvite(msg: AppMessage): void {
-  // A friend opened a new game session targeting this person.
+  const entry = seatInvite(msg);
+  if (!entry) return;
+  // Show a non-blocking invite toast with Accept action
+  showInviteToast(entry.opponentName, entry.sessionId);
+  if (ui.view === "lobby") renderLobby();
+}
+
+/**
+ * A friend opened a new game session targeting this person: add it to our
+ * games (we play Black). `null` when we already have it.
+ */
+function seatInvite(msg: AppMessage): GameEntry | null {
   const sessionId = msg.sessionId;
   const fromInstance = msg.fromInstance;
   const fromUser = senderOf(msg);
@@ -1123,7 +1147,7 @@ function onInvite(msg: AppMessage): void {
   if (ui.games.has(sessionId)) {
     // Structured dedupe instrumentation — never log payload/game content.
     console.info("chess.onInboundSession", { session_id: sessionId, dedupe: "hit" });
-    return;
+    return null;
   }
   console.info("chess.onInboundSession", { session_id: sessionId, dedupe: "miss" });
 
@@ -1151,11 +1175,7 @@ function onInvite(msg: AppMessage): void {
   };
   ui.games.set(sessionId, entry);
   void persistGame(entry);
-
-  // Show a non-blocking invite toast with Accept action
-  showInviteToast(opponentName, sessionId);
-
-  if (ui.view === "lobby") renderLobby();
+  return entry;
 }
 
 function showInviteToast(opponentName: string, sessionId: string): void {
@@ -1222,18 +1242,40 @@ async function main(): Promise<void> {
     ui.selfUserId = ctx.selfUserId;
     ui.contacts = contacts;
 
-    // Replay any invites that arrived while the app was closed (the host
-    // buffers them; see SDK federation.pendingSessions). onInboundSession
-    // dedupes by sessionId against the games we just loaded, so a game
-    // already in progress is not re-shown.
-    try {
-      const pending = await client.federation.pendingSessions();
-      for (const invite of pending) onInboundSession(invite);
-    } catch (err) {
-      console.warn("Chess: pending-invite replay failed", err);
+    if (ctx.launch === undefined) {
+      // An older Social Home: it accepts every waiting invite when chess
+      // opens and hands them over here. Seat them (deduped by sessionId
+      // against the games we just loaded) and keep seating live ones.
+      ui.liveInvites = true;
+      try {
+        const pending = await client.federation.pendingSessions();
+        for (const invite of pending) onInboundSession(invite);
+      } catch (err) {
+        console.warn("Chess: pending-invite replay failed", err);
+      }
+      render();
+      return;
     }
 
+    // Invites wait in Social Home's "Needs you"; "Play" there opens chess
+    // with that one game (D12). Opened any other way, nothing is accepted.
     render();
+    const launch = launchAction(ctx.launch, ui.games);
+    switch (launch.kind) {
+      case "start": {
+        const entry = seatInvite(launch.invite);
+        if (entry) openBoardView(entry.sessionId);
+        break;
+      }
+      case "open":
+        openBoardView(launch.sessionId);
+        break;
+      case "gone":
+        showToast(INVITE_GONE);
+        break;
+      case "none":
+        break;
+    }
   } catch (err) {
     console.error("Chess: init failed", err);
     root.innerHTML = `<p class="error-msg">Failed to load — please refresh.</p>`;

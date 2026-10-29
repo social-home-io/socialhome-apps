@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.29.1",
+    "date": "2026-10-29",
+    "notes": {
+      "en": "Play in Notifications › Needs you opens the game you were invited to, right on the board. Opening Chess no longer accepts your waiting invites: they stay in Needs you until you play or decline them. You no longer see an invite from yourself after challenging someone.",
+      "de": "„Spielen“ in Mitteilungen › Wartet auf dich öffnet die Partie, zu der du eingeladen wurdest, direkt auf dem Brett. Wenn du Schach öffnest, nimmst du keine wartenden Einladungen mehr an: Sie bleiben in „Wartet auf dich“, bis du spielst oder ablehnst. Nachdem du jemanden herausgefordert hast, siehst du keine Einladung von dir selbst mehr.",
+      "nl": "Spelen in Meldingen › Wacht op jou opent de partij waarvoor je bent uitgenodigd, meteen op het bord. Als je Schaken opent, neem je je wachtende uitnodigingen niet meer aan: ze blijven in Wacht op jou tot je speelt of afwijst. Nadat je iemand hebt uitgedaagd, zie je geen uitnodiging meer van jezelf.",
+      "fr": "Jouer dans Notifications › Attend votre décision ouvre la partie à laquelle vous avez été invité, directement sur l’échiquier. Ouvrir Échecs n’accepte plus vos invitations en attente : elles restent dans Attend votre décision jusqu’à ce que vous jouiez ou refusiez. Vous ne voyez plus d’invitation de vous-même après avoir défié quelqu’un.",
+      "es": "Jugar en Notificaciones › Te necesita abre la partida a la que te invitaron, directamente en el tablero. Abrir Ajedrez ya no acepta tus invitaciones pendientes: se quedan en Te necesita hasta que juegues o las rechaces. Después de retar a alguien, ya no ves una invitación de ti mismo."
+    }
+  },
+  {
     "version": "2026.10.29",
     "date": "2026-10-29",
     "notes": {
