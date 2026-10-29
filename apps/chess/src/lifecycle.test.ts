@@ -4,7 +4,8 @@
  */
 
 import { describe, it, expect } from "vitest";
-import type { AppMessage } from "@socialhome/app-sdk";
+import { ShError } from "@socialhome/app-sdk";
+import type { AppMessage, PickedPerson } from "@socialhome/app-sdk";
 import { applyMove, initialState, parseSquare } from "./chess.js";
 import type { GameState } from "./chess.js";
 import {
@@ -12,6 +13,9 @@ import {
   abandonConfirmCopy,
   classifySessionEvent,
   declinedMessage,
+  entryForPicked,
+  isLocalOpponent,
+  pickFailure,
   INVITE_GONE,
   isOwnInvite,
   isStaleMove,
@@ -329,5 +333,57 @@ describe("held moves (Social Home keeps the latest move while chess is closed)",
 
   it("several missed moves at once: the latest full state catches up", () => {
     expect(isStaleMove(entry({ state: initialState() }), three)).toBe(false);
+  });
+});
+
+describe("new games through Social Home's invite sheet", () => {
+  const BEN: PickedPerson = {
+    instance_id: "brookside",
+    user_ref: "ben",
+    is_local: false,
+    display_name: "Ben · Brookside",
+    sessionId: "s1",
+  };
+
+  it("a picked person becomes a fresh game we play as White, with exactly them", () => {
+    const entry = entryForPicked(BEN);
+    expect(entry).toMatchObject({
+      sessionId: "s1",
+      opponentInstanceId: "brookside",
+      opponentRef: "ben",
+      opponentIsLocal: false,
+      opponentName: "Ben · Brookside",
+      myColor: "w",
+    });
+    expect(entry.state).toEqual(initialState());
+    // Awaiting their answer: "Cancel invite" shows.
+    expect(isAwaitingOpponent(entry)).toBe(true);
+  });
+
+  it("whether an invitee is local comes from the contact Social Home lists for them", () => {
+    const milo = { instance_id: "home", user_ref: "u-milo", display_name: "Milo", is_local: true, online: false };
+    const ben = { instance_id: "brookside", user_ref: "ben", display_name: "Ben", is_local: false, online: false };
+    expect(isLocalOpponent("home", "u-milo", [milo])).toBe(true);
+    expect(isLocalOpponent("brookside", "ben", [ben])).toBe(false);
+    // Not a contact (yet): our household's id from any local contact.
+    expect(isLocalOpponent("home", "u-anna", [milo])).toBe(true);
+    expect(isLocalOpponent("home", "u-anna", [ben])).toBe(false);
+    expect(isLocalOpponent("home", "u-anna", [])).toBe(false);
+  });
+
+  it("why the sheet didn't open, in what chess does about it", () => {
+    expect(pickFailure(new ShError("unknown_method", "x"))).toEqual({ kind: "legacy" });
+    expect(pickFailure(new ShError("busy", "x"))).toEqual({ kind: "quiet" });
+    expect(pickFailure(new ShError("too_soon", "x", { retryAfterMs: 2000 }))).toEqual({
+      kind: "toast",
+      message: "Wait a moment, then try again.",
+    });
+    expect(pickFailure(new ShError("permission_denied", "x", { permission: "people" }))).toMatchObject({
+      kind: "toast",
+    });
+    expect(pickFailure(new Error("RPC timeout"))).toEqual({
+      kind: "toast",
+      message: "Couldn't open the invite — please try again.",
+    });
   });
 });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createClient, parseHeldMessages, parseLaunchContext, parseSessionPayload, type SocialHomeClient, type Contact, type SessionTarget, type AppMessage } from "./index.js";
+import { createClient, parseHeldMessages, parseLaunchContext, parsePicked, parseSessionPayload, ShError, toShError, type SocialHomeClient, type Contact, type SessionTarget, type AppMessage } from "./index.js";
 
 /**
  * A fake host frame: captures messages posted by the SDK and lets the test
@@ -457,5 +457,154 @@ describe("held messages (moves and declines wait while the app is closed)", () =
     expect(parseHeldMessages([{ sessionId: "s", kind: "weird" }])).toEqual([
       { sessionId: "s", fromInstance: "", fromUser: undefined, payload: undefined, kind: "message" },
     ]);
+  });
+});
+
+describe("typed errors (ShError)", () => {
+  it("an object error reply rejects as ShError with code, permission and retryAfterMs", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const p = h.client.store.get("k");
+    h.fromHost({
+      id: h.posted[0].id,
+      ok: false,
+      error: { code: "permission_denied", message: "no storage", permission: "storage" },
+    });
+    const err = await p.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ShError);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toMatchObject({ code: "permission_denied", message: "no storage", permission: "storage" });
+  });
+
+  it("an older host's string error is code 'error' with that message", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const p = h.client.store.get("k");
+    h.fromHost({ id: h.posted[0].id, ok: false, error: "boom" });
+    await expect(p).rejects.toMatchObject({ code: "error", message: "boom" });
+  });
+
+  it("toShError never trusts the shape", () => {
+    expect(toShError(null)).toMatchObject({ code: "error", message: "Unknown error from host" });
+    expect(toShError({ code: 7, permission: "camera", retryAfterMs: -1 })).toMatchObject({
+      code: "error",
+      permission: undefined,
+      retryAfterMs: undefined,
+    });
+    expect(toShError({ code: "too_soon", message: "wait", retryAfterMs: 4200 })).toMatchObject({
+      code: "too_soon",
+      retryAfterMs: 4200,
+    });
+  });
+
+  it("openSession on a host with the invite sheet is refused as use_people_pick", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const target: SessionTarget = { instance_id: "peerB", user_ref: "alice", is_local: false };
+    const p = h.client.federation.openSession(target);
+    h.fromHost({ id: h.posted[0].id, ok: false, error: { code: "use_people_pick", message: "use people.pick" } });
+    await expect(p).rejects.toMatchObject({ code: "use_people_pick" });
+  });
+
+  it("send to a game the host doesn't know is unknown_session", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const target: SessionTarget = { instance_id: "peerB", user_ref: "alice", is_local: false };
+    const p = h.client.federation.send("new-id", target, {});
+    h.fromHost({ id: h.posted[0].id, ok: false, error: { code: "unknown_session", message: "x" } });
+    await expect(p).rejects.toMatchObject({ code: "unknown_session" });
+  });
+});
+
+describe("context permissions", () => {
+  it("lists the known permissions; unknown names are dropped", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const p = h.client.context();
+    h.fromHost({
+      id: h.posted[0].id,
+      ok: true,
+      result: { appId: "chess", selfUserId: "u1", permissions: ["storage", "people", "camera", 3] },
+    });
+    expect((await p).permissions).toEqual(["storage", "people"]);
+  });
+
+  it("an older host without permissions leaves them undefined", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const p = h.client.context();
+    h.fromHost({ id: h.posted[0].id, ok: true, result: { appId: "chess", selfUserId: "u1" } });
+    expect((await p).permissions).toBeUndefined();
+  });
+});
+
+describe("people.pick (Social Home's invite sheet)", () => {
+  const BEN: SessionTarget = { instance_id: "brookside", user_ref: "ben", is_local: false };
+
+  it("asks the host for the sheet and maps who was picked, with their session ids", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const p = h.client.people.pick({ max: 1, suggest: { ...BEN, extra: "x" } as SessionTarget });
+    expect(h.posted[0]).toMatchObject({
+      method: "people.pick",
+      params: { purpose: "play", max: 1, suggest: BEN },
+    });
+    // Only the three target fields of a suggestion go to the host.
+    expect(Object.keys(h.posted[0].params.suggest).sort()).toEqual(["instance_id", "is_local", "user_ref"]);
+    h.fromHost({
+      id: h.posted[0].id,
+      ok: true,
+      result: [{ ...BEN, display_name: "Ben · Brookside", session_id: "s1" }],
+    });
+    await expect(p).resolves.toEqual([
+      { ...BEN, display_name: "Ben · Brookside", sessionId: "s1" },
+    ]);
+  });
+
+  it("defaults to one person to play with; cancel is []", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const p = h.client.people.pick();
+    expect(h.posted[0].params).toEqual({ purpose: "play", max: 1 });
+    h.fromHost({ id: h.posted[0].id, ok: true, result: [] });
+    await expect(p).resolves.toEqual([]);
+  });
+
+  it("waits for the person — no 15 s RPC timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = makeHarness();
+      active = h.client;
+      const p = h.client.people.pick();
+      let settled = false;
+      p.then(() => { settled = true; }, () => { settled = true; });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(settled).toBe(false);
+      h.fromHost({ id: h.posted[0].id, ok: true, result: [] });
+      await expect(p).resolves.toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("busy / too_soon come back typed", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const p = h.client.people.pick();
+    h.fromHost({ id: h.posted[0].id, ok: false, error: { code: "too_soon", message: "wait", retryAfterMs: 3000 } });
+    await expect(p).rejects.toMatchObject({ code: "too_soon", retryAfterMs: 3000 });
+  });
+
+  it("parsePicked never trusts the shape", () => {
+    expect(parsePicked(null)).toEqual([]);
+    expect(
+      parsePicked([
+        { instance_id: "a", user_ref: "b", is_local: true, session_id: "s" },
+        { instance_id: "a", user_ref: "b", is_local: "yes", session_id: "s" },
+        { instance_id: "a", user_ref: "", is_local: true, session_id: "s" },
+        { instance_id: "a", user_ref: "b", is_local: true },
+        "junk",
+      ]),
+    ).toEqual([{ instance_id: "a", user_ref: "b", is_local: true, display_name: "b", sessionId: "s" }]);
   });
 });

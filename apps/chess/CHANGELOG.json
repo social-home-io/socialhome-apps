@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.29.3",
+    "date": "2026-10-29",
+    "notes": {
+      "en": "New game asks Social Home who you want to play: you pick someone in Social Home's own invite sheet and it sends the invite. Chess only learns who you picked and the people you've played with. Rematch someone you've played before the same way.",
+      "de": "Für ein neues Spiel fragt Schach Social Home, mit wem du spielen möchtest: Du wählst jemanden in der Einladung von Social Home aus, und Social Home schickt die Einladung. Schach erfährt nur, wen du ausgewählt hast und mit wem du schon gespielt hast. Eine Revanche geht genauso.",
+      "nl": "Voor een nieuw spel vraagt Schaken aan Social Home met wie je wilt spelen: je kiest iemand in de uitnodiging van Social Home zelf en Social Home stuurt de uitnodiging. Schaken komt alleen te weten wie je hebt gekozen en met wie je hebt gespeeld. Een revanche gaat op dezelfde manier.",
+      "fr": "Pour une nouvelle partie, Échecs demande à Social Home avec qui vous voulez jouer : vous choisissez quelqu’un dans l’invitation de Social Home, qui envoie l’invitation. Échecs sait seulement qui vous avez choisi et avec qui vous avez joué. Une revanche se fait de la même façon.",
+      "es": "Para una partida nueva, Ajedrez le pregunta a Social Home con quién quieres jugar: eliges a alguien en la invitación de Social Home y Social Home envía la invitación. Ajedrez solo sabe a quién elegiste y con quién has jugado. La revancha funciona igual."
+    }
+  },
+  {
     "version": "2026.10.29.2",
     "date": "2026-10-29",
     "notes": {

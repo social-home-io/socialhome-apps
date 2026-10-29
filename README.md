@@ -134,16 +134,33 @@ else if (launch?.sessionId) showGameIfKnown(launch.sessionId); // gone: say so
 await sh.store.set('board', JSON.stringify(gameState));
 const raw = await sh.store.get('board');
 
-// People you can play with (household members + paired friends)
+// Invite someone — through Social Home, never straight from the app (SDK ≥ 1.4).
+// Social Home shows its own invite sheet outside your app; the person picks and
+// taps Send, and Social Home sends the invite. You get back only who was picked
+// and the session it opened with each ([] if they cancel).
+const [picked] = await sh.people.pick({ purpose: 'play', max: 1 });
+if (picked) {
+  const target = { instance_id: picked.instance_id, user_ref: picked.user_ref, is_local: picked.is_local };
+  // Send a move (or your opening state) to them within that session. Only
+  // sessions Social Home knows for that person take messages: a made-up
+  // session id is refused with ShError code 'unknown_session'.
+  await sh.federation.send(picked.sessionId, target, { move: 'e2e4' });
+}
+
+// A rematch: suggest the person; the sheet still asks and Send names them.
+// await sh.people.pick({ suggest: target });
+
+// The people your app may know: whom the person picked and plays with in
+// your app — never the household or friends list.
 const contacts = await sh.contacts();
-const { instance_id, user_ref, is_local } = contacts[0];
-const target = { instance_id, user_ref, is_local };
 
-// Challenge that person (they receive an invite — see onSession)
-const sessionId = await sh.federation.openSession(target);
+// What the household agreed to: leave out what you may not do.
+const { permissions } = await sh.context(); // ['storage', 'people', 'federation']
 
-// Send a move to them within the session
-await sh.federation.send(sessionId, target, { move: 'e2e4' });
+// Refusals are typed: ShError has code ('permission_denied', 'busy',
+// 'too_soon' + retryAfterMs, 'unknown_session', 'use_people_pick', …).
+// federation.openSession is deprecated: Social Home refuses it with
+// 'use_people_pick'.
 
 // Receive in-session messages (e.g. the opponent's move). The callback gets
 // { sessionId, fromInstance, payload } so you can route to the right game and
@@ -308,7 +325,7 @@ Use **Actions → Release → Run workflow** (`workflow_dispatch`). The workflow
 
 `apps/chess/` is the reference implementation. It demonstrates:
 
-- Using `sh.federation.openSession` + `sh.federation.send` to relay chess moves cross-household.
+- Using `sh.people.pick` (Social Home's invite sheet) to start a game and `sh.federation.send` to relay chess moves cross-household.
 - Persisting game state with `sh.store.set` / `sh.store.get`.
 - Listening for opponent moves via `sh.onMessage`.
 

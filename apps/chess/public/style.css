@@ -122,6 +122,15 @@ html, body {
   color: var(--text-muted);
 }
 
+/* "New game": Social Home's invite sheet picks the person. */
+.lobby-new-game { align-items: flex-start; }
+.lobby-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
 /* Active game list */
 .game-list {
   list-style: none;

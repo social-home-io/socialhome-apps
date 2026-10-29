@@ -19,8 +19,9 @@
  * `launch`, and chess keeps seating live / drained invites for it.
  */
 
-import { parseSessionPayload } from "@socialhome/app-sdk";
-import type { AppMessage, LaunchContext } from "@socialhome/app-sdk";
+import { parseSessionPayload, ShError } from "@socialhome/app-sdk";
+import type { AppMessage, Contact, LaunchContext, PickedPerson } from "@socialhome/app-sdk";
+import { initialState } from "./chess.js";
 import type { Color, GameState } from "./chess.js";
 
 export interface GameEntry {
@@ -228,4 +229,64 @@ export function abandonConfirmCopy(entry: GameEntry): ConfirmCopy {
     confirm: "Abandon game",
     cancel: "Keep playing",
   };
+}
+
+// ---------------------------------------------------------------------------
+// New games go through Social Home's invite sheet (`people.pick`)
+// ---------------------------------------------------------------------------
+
+/**
+ * The game Social Home opened for a person picked in its invite sheet: we
+ * challenged them, so we play White and the board starts fresh. The opponent
+ * is exactly who was picked — the session only takes messages to them.
+ */
+export function entryForPicked(p: PickedPerson): GameEntry {
+  return {
+    sessionId: p.sessionId,
+    opponentInstanceId: p.instance_id,
+    opponentRef: p.user_ref,
+    opponentIsLocal: p.is_local,
+    opponentName: p.display_name,
+    myColor: "w", // the challenger always plays White
+    state: initialState(),
+  };
+}
+
+/**
+ * Whether an invitee shares our household — from the contact Social Home
+ * lists for them (after Play they are one), else by our own household's id
+ * when known, else remote.
+ */
+export function isLocalOpponent(
+  fromInstance: string,
+  fromUser: string | undefined,
+  contacts: readonly Contact[],
+): boolean {
+  const known = contacts.find((c) => c.instance_id === fromInstance && c.user_ref === fromUser);
+  if (known) return known.is_local;
+  const own = contacts.find((c) => c.is_local)?.instance_id;
+  return own !== undefined && own === fromInstance;
+}
+
+/** What "New game" does when the invite sheet can't open. */
+export type PickFailure =
+  | { kind: "legacy" } // an older Social Home: pick from chess's own list
+  | { kind: "quiet" } // a sheet is already open: nothing to say
+  | { kind: "toast"; message: string };
+
+/** Read why `people.pick` failed. */
+export function pickFailure(err: unknown): PickFailure {
+  const code = err instanceof ShError ? err.code : undefined;
+  switch (code) {
+    case "unknown_method":
+      return { kind: "legacy" };
+    case "busy":
+      return { kind: "quiet" };
+    case "too_soon":
+      return { kind: "toast", message: "Wait a moment, then try again." };
+    case "permission_denied":
+      return { kind: "toast", message: "Chess can't invite people in this household." };
+    default:
+      return { kind: "toast", message: "Couldn't open the invite — please try again." };
+  }
 }
