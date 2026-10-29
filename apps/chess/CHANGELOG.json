@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.29.4",
+    "date": "2026-10-29",
+    "notes": {
+      "en": "A game that rested a long time can go on: when your move can't reach the other player because Social Home no longer keeps the game, Chess offers \"Continue game with Ben\". You confirm it in Social Home, and Ben gets it in Needs you and taps Play.",
+      "de": "Eine Partie, die lange geruht hat, kann weitergehen: Erreicht dein Zug die andere Person nicht mehr, weil Social Home die Partie nicht mehr speichert, bietet Schach an, sie fortzusetzen. Du bestätigst das in Social Home, und die andere Person bekommt es unter „Wartet auf dich“ und tippt auf „Spielen“.",
+      "nl": "Een partij die lang heeft stilgelegen kan verder: als je zet de ander niet meer bereikt omdat Social Home de partij niet meer bewaart, biedt Schaken aan om haar voort te zetten. Je bevestigt dat in Social Home, en de ander krijgt het bij Wacht op jou en tikt op Spelen.",
+      "fr": "Une partie restée longtemps en pause peut continuer : si votre coup n’atteint plus l’autre joueur parce que Social Home ne garde plus la partie, Échecs propose de la reprendre. Vous confirmez dans Social Home, et l’autre joueur la reçoit dans Attend votre décision et touche Jouer.",
+      "es": "Una partida que estuvo parada mucho tiempo puede seguir: si tu jugada ya no llega a la otra persona porque Social Home ya no guarda la partida, Ajedrez te ofrece continuarla. Lo confirmas en Social Home, y la otra persona lo recibe en Te necesita y toca Jugar."
+    }
+  },
+  {
     "version": "2026.10.29.3",
     "date": "2026-10-29",
     "notes": {

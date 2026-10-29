@@ -150,6 +150,12 @@ if (picked) {
 // A rematch: suggest the person; the sheet still asks and Send names them.
 // await sh.people.pick({ suggest: target });
 
+// A game Social Home no longer knows (started before it kept games, or quiet
+// for more than 90 days): a send fails with ShError "unknown_session". Offer
+// to pick it up again; Social Home's sheet asks "Continue game with Ben", the
+// other person gets it in Needs you and taps Play, then send your state again.
+// await sh.people.pick({ purpose: "continue", sessionId, suggest: target });
+
 // The people your app may know: whom the person picked and plays with in
 // your app — never the household or friends list.
 const contacts = await sh.contacts();

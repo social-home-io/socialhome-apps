@@ -27,7 +27,10 @@ import {
 import type { GameState, Move, Color } from "./chess.js";
 import {
   abandonButtonLabel,
+  continueCopy,
   entryForPicked,
+  INVITE_MISMATCH,
+  isUnknownGame,
   isLocalOpponent,
   pickFailure,
   abandonConfirmCopy,
@@ -942,12 +945,22 @@ async function onMove(entry: GameEntry, move: Move): Promise<void> {
     }));
 
     await persistGame(entry);
-    await client.federation.send(entry.sessionId, targetForEntry(entry), {
+    const payload = {
       type: "move",
       sessionId: entry.sessionId,
       move,
       state: next,
-    } satisfies MovePayload);
+    } satisfies MovePayload;
+    try {
+      await client.federation.send(entry.sessionId, targetForEntry(entry), payload);
+    } catch (err) {
+      if (!isUnknownGame(err)) throw err;
+      // Social Home no longer knows this game: offer to pick it up again
+      // through its own sheet (the move stays on our board).
+      renderBoard();
+      await offerContinue(entry, payload);
+      return;
+    }
 
     renderBoard();
   } catch (err) {
@@ -1050,6 +1063,37 @@ async function onChallengeContact(contact: Contact): Promise<void> {
   }
 }
 
+/**
+ * "Continue game with Ben": Social Home no longer knows this game (from
+ * before it kept games, or quiet for more than 90 days). Ask first; then
+ * Social Home's own sheet confirms the person and re-registers the game,
+ * and the latest state goes out again. Ben gets it in Needs you and taps
+ * Play.
+ */
+async function offerContinue(entry: GameEntry, latest: MovePayload): Promise<void> {
+  if (!(await confirmDialog(continueCopy(entry)))) return;
+  let picked: PickedPerson[];
+  try {
+    picked = await client.people.pick({
+      purpose: "continue",
+      sessionId: entry.sessionId,
+      suggest: targetForEntry(entry),
+    });
+  } catch (err) {
+    const failure = pickFailure(err);
+    if (failure.kind === "toast") showToast(failure.message);
+    return;
+  }
+  if (!picked.some((p) => p.sessionId === entry.sessionId)) return;
+  try {
+    await client.federation.send(entry.sessionId, targetForEntry(entry), latest);
+    showToast(`Asked ${entry.opponentName} to continue the game.`);
+  } catch (err) {
+    console.warn("Chess: resend after continue failed", err);
+    showToast(`Couldn't reach ${entry.opponentName} — please try again.`);
+  }
+}
+
 /** Drop a game locally (memory + store) and return to the lobby if it was shown. */
 async function removeGame(sessionId: string): Promise<void> {
   ui.games.delete(sessionId);
@@ -1093,7 +1137,11 @@ function confirmDialog(copy: ConfirmCopy): Promise<boolean> {
     dlg.appendChild(make("p", { cls: "confirm-body", text: copy.body, attrs: { id: "confirm-body" } }));
     const actions = make("div", { cls: "confirm-actions" });
     const cancelBtn = make("button", { cls: "btn btn-ghost", text: copy.cancel, attrs: { type: "button" } });
-    const okBtn = make("button", { cls: "btn btn-danger", text: copy.confirm, attrs: { type: "button" } });
+    const okBtn = make("button", {
+      cls: copy.primary ? "btn btn-primary" : "btn btn-danger",
+      text: copy.confirm,
+      attrs: { type: "button" },
+    });
     actions.append(cancelBtn, okBtn);
     dlg.appendChild(actions);
 
@@ -1378,6 +1426,9 @@ async function main(): Promise<void> {
         break;
       case "gone":
         showToast(INVITE_GONE);
+        break;
+      case "mismatch":
+        showToast(INVITE_MISMATCH);
         break;
       case "none":
         break;
