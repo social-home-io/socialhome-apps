@@ -36,6 +36,7 @@ import {
   abandonConfirmCopy,
   classifySessionEvent,
   declinedMessage,
+  endedMessage,
   inviteGoneMessage,
   isAwaitingOpponent,
   isStaleMove,
@@ -1264,6 +1265,10 @@ function onInboundSession(msg: AppMessage): void {
       return;
     case "withdrawn":
       showToast(withdrawnMessage(action.entry.opponentName));
+      void removeGame(action.entry.sessionId);
+      return;
+    case "ended":
+      showToast(endedMessage(action.entry.opponentName));
       void removeGame(action.entry.sessionId);
       return;
     case "ignore":

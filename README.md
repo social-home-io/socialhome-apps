@@ -184,11 +184,14 @@ const offInvite = sh.onSession(({ sessionId, fromInstance }) => {
 
 // The other side ended a session: payload {verb: "close", reason}.
 // "declined" reaches the challenger (the invitee said no in Social Home's
-// "Needs you"); "withdrawn" reaches the invitee (see cancelSession below).
+// "Needs you"); "withdrawn" reaches the invitee (see cancelSession below);
+// "ended" (SDK 1.7, Social Home v_72) reaches either side when the other
+// household uninstalled the app — clear that game, invite or game in play.
 // Treat a missing or unknown reason as a plain close.
 sh.onSession(({ sessionId, payload }) => {
   const { verb, reason } = parseSessionPayload(payload);
   if (verb === 'close' && reason === 'declined') { /* end the pending game */ }
+  if (verb === 'close' && reason === 'ended') { /* the other household removed the app: clear the game */ }
 });
 
 // Take back an invite nobody answered: the invitee's "Needs you" item clears
@@ -215,7 +218,7 @@ Older apps keep working on a newer Social Home: their `pendingSessions()` call g
 
 ### Held messages: the latest message per session (`@socialhome/app-sdk` 1.3)
 
-Social Home keeps what arrives while your app is closed — or turned off in the household — and hands it over when the app next opens. **It keeps only the latest message of each session** (game), per person: a move, or a close (`{verb: "close", reason: "declined" | "withdrawn"}`). So:
+Social Home keeps what arrives while your app is closed — or turned off in the household — and hands it over when the app next opens. **It keeps only the latest message of each session** (game), per person: a move, or a close (`{verb: "close", reason: "declined" | "withdrawn" | "ended"}`). So:
 
 - **Send state, not deltas.** Every message should carry enough to catch up (chess sends the whole game with each move), or resync from your own `store` on open.
 - **Dedupe.** A held message may repeat one you already received live, or be older than what you have — ignore it then (chess compares the move count).

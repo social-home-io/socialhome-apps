@@ -13,6 +13,7 @@ import {
   abandonConfirmCopy,
   classifySessionEvent,
   declinedMessage,
+  endedMessage,
   continueCopy,
   entryForPicked,
   isUnknownGame,
@@ -133,6 +134,40 @@ describe("classifySessionEvent — withdrawn (invitee side)", () => {
 
   it("a withdrawal on our own invite is ignored", () => {
     expect(classifySessionEvent(close("withdrawn"), games(entry())).kind).toBe("ignore");
+  });
+});
+
+describe("classifySessionEvent — ended (the other household uninstalled Chess)", () => {
+  it("a game in play → ended, on either side", () => {
+    const mine = entry({ state: stateAfter(["e2", "e4"], ["e7", "e5"]) });
+    expect(classifySessionEvent(close("ended"), games(mine))).toEqual({ kind: "ended", entry: mine });
+    const theirs = entry({ myColor: "b", state: stateAfter(["e2", "e4"], ["e7", "e5"]) });
+    expect(classifySessionEvent(close("ended"), games(theirs)).kind).toBe("ended");
+  });
+
+  it("an invite either way → ended", () => {
+    expect(classifySessionEvent(close("ended"), games(entry())).kind).toBe("ended");
+    expect(classifySessionEvent(close("ended"), games(entry({ myColor: "b" }))).kind).toBe("ended");
+  });
+
+  it("a finished game stays as it was", () => {
+    const e = entry({ state: { ...initialState(), result: "draw" } });
+    expect(classifySessionEvent(close("ended"), games(e)).kind).toBe("ignore");
+  });
+
+  it("only from the opponent: another household or person can't end it", () => {
+    expect(classifySessionEvent(close("ended", { fromInstance: "inst-x" }), games(entry())).kind).toBe("ignore");
+    expect(classifySessionEvent(close("ended", { fromUser: "mallory" }), games(entry())).kind).toBe("ignore");
+  });
+
+  it("an unknown game is ignored", () => {
+    expect(classifySessionEvent(close("ended"), new Map()).kind).toBe("ignore");
+  });
+
+  it("says why the game is gone", () => {
+    expect(endedMessage("Ben · Familie Okafor")).toBe(
+      "Ben · Familie Okafor no longer has Chess, so your game ended.",
+    );
   });
 });
 
