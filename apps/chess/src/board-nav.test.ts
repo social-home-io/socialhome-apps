@@ -1,0 +1,264 @@
+/**
+ * Keyboard play: cursor movement in screen space, the shared click/Enter
+ * selection decision, square names and the live-region sentences.
+ */
+
+import { describe, it, expect } from "vitest";
+import { applyMove, initialState, parseSquare } from "./chess.js";
+import type { Board, GameState, Move } from "./chess.js";
+import {
+  activateSquare,
+  boardLabel,
+  buildSquareOrder,
+  initialCursor,
+  isNavKey,
+  moveAnnouncement,
+  moveCursor,
+  noneAnnouncement,
+  selectionAnnouncement,
+  squareLabel,
+} from "./board-nav.js";
+
+const at = parseSquare;
+
+function play(...moves: [string, string][]): GameState {
+  let s = initialState();
+  for (const [from, to] of moves) s = applyMove(s, { from: at(from), to: at(to) });
+  return s;
+}
+
+function emptyBoard(): Board {
+  return new Array(64).fill(null);
+}
+
+describe("buildSquareOrder", () => {
+  it("draws a8 top-left for White and h1 top-left for Black", () => {
+    expect(buildSquareOrder("w")[0]).toBe(at("a8"));
+    expect(buildSquareOrder("w")[63]).toBe(at("h1"));
+    expect(buildSquareOrder("b")[0]).toBe(at("h1"));
+    expect(buildSquareOrder("b")[63]).toBe(at("a8"));
+  });
+});
+
+describe("moveCursor (screen space)", () => {
+  it("White: Up goes toward rank 8, Right toward the h-file", () => {
+    expect(moveCursor(at("e2"), "ArrowUp", "w")).toBe(at("e3"));
+    expect(moveCursor(at("e2"), "ArrowDown", "w")).toBe(at("e1"));
+    expect(moveCursor(at("e2"), "ArrowRight", "w")).toBe(at("f2"));
+    expect(moveCursor(at("e2"), "ArrowLeft", "w")).toBe(at("d2"));
+  });
+
+  it("Black (flipped board): Up goes toward rank 1, Right toward the a-file", () => {
+    expect(moveCursor(at("e7"), "ArrowUp", "b")).toBe(at("e6"));
+    expect(moveCursor(at("e7"), "ArrowDown", "b")).toBe(at("e8"));
+    expect(moveCursor(at("e7"), "ArrowRight", "b")).toBe(at("d7"));
+    expect(moveCursor(at("e7"), "ArrowLeft", "b")).toBe(at("f7"));
+  });
+
+  it("clamps at the edges instead of wrapping", () => {
+    expect(moveCursor(at("a8"), "ArrowUp", "w")).toBe(at("a8"));
+    expect(moveCursor(at("a8"), "ArrowLeft", "w")).toBe(at("a8"));
+    expect(moveCursor(at("h1"), "ArrowDown", "w")).toBe(at("h1"));
+    expect(moveCursor(at("h1"), "ArrowRight", "w")).toBe(at("h1"));
+  });
+
+  it("Home/End jump along the drawn row; Ctrl+Home/End to the corners", () => {
+    expect(moveCursor(at("e4"), "Home", "w")).toBe(at("a4"));
+    expect(moveCursor(at("e4"), "End", "w")).toBe(at("h4"));
+    expect(moveCursor(at("e4"), "Home", "w", true)).toBe(at("a8"));
+    expect(moveCursor(at("e4"), "End", "w", true)).toBe(at("h1"));
+    expect(moveCursor(at("e4"), "Home", "b")).toBe(at("h4"));
+  });
+
+  it("PageUp/PageDown jump to the top/bottom row", () => {
+    expect(moveCursor(at("c4"), "PageUp", "w")).toBe(at("c8"));
+    expect(moveCursor(at("c4"), "PageDown", "w")).toBe(at("c1"));
+    expect(moveCursor(at("c4"), "PageUp", "b")).toBe(at("c1"));
+  });
+
+  it("reaches every one of the 64 squares", () => {
+    const seen = new Set<number>();
+    let cur = at("a8");
+    for (let r = 0; r < 8; r++) {
+      let c = cur;
+      for (let i = 0; i < 8; i++) {
+        seen.add(c);
+        c = moveCursor(c, "ArrowRight", "w");
+      }
+      cur = moveCursor(cur, "ArrowDown", "w");
+    }
+    expect(seen.size).toBe(64);
+  });
+
+  it("isNavKey knows the board keys and nothing else", () => {
+    expect(isNavKey("ArrowUp")).toBe(true);
+    expect(isNavKey("PageDown")).toBe(true);
+    expect(isNavKey("Enter")).toBe(false);
+    expect(isNavKey("Tab")).toBe(false);
+  });
+});
+
+describe("initialCursor", () => {
+  it("starts on e2 / e7 in a fresh game", () => {
+    expect(initialCursor(initialState(), "w")).toBe(at("e2"));
+    expect(initialCursor(initialState(), "b")).toBe(at("e7"));
+  });
+
+  it("starts where the last move landed", () => {
+    expect(initialCursor(play(["g1", "f3"]), "b")).toBe(at("f3"));
+  });
+});
+
+describe("activateSquare", () => {
+  it("picks up your piece with its legal targets", () => {
+    const a = activateSquare(initialState(), "w", null, [], at("g1"));
+    expect(a).toEqual({ kind: "select", square: at("g1"), targets: expect.any(Array) });
+    if (a.kind === "select") expect([...a.targets].sort()).toEqual([at("f3"), at("h3")].sort());
+  });
+
+  it("picks up a blocked piece too (zero targets) so the player hears why", () => {
+    expect(activateSquare(initialState(), "w", null, [], at("a1"))).toEqual({
+      kind: "select", square: at("a1"), targets: [],
+    });
+  });
+
+  it("then moves to a legal target", () => {
+    expect(activateSquare(initialState(), "w", at("g1"), [at("f3"), at("h3")], at("f3"))).toEqual({
+      kind: "move", move: { from: at("g1"), to: at("f3") },
+    });
+  });
+
+  it("the selected square again clears; an empty non-target clears", () => {
+    const s = initialState();
+    expect(activateSquare(s, "w", at("g1"), [at("f3")], at("g1"))).toEqual({ kind: "clear" });
+    expect(activateSquare(s, "w", at("g1"), [at("f3")], at("e4"))).toEqual({ kind: "clear" });
+  });
+
+  it("another own piece switches the selection", () => {
+    const a = activateSquare(initialState(), "w", at("g1"), [at("f3")], at("e2"));
+    expect(a.kind).toBe("select");
+    if (a.kind === "select") expect(a.square).toBe(at("e2"));
+  });
+
+  it("says why nothing happens: not your turn, not your piece, game over", () => {
+    expect(activateSquare(initialState(), "b", null, [], at("e7"))).toEqual({ kind: "none", reason: "not-your-turn" });
+    expect(activateSquare(initialState(), "w", null, [], at("e7"))).toEqual({ kind: "none", reason: "not-your-piece" });
+    expect(activateSquare(initialState(), "w", null, [], at("e4"))).toEqual({ kind: "none", reason: "not-your-piece" });
+    const over: GameState = { ...initialState(), result: "white" };
+    expect(activateSquare(over, "w", null, [], at("e2"))).toEqual({ kind: "none", reason: "game-over" });
+  });
+
+  it("a pawn reaching the last rank promotes to a queen", () => {
+    const board = emptyBoard();
+    board[at("a7")] = { type: "P", color: "w" };
+    board[at("e1")] = { type: "K", color: "w" };
+    board[at("h8")] = { type: "K", color: "b" };
+    const s: GameState = { board, sideToMove: "w", history: [], result: null };
+    expect(activateSquare(s, "w", at("a7"), [at("a8")], at("a8"))).toEqual({
+      kind: "move", move: { from: at("a7"), to: at("a8"), promotion: "Q" },
+    });
+  });
+});
+
+describe("squareLabel / boardLabel", () => {
+  it("names the square and what is on it", () => {
+    const s = initialState();
+    expect(squareLabel(s, at("g1"))).toBe("g1, white knight");
+    expect(squareLabel(s, at("e4"))).toBe("e4, empty");
+    expect(squareLabel(s, at("d8"))).toBe("d8, black queen");
+  });
+
+  it("adds selected / legal move / last move", () => {
+    const s = initialState();
+    expect(squareLabel(s, at("g1"), { selected: true })).toBe("g1, white knight, selected");
+    expect(squareLabel(s, at("f3"), { legalTarget: true })).toBe("f3, empty, legal move");
+    expect(squareLabel(s, at("f3"), { lastMove: true })).toBe("f3, empty, last move");
+  });
+
+  it("says which side you play", () => {
+    expect(boardLabel("w")).toBe("Chess board, you play White");
+    expect(boardLabel("b")).toBe("Chess board, you play Black");
+  });
+});
+
+describe("selectionAnnouncement", () => {
+  it("lists the legal targets in order", () => {
+    expect(selectionAnnouncement(initialState(), at("g1"), [at("h3"), at("f3")]))
+      .toBe("Knight on g1. Moves to f3 and h3.");
+    expect(selectionAnnouncement(initialState(), at("e2"), [at("e3")]))
+      .toBe("Pawn on e2. Move to e3.");
+    expect(selectionAnnouncement(initialState(), at("e2"), [at("e3"), at("e4"), at("d3")]))
+      .toBe("Pawn on e2. Moves to d3, e3 and e4.");
+  });
+
+  it("says when a piece can't move", () => {
+    expect(selectionAnnouncement(initialState(), at("a1"), [])).toBe("Rook on a1. It has no legal moves.");
+  });
+});
+
+describe("noneAnnouncement", () => {
+  it("names the opponent whose turn it is", () => {
+    expect(noneAnnouncement("not-your-turn", "Ben")).toBe("It's Ben's turn.");
+    expect(noneAnnouncement("not-your-piece", "Ben")).toBe("Pick one of your own pieces first.");
+    expect(noneAnnouncement("game-over", "Ben")).toBe("The game is over.");
+  });
+});
+
+describe("moveAnnouncement", () => {
+  function announce(before: GameState, move: Move, myColor: "w" | "b"): string {
+    return moveAnnouncement({ before, after: applyMove(before, move), move, myColor, opponentName: "Ben" });
+  }
+
+  it("the opponent's move hands you the turn", () => {
+    expect(announce(initialState(), { from: at("g1"), to: at("f3") }, "b"))
+      .toBe("Ben moved knight to f3. Your turn.");
+  });
+
+  it("your own move is confirmed without 'Your turn'", () => {
+    expect(announce(initialState(), { from: at("e2"), to: at("e4") }, "w"))
+      .toBe("You moved pawn to e4.");
+  });
+
+  it("captures name the taken piece", () => {
+    const before = play(["e2", "e4"], ["d7", "d5"]);
+    expect(announce(before, { from: at("e4"), to: at("d5") }, "b"))
+      .toBe("Ben moved pawn to d5 and took the pawn. Your turn.");
+  });
+
+  it("announces check", () => {
+    // 1. e4 f5 2. Qh5+ — check, not mate (g6 blocks).
+    const before = play(["e2", "e4"], ["f7", "f5"]);
+    expect(announce(before, { from: at("d1"), to: at("h5") }, "b"))
+      .toBe("Ben moved queen to h5. Check. Your turn.");
+  });
+
+  it("announces checkmate and who won", () => {
+    const before = play(["f2", "f3"], ["e7", "e5"], ["g2", "g4"]);
+    expect(announce(before, { from: at("d8"), to: at("h4") }, "w"))
+      .toBe("Ben moved queen to h4. Checkmate. Ben wins.");
+    expect(announce(before, { from: at("d8"), to: at("h4") }, "b"))
+      .toBe("You moved queen to h4. Checkmate. You win.");
+  });
+
+  it("announces promotion", () => {
+    const board = emptyBoard();
+    board[at("a7")] = { type: "P", color: "w" };
+    board[at("e1")] = { type: "K", color: "w" };
+    board[at("h6")] = { type: "K", color: "b" };
+    const before: GameState = { board, sideToMove: "w", history: [], result: null };
+    expect(announce(before, { from: at("a7"), to: at("a8"), promotion: "Q" }, "b"))
+      .toBe("Ben moved pawn to a8 and promoted to a queen. Your turn.");
+  });
+
+  it("falls back when the earlier position doesn't hold the piece (resync)", () => {
+    const after = play(["g1", "f3"]);
+    const text = moveAnnouncement({
+      before: { ...initialState(), board: emptyBoard() },
+      after,
+      move: { from: at("g1"), to: at("f3") },
+      myColor: "b",
+      opponentName: "Ben",
+    });
+    expect(text).toBe("Ben made a move. Your turn.");
+  });
+});

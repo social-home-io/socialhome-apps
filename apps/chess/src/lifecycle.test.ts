@@ -8,6 +8,8 @@ import type { AppMessage } from "@socialhome/app-sdk";
 import { applyMove, initialState, parseSquare } from "./chess.js";
 import type { GameState } from "./chess.js";
 import {
+  abandonButtonLabel,
+  abandonConfirmCopy,
   classifySessionEvent,
   declinedMessage,
   isAwaitingOpponent,
@@ -219,5 +221,28 @@ describe("messages", () => {
   it("name the other person", () => {
     expect(declinedMessage("Bob")).toBe("Bob declined the game.");
     expect(withdrawnMessage("Alice")).toBe("Alice took the invite back.");
+  });
+});
+
+describe("abandon confirm", () => {
+  it("a game in play: Abandon, and says the opponent isn't told", () => {
+    const e = entry({ opponentName: "Ben", state: stateAfter(["e2", "e4"], ["e7", "e5"]) });
+    expect(abandonButtonLabel(e)).toBe("Abandon");
+    const copy = abandonConfirmCopy(e);
+    expect(copy.title).toBe("Abandon your game with Ben?");
+    expect(copy.body).toContain("can't be resumed");
+    expect(copy.body).toContain("Ben isn't told");
+    expect(copy.confirm).toBe("Abandon game");
+    expect(copy.cancel).toBe("Keep playing");
+  });
+
+  it("a finished game: Remove", () => {
+    const e = entry({ opponentName: "Ben", state: { ...initialState(), result: "black" } });
+    expect(abandonButtonLabel(e)).toBe("Remove");
+    expect(abandonConfirmCopy(e)).toMatchObject({
+      title: "Remove your game with Ben?",
+      confirm: "Remove game",
+      cancel: "Keep it",
+    });
   });
 });
