@@ -32,6 +32,7 @@ import {
   declinedMessage,
   INVITE_GONE,
   isAwaitingOpponent,
+  isStaleMove,
   launchAction,
   senderOf,
   withdrawnMessage,
@@ -1063,6 +1064,9 @@ function onInboundMessage(msg: AppMessage): void {
   const sessionId = msg.payload.sessionId;
   const entry = ui.games.get(sessionId);
   if (!entry) return; // unknown session
+  // Social Home may hand over (on open) the latest move of a game we already
+  // saw live, or one older than ours: never replay or roll back a game.
+  if (isStaleMove(entry, msg.payload.state)) return;
 
   const before = entry.state;
   try {
@@ -1221,6 +1225,26 @@ function showInviteToast(opponentName: string, sessionId: string): void {
 // Bootstrap
 // ---------------------------------------------------------------------------
 
+/**
+ * What Social Home kept while chess was closed or turned off: the latest
+ * message of each game — a move (applied unless we already have it, see
+ * `isStaleMove`), or a close (declined / withdrawn, handled like a live one).
+ * An older Social Home doesn't keep them (the call fails): nothing to do.
+ */
+async function applyHeld(): Promise<void> {
+  let held;
+  try {
+    held = await client.federation.held();
+  } catch (err) {
+    console.info("Chess: no held moves from this Social Home", err);
+    return;
+  }
+  for (const msg of held) {
+    if (msg.kind === "session") onInboundSession(msg);
+    else onInboundMessage(msg);
+  }
+}
+
 async function main(): Promise<void> {
   if (!sh) {
     throw new Error("Social Home SDK not available — must run inside an iframe.");
@@ -1235,7 +1259,8 @@ async function main(): Promise<void> {
 
   try {
     const [ctx, contacts, _store] = await Promise.all([
-      client.context(),
+      // Held moves are fetched below, once our games are loaded.
+      client.context({ pullHeld: true }),
       client.contacts(),
       loadAllGames(),
     ]);
@@ -1276,6 +1301,7 @@ async function main(): Promise<void> {
       case "none":
         break;
     }
+    await applyHeld();
   } catch (err) {
     console.error("Chess: init failed", err);
     root.innerHTML = `<p class="error-msg">Failed to load — please refresh.</p>`;

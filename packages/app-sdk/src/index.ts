@@ -174,6 +174,40 @@ export function parseSessionPayload(payload: unknown): SessionControl {
   };
 }
 
+/**
+ * A message Social Home kept for this person while the app was closed or
+ * turned off — see {@link SocialHomeClient.federation.held}. The same fields
+ * as a live event, plus which subscription it belongs to: `"message"` for
+ * {@link SocialHomeClient.onMessage} (a move), `"session"` for
+ * {@link SocialHomeClient.onSession} (a close: declined / withdrawn).
+ */
+export interface HeldMessage extends AppMessage {
+  kind: "message" | "session";
+}
+
+/** Options for {@link SocialHomeClient.context}. */
+export interface ContextOptions {
+  /**
+   * Fetch held messages yourself with {@link SocialHomeClient.federation.held}
+   * once your own state is loaded (recommended). Without it, Social Home posts
+   * them as ordinary live events right after `context()` answers — so they
+   * reach only the handlers already subscribed by then.
+   */
+  pullHeld?: boolean;
+}
+
+/** Read the host's held-message rows without trusting their shape. */
+export function parseHeldMessages(v: unknown): HeldMessage[] {
+  if (!Array.isArray(v)) return [];
+  const out: HeldMessage[] = [];
+  for (const row of v) {
+    const msg = toAppMessage(row);
+    if (!msg || !isRecord(row)) continue;
+    out.push({ ...msg, kind: row["kind"] === "session" ? "session" : "message" });
+  }
+  return out;
+}
+
 /** Unsubscribe function returned by the `on*` subscription methods. */
 export type Unsubscribe = () => void;
 
@@ -299,10 +333,13 @@ export class SocialHomeClient {
   /**
    * Identity context for the running app instance (no auth token), and why
    * it was opened ({@link AppContext.launch}). Call it first, as soon as the
-   * app starts — Social Home shows the app once it asks.
+   * app starts — Social Home shows the app once it asks. Pass
+   * `{ pullHeld: true }` to fetch messages kept while the app was closed with
+   * {@link SocialHomeClient.federation.held} yourself (see {@link ContextOptions}).
    */
-  context(): Promise<AppContext> {
-    return this._call("app.context").then((r) => {
+  context(options: ContextOptions = {}): Promise<AppContext> {
+    const params = options.pullHeld ? { held: "pull" } : undefined;
+    return this._call("app.context", params).then((r) => {
       const o = isRecord(r) ? r : {};
       const ctx: AppContext = {
         appId: String(o["appId"] ?? ""),
@@ -363,6 +400,25 @@ export class SocialHomeClient {
      */
     cancelSession: (sessionId: string, target: SessionTarget): Promise<void> =>
       this._call("app.cancelSession", { sessionId, target }).then(() => undefined),
+
+    /**
+     * Messages Social Home kept while this app was closed or turned off — the
+     * **latest message of each session** only, oldest first. Social Home
+     * hands them over once per open (they are cleared then), so call it once
+     * your own state is loaded and feed each one to the handler you pass to
+     * {@link SocialHomeClient.onMessage} (`kind: "message"`) or
+     * {@link SocialHomeClient.onSession} (`kind: "session"`).
+     *
+     * Because only the latest message waits, **send state, not deltas** (or
+     * resync from your own store on open), and dedupe: a held message may
+     * repeat one you already received live, or be older than what you have.
+     *
+     * Pair it with `context({ pullHeld: true })`; without that Social Home
+     * has already pushed them as live events, and this returns the same ones.
+     * An older Social Home (before held messages) rejects the call.
+     */
+    held: (): Promise<HeldMessage[]> =>
+      this._call("app.held").then(parseHeldMessages),
 
     /**
      * For a Social Home **without** launch contexts ({@link AppContext.launch}

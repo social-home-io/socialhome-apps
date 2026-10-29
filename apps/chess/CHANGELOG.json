@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.29.2",
+    "date": "2026-10-29",
+    "notes": {
+      "en": "Moves no longer get lost: a move made while you had Chess closed, or while Chess was turned off in your household, shows up on your board when you open it again. When someone declines your invite while Chess is closed, you get a notification and the game is cleared when you open Chess. When an invite you already started is taken back, the game is cleared too.",
+      "de": "Züge gehen nicht mehr verloren: Ein Zug, der gemacht wurde, während Schach bei dir geschlossen oder in deinem Haushalt ausgeschaltet war, erscheint auf deinem Brett, sobald du es wieder öffnest. Lehnt jemand deine Einladung ab, während Schach geschlossen ist, bekommst du eine Mitteilung, und die Partie wird entfernt, wenn du Schach öffnest. Wird eine Einladung zurückgezogen, die du schon begonnen hast, wird die Partie ebenfalls entfernt.",
+      "nl": "Zetten gaan niet meer verloren: een zet die is gedaan terwijl je Schaken had gesloten, of terwijl Schaken in je huishouden uit stond, verschijnt op je bord zodra je het weer opent. Wijst iemand je uitnodiging af terwijl Schaken gesloten is, dan krijg je een melding en wordt de partij opgeruimd als je Schaken opent. Wordt een uitnodiging ingetrokken die je al was begonnen, dan wordt de partij ook opgeruimd.",
+      "fr": "Les coups ne se perdent plus : un coup joué pendant qu’Échecs était fermé chez vous, ou désactivé dans votre foyer, apparaît sur votre échiquier dès que vous le rouvrez. Si quelqu’un refuse votre invitation pendant qu’Échecs est fermé, vous recevez une notification et la partie est retirée à l’ouverture d’Échecs. Si une invitation que vous aviez déjà commencée est retirée, la partie est retirée elle aussi.",
+      "es": "Las jugadas ya no se pierden: una jugada hecha mientras tenías Ajedrez cerrado, o mientras Ajedrez estaba desactivado en tu hogar, aparece en tu tablero cuando lo vuelves a abrir. Si alguien rechaza tu invitación mientras Ajedrez está cerrado, recibes una notificación y la partida se quita al abrir Ajedrez. Si se retira una invitación que ya habías empezado, la partida también se quita."
+    }
+  },
+  {
     "version": "2026.10.29.1",
     "date": "2026-10-29",
     "notes": {

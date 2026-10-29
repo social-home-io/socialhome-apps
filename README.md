@@ -190,6 +190,28 @@ offInvite();
 
 Older apps keep working on a newer Social Home: their `pendingSessions()` call gets only the invite Play opened them for, and a live invite they seat themselves is accepted with their first message in that game.
 
+### Held messages: the latest message per session (`@socialhome/app-sdk` 1.3)
+
+Social Home keeps what arrives while your app is closed — or turned off in the household — and hands it over when the app next opens. **It keeps only the latest message of each session** (game), per person: a move, or a close (`{verb: "close", reason: "declined" | "withdrawn"}`). So:
+
+- **Send state, not deltas.** Every message should carry enough to catch up (chess sends the whole game with each move), or resync from your own `store` on open.
+- **Dedupe.** A held message may repeat one you already received live, or be older than what you have — ignore it then (chess compares the move count).
+
+```ts
+// Ask Social Home to wait until you're ready (recommended):
+const ctx = await sh.context({ pullHeld: true });
+await loadMyGames();
+try {
+  for (const msg of await sh.federation.held()) {
+    if (msg.kind === 'session') onSession(msg); else onMessage(msg);
+  }
+} catch {
+  // An older Social Home keeps nothing: there is nothing to apply.
+}
+```
+
+Without `pullHeld`, Social Home posts held messages as ordinary live events right after `context()` answers — that is how apps on SDK ≤ 1.2 get them, through the `onMessage` / `onSession` handlers already subscribed by then. A message for a game Social Home doesn't know for this person, or from anyone but the other side of that game, is never kept. When the person you invited declines while your app is closed, you also get a notification in Social Home.
+
 The SDK communicates with the host SPA over `postMessage` (it never has the user's auth token). All calls are async and time out after 15 seconds. In the iframe `sh` is non-null; in non-browser/test contexts it is `null`, so use `createClient(...)` in unit tests.
 
 ---

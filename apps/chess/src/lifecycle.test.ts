@@ -14,6 +14,7 @@ import {
   declinedMessage,
   INVITE_GONE,
   isOwnInvite,
+  isStaleMove,
   launchAction,
   isAwaitingOpponent,
   senderOf,
@@ -307,5 +308,26 @@ describe("launchAction — Play opens the game you were invited to", () => {
   it("an invite that no longer waits, for a game we don't have: say so", () => {
     expect(launchAction({ sessionId: "s9" }, games())).toEqual({ kind: "gone" });
     expect(INVITE_GONE).toMatch(/isn't open/);
+  });
+});
+
+describe("held moves (Social Home keeps the latest move while chess is closed)", () => {
+  const two = stateAfter(["e2", "e4"], ["e7", "e5"]);
+  const three = stateAfter(["e2", "e4"], ["e7", "e5"], ["g1", "f3"]);
+
+  it("a move ahead of ours is applied", () => {
+    expect(isStaleMove(entry({ state: two }), three)).toBe(false);
+  });
+
+  it("a held copy of a move we already have changes nothing", () => {
+    expect(isStaleMove(entry({ state: three }), three)).toBe(true);
+  });
+
+  it("an older held game never rolls the board back", () => {
+    expect(isStaleMove(entry({ state: three }), two)).toBe(true);
+  });
+
+  it("several missed moves at once: the latest full state catches up", () => {
+    expect(isStaleMove(entry({ state: initialState() }), three)).toBe(false);
   });
 });
