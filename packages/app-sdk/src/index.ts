@@ -6,7 +6,9 @@
  *
  *   App → host:  { id, method, params }                        posted to window.parent
  *   Host → app:  { id, ok: true, result }                       on success
- *                { id, ok: false, error }                        on failure
+ *                { id, ok: false, error }                        on failure — `error` is
+ *                  `{code, message, permission?, retryAfterMs?}`  (a string on older hosts),
+ *                  rejected as an {@link ShError}
  *   Host → app:  { type: 'app:event', kind, sessionId,          real-time relay of an
  *                  fromInstance, payload }                       inbound federation message
  *
@@ -63,10 +65,25 @@ export interface LaunchContext {
   invite?: AppMessage;
 }
 
+/**
+ * What the household agreed to when an admin added the app, in plain words:
+ * `storage` (saves its own data), `people` (lets you pick people to play
+ * with) and `federation` (sends to other households; implies `people`).
+ * A call outside them is refused with {@link ShError.code} `"permission_denied"`.
+ */
+export type Permission = "storage" | "people" | "federation";
+
 /** App context returned by {@link SocialHomeClient.context}. */
 export interface AppContext {
   appId: string;
   selfUserId: string;
+  /**
+   * The permissions this app has (see {@link Permission}) — leave out what
+   * the app may not do (e.g. "play someone in another household" without
+   * `federation`). `undefined` on a Social Home from before permissions,
+   * which offers everything.
+   */
+  permissions?: Permission[];
   /**
    * Why the app was opened — see {@link LaunchContext}. **`undefined` on a
    * Social Home from before launch contexts**: that host
@@ -105,13 +122,21 @@ export interface Peer {
   display_name: string;
 }
 
-/** A challengeable person returned by {@link SocialHomeClient.contacts}. */
+/**
+ * A person returned by {@link SocialHomeClient.contacts}: someone the person
+ * picked in Social Home's invite sheet, or plays with in this app.
+ */
 export interface Contact {
   instance_id: string;
   user_ref: string;      // local user_id when is_local, else the remote username
+  /** "Ben · Familie Okafor" for someone in another household. */
   display_name: string;
   is_local: boolean;
   online: boolean;
+  /** The bare name ("Ben"); Social Home 2026.10 and newer. */
+  person_name?: string;
+  /** Their household's name; `null` for your own. Social Home 2026.10 and newer. */
+  household_name?: string | null;
 }
 
 /** Addresses a specific person for a session. */
@@ -208,6 +233,104 @@ export function parseHeldMessages(v: unknown): HeldMessage[] {
   return out;
 }
 
+/**
+ * Why the host refused a call — {@link ShError.code}. Unknown codes may appear
+ * in later Social Home versions; treat them as a plain failure.
+ *
+ * - `"permission_denied"` — outside the app's permissions ({@link ShError.permission} says which).
+ * - `"use_people_pick"` — `federation.openSession` is gone: invites go through `people.pick`.
+ * - `"busy"` — an invite sheet is already open.
+ * - `"too_soon"` — the sheet just closed; try again after {@link ShError.retryAfterMs}.
+ * - `"unknown_session"` — `federation.send` to a game Social Home doesn't know
+ *   for that person (not opened through the sheet, not taken in with Play).
+ * - `"unavailable"` — this host can't show the invite sheet.
+ * - `"unknown_method"` — an older Social Home without the call.
+ * - `"error"` — anything else (`message` says what).
+ */
+export type ShErrorCode =
+  | "permission_denied"
+  | "use_people_pick"
+  | "busy"
+  | "too_soon"
+  | "unknown_session"
+  | "unavailable"
+  | "unknown_method"
+  | "error"
+  | (string & {});
+
+/** A refused call. An `Error`, so existing `catch` blocks keep working. */
+export class ShError extends Error {
+  readonly code: ShErrorCode;
+  /** On `"permission_denied"`: the permission the call needed. */
+  readonly permission?: Permission;
+  /** On `"too_soon"`: how long until the sheet may open again. */
+  readonly retryAfterMs?: number;
+
+  constructor(
+    code: ShErrorCode,
+    message: string,
+    extra: { permission?: Permission; retryAfterMs?: number } = {},
+  ) {
+    super(message);
+    this.name = "ShError";
+    this.code = code;
+    if (extra.permission !== undefined) this.permission = extra.permission;
+    if (extra.retryAfterMs !== undefined) this.retryAfterMs = extra.retryAfterMs;
+  }
+}
+
+/** Read a host error reply (a string from older hosts, `{code, message, …}` since 2026.10). */
+export function toShError(v: unknown): ShError {
+  if (typeof v === "string") return new ShError("error", v);
+  if (!isRecord(v)) return new ShError("error", "Unknown error from host");
+  const code = typeof v["code"] === "string" && v["code"] ? v["code"] : "error";
+  const message = typeof v["message"] === "string" && v["message"] ? v["message"] : code;
+  const p = v["permission"];
+  const permission = p === "storage" || p === "people" || p === "federation" ? p : undefined;
+  const r = v["retryAfterMs"];
+  const retryAfterMs = typeof r === "number" && Number.isFinite(r) && r >= 0 ? r : undefined;
+  return new ShError(code, message, { permission, retryAfterMs });
+}
+
+/** Options for `people.pick`. */
+export interface PickOptions {
+  /** What the invite is for. A fixed word — Social Home writes the sheet. */
+  purpose?: "play";
+  /** How many people may be picked (1–10, default 1). */
+  max?: number;
+  /** One person to show selected (a rematch). The person still taps Send. */
+  suggest?: SessionTarget;
+}
+
+/** A person picked in Social Home's invite sheet, with the game it opened. */
+export interface PickedPerson extends SessionTarget {
+  display_name: string;
+  /** The session Social Home opened with them — use it for `federation.send`. */
+  sessionId: string;
+}
+
+/** Read the host's picked people without trusting their shape. */
+export function parsePicked(v: unknown): PickedPerson[] {
+  if (!Array.isArray(v)) return [];
+  const out: PickedPerson[] = [];
+  for (const row of v) {
+    if (!isRecord(row)) continue;
+    const { instance_id, user_ref, is_local, display_name, session_id } = row;
+    if (typeof instance_id !== "string" || !instance_id) continue;
+    if (typeof user_ref !== "string" || !user_ref) continue;
+    if (typeof is_local !== "boolean") continue;
+    if (typeof session_id !== "string" || !session_id) continue;
+    out.push({
+      instance_id,
+      user_ref,
+      is_local,
+      display_name: typeof display_name === "string" && display_name ? display_name : user_ref,
+      sessionId: session_id,
+    });
+  }
+  return out;
+}
+
 /** Unsubscribe function returned by the `on*` subscription methods. */
 export type Unsubscribe = () => void;
 
@@ -216,6 +339,8 @@ export type Unsubscribe = () => void;
 // ---------------------------------------------------------------------------
 
 const CALL_TIMEOUT_MS = 15_000;
+/** `people.pick` waits for a person to choose: give them time. */
+const PICK_TIMEOUT_MS = 30 * 60_000;
 
 // ---------------------------------------------------------------------------
 // Client implementation
@@ -290,12 +415,11 @@ export class SocialHomeClient {
     if (data["ok"] === true) {
       pending.resolve(data["result"]);
     } else {
-      const err = typeof data["error"] === "string" ? data["error"] : "Unknown error from host";
-      pending.reject(new Error(err));
+      pending.reject(toShError(data["error"]));
     }
   };
 
-  private _call(method: string, params?: unknown): Promise<unknown> {
+  private _call(method: string, params?: unknown, timeoutMs = CALL_TIMEOUT_MS): Promise<unknown> {
     return new Promise<unknown>((resolve, reject) => {
       const id = this._nextId++;
       const timer = setTimeout(() => {
@@ -303,7 +427,7 @@ export class SocialHomeClient {
           this._pending.delete(id);
           reject(new Error(`RPC timeout: ${method} (id=${id})`));
         }
-      }, CALL_TIMEOUT_MS);
+      }, timeoutMs);
       this._pending.set(id, { resolve, reject, timer });
       const msg =
         params !== undefined ? { id, method, params } : { id, method };
@@ -347,6 +471,12 @@ export class SocialHomeClient {
       };
       const launch = parseLaunchContext(o["launch"]);
       if (launch !== undefined) ctx.launch = launch;
+      const perms = o["permissions"];
+      if (Array.isArray(perms)) {
+        ctx.permissions = perms.filter(
+          (p): p is Permission => p === "storage" || p === "people" || p === "federation",
+        );
+      }
       return ctx;
     });
   }
@@ -356,26 +486,62 @@ export class SocialHomeClient {
     return this._call("peers.list").then((r) => (Array.isArray(r) ? (r as Peer[]) : []));
   }
 
-  /** List the people (household members + known remote friends) this app can play with. */
+  /**
+   * The people this app knows about for the person using it: whom they
+   * picked in Social Home's invite sheet and whom they play with in this app
+   * (invites they sent, games they took in with Play). Never the household
+   * or friends list — to play someone new, use `people.pick`. (A Social Home
+   * from before the invite sheet still lists everyone the person can message.)
+   */
   contacts(): Promise<Contact[]> {
     return this._call("contacts.list").then((r) => (Array.isArray(r) ? (r as Contact[]) : []));
   }
 
+  /** Invite people — through Social Home, never straight from the app. */
+  readonly people = {
+    /**
+     * Ask Social Home to show its invite sheet. Social Home draws it outside
+     * the app (from the people the person may invite — the app never sees
+     * that list), the person picks and taps Send, and Social Home sends the
+     * invite(s). Resolves with who was picked and the session Social Home
+     * opened with each — `[]` when they cancel. Then send your opening state
+     * with `federation.send(person.sessionId, person, …)`.
+     *
+     * One sheet at a time (`"busy"`); after one closes the same app waits
+     * 5 s (`"too_soon"`, {@link ShError.retryAfterMs}). Call it from a button
+     * the person pressed ("New game", "Rematch"). An older Social Home
+     * rejects it with `"unknown_method"`.
+     */
+    pick: (options: PickOptions = {}): Promise<PickedPerson[]> => {
+      const params: Record<string, unknown> = {
+        purpose: options.purpose ?? "play",
+        max: options.max ?? 1,
+      };
+      if (options.suggest) {
+        const { instance_id, user_ref, is_local } = options.suggest;
+        params["suggest"] = { instance_id, user_ref, is_local };
+      }
+      return this._call("people.pick", params, PICK_TIMEOUT_MS).then(parsePicked);
+    },
+  };
+
   /** Cross-household federation helpers. */
   readonly federation = {
     /**
-     * Open a session (e.g. start a game) targeting a specific person. The peer
-     * receives a `session` event (see {@link SocialHomeClient.onSession}).
-     * @param target  the person to invite, from {@link SocialHomeClient.contacts}.
-     * @returns the session id used in subsequent {@link federation.send} calls.
+     * @deprecated Invites go through Social Home: use `people.pick`. A Social
+     * Home with the invite sheet refuses this ({@link ShError} code
+     * `"use_people_pick"`); older ones still open the session.
      */
     openSession: (target: SessionTarget): Promise<string> =>
       this._call("app.openSession", { target }).then((r) => String(r)),
 
     /**
-     * Send a payload to a specific person within an existing session. The
-     * recipient receives it via {@link SocialHomeClient.onMessage}.
-     * @param target  the person to address, from {@link SocialHomeClient.contacts}.
+     * Send a payload to a specific person within an existing session — one
+     * Social Home opened for them (`people.pick`) or one they took in with
+     * Play. Any other session id is refused with {@link ShError} code
+     * `"unknown_session"`. The recipient receives it via
+     * {@link SocialHomeClient.onMessage}.
+     * @param target  the person on the other side of that session.
      */
     send: (
       sessionId: string,

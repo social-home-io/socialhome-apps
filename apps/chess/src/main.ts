@@ -14,7 +14,7 @@
  */
 
 import sh from "@socialhome/app-sdk";
-import type { AppMessage, Contact, SessionTarget } from "@socialhome/app-sdk";
+import type { AppMessage, Contact, PickedPerson, SessionTarget } from "@socialhome/app-sdk";
 import {
   initialState,
   applyMove,
@@ -27,6 +27,9 @@ import {
 import type { GameState, Move, Color } from "./chess.js";
 import {
   abandonButtonLabel,
+  entryForPicked,
+  isLocalOpponent,
+  pickFailure,
   abandonConfirmCopy,
   classifySessionEvent,
   declinedMessage,
@@ -90,15 +93,6 @@ function targetForEntry(entry: GameEntry): SessionTarget {
   };
 }
 
-/**
- * Our own household instance id, derived from any local contact (every
- * `is_local` contact shares our instance id). `null` if none is known yet.
- */
-function ownInstanceId(): string | null {
-  const local = ui.contacts.find((c) => c.is_local);
-  return local ? local.instance_id : null;
-}
-
 type View = "lobby" | "board";
 
 interface UIState {
@@ -122,6 +116,12 @@ interface UIState {
    * Play, which opens chess with that game. `false` until the context says.
    */
   liveInvites: boolean;
+  /**
+   * An older Social Home without the invite sheet (`people.pick`): chess
+   * lists the people itself and opens games with `openSession`. A newer one
+   * lists only people played before, and "New game" opens Social Home's sheet.
+   */
+  legacyPicker: boolean;
 }
 
 const ui: UIState = {
@@ -135,6 +135,7 @@ const ui: UIState = {
   cursor: null,
   toasts: [],
   liveInvites: false,
+  legacyPicker: false,
 };
 
 let _toastCounter = 0;
@@ -421,30 +422,50 @@ function renderLobby(): void {
     root.appendChild(section);
   }
 
-  // ---- People to challenge, grouped by household vs. remote friends ----
-  const { household, friends } = groupContacts(ui.contacts);
+  if (ui.legacyPicker) {
+    // An older Social Home (no invite sheet): it still lists everyone the
+    // person can message, and chess opens the game itself.
+    const { household, friends } = groupContacts(ui.contacts);
+    root.appendChild(
+      buildContactSection("Your household", household, "No other household members.", "Challenge"),
+    );
+    root.appendChild(
+      buildContactSection(
+        "Friends",
+        friends,
+        "No paired friends yet — pair a household in Social Home.",
+        "Challenge",
+      ),
+    );
+    return;
+  }
 
-  root.appendChild(
-    buildContactSection(
-      "Your household",
-      household,
-      "No other household members.",
-    ),
+  // ---- New game: Social Home's invite sheet picks the person ----
+  const play = make("section", { cls: "lobby-section lobby-new-game" });
+  play.appendChild(make("h2", { cls: "section-heading", text: "Play someone" }));
+  play.appendChild(
+    make("p", {
+      cls: "lobby-hint",
+      text: "Social Home asks who you want to play and sends the invite.",
+    }),
   );
-  root.appendChild(
-    buildContactSection(
-      "Friends",
-      friends,
-      "No paired friends yet — pair a household in Social Home.",
-    ),
-  );
+  const newGameBtn = make("button", { cls: "btn btn-primary", text: "New game" });
+  newGameBtn.addEventListener("click", () => void onNewGame());
+  play.appendChild(newGameBtn);
+  root.appendChild(play);
+
+  // ---- People you've played: a rematch goes through the sheet too ----
+  if (ui.contacts.length > 0) {
+    root.appendChild(buildContactSection("Played before", ui.contacts, "", "Rematch"));
+  }
 }
 
-/** Build a lobby section listing challengeable people, with presence + empty state. */
+/** Build a lobby section listing people, with presence + empty state. */
 function buildContactSection(
   heading: string,
   people: Contact[],
   emptyText: string,
+  action: "Challenge" | "Rematch",
 ): HTMLElement {
   const section = make("section", { cls: "lobby-section" });
   section.appendChild(make("h2", { cls: "section-heading", text: heading }));
@@ -467,8 +488,14 @@ function buildContactSection(
 
     li.appendChild(make("span", { cls: "peer-name", text: contact.display_name }));
 
-    const challengeBtn = make("button", { cls: "btn btn-primary", text: "Challenge" });
-    challengeBtn.addEventListener("click", () => void onChallengeContact(contact));
+    const challengeBtn = make("button", {
+      cls: action === "Challenge" ? "btn btn-primary" : "btn btn-ghost",
+      text: action,
+      attrs: { "aria-label": `${action} ${contact.display_name}` },
+    });
+    challengeBtn.addEventListener("click", () =>
+      void (action === "Challenge" ? onChallengeContact(contact) : onNewGame(contact)),
+    );
     li.appendChild(challengeBtn);
 
     list.appendChild(li);
@@ -935,6 +962,57 @@ async function onMove(entry: GameEntry, move: Move): Promise<void> {
 // Session management
 // ---------------------------------------------------------------------------
 
+/**
+ * "New game" / "Rematch": Social Home shows its invite sheet (outside chess),
+ * the person picks and taps Send, and Social Home sends the invite. Chess
+ * learns only who was picked and the game's session id, then sends its opening
+ * message in that session. A rematch only suggests the person; the sheet still
+ * asks.
+ */
+async function onNewGame(suggest?: Contact): Promise<void> {
+  let picked: PickedPerson[];
+  try {
+    picked = await client.people.pick({
+      purpose: "play",
+      max: 1,
+      ...(suggest
+        ? { suggest: { instance_id: suggest.instance_id, user_ref: suggest.user_ref, is_local: suggest.is_local } }
+        : {}),
+    });
+  } catch (err) {
+    const failure = pickFailure(err);
+    if (failure.kind === "legacy") {
+      // An older Social Home: fall back to chess's own list.
+      ui.legacyPicker = true;
+      ui.contacts = await client.contacts().catch(() => ui.contacts);
+      render();
+    } else if (failure.kind === "toast") {
+      showToast(failure.message);
+    }
+    return;
+  }
+  let first: GameEntry | null = null;
+  for (const p of picked) {
+    const entry = entryForPicked(p);
+    ui.games.set(entry.sessionId, entry);
+    await persistGame(entry);
+    // Tell the opponent's chess who challenged them (best effort: the
+    // invite itself already reached them through Social Home).
+    await client.federation
+      .send(entry.sessionId, targetForEntry(entry), { type: "open" } satisfies OpenPayload)
+      .catch(() => {});
+    first ??= entry;
+  }
+  if (!first) {
+    // Cancelled: back where they were.
+    render();
+    return;
+  }
+  ui.contacts = await client.contacts().catch(() => ui.contacts);
+  openBoardView(first.sessionId);
+}
+
+/** An older Social Home only: chess opens the game itself. */
 async function onChallengeContact(contact: Contact): Promise<void> {
   try {
     const target: SessionTarget = {
@@ -1163,10 +1241,10 @@ function seatInvite(msg: AppMessage): GameEntry | null {
   );
   const opponentName = contact?.display_name ?? fromUser ?? fromInstance;
 
-  // The challenger is local iff they share our household instance id. Any
-  // is_local contact carries that id; if we know none yet, default to remote.
-  const ourInstance = ownInstanceId();
-  const opponentIsLocal = ourInstance !== null && fromInstance === ourInstance;
+  // The challenger is local iff they share our household: after Play,
+  // Social Home lists them as a contact and says so; else any local contact
+  // carries our household's id; if we know none, default to remote.
+  const opponentIsLocal = isLocalOpponent(fromInstance, fromUser, ui.contacts);
 
   const entry: GameEntry = {
     sessionId,
@@ -1258,14 +1336,17 @@ async function main(): Promise<void> {
   root.innerHTML = `<p class="loading-msg" aria-live="polite">Loading…</p>`;
 
   try {
-    const [ctx, contacts, _store] = await Promise.all([
+    const [ctx, _store] = await Promise.all([
       // Held moves are fetched below, once our games are loaded.
       client.context({ pullHeld: true }),
-      client.contacts(),
       loadAllGames(),
     ]);
     ui.selfUserId = ctx.selfUserId;
-    ui.contacts = contacts;
+    // After the context: a Play launch has taken its invite in by then, so
+    // the inviter is among the people chess may know.
+    ui.contacts = await client.contacts();
+    // A Social Home from before permissions has no invite sheet either.
+    ui.legacyPicker = ctx.permissions === undefined;
 
     if (ctx.launch === undefined) {
       // An older Social Home: it accepts every waiting invite when chess
