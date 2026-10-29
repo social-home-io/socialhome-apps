@@ -118,8 +118,17 @@ RELEASE_TAG=ci-dry-run pnpm catalog
 ```ts
 import { sh, parseSessionPayload } from '@socialhome/app-sdk';
 
-// App identity
-const { appId, selfUserId } = await sh.context();
+// App identity, and why the app was opened (call this first)
+const { appId, selfUserId, launch } = await sh.context();
+
+// Invites are played from Social Home: "Play" in the person's Needs you
+// opens your app with that game (launch.sessionId), and Social Home accepts
+// that one invite (launch.invite). Opening the app any other way accepts
+// nothing — launch is {}.
+if (launch?.invite) startGame(launch.invite);          // seat + show it
+else if (launch?.sessionId) showGameIfKnown(launch.sessionId); // gone: say so
+// launch === undefined: an older Social Home (no launch contexts) — fall back to
+// `await sh.federation.pendingSessions()` and seat live invites (onSession).
 
 // Key-value store (scoped to this app)
 await sh.store.set('board', JSON.stringify(gameState));
@@ -143,7 +152,9 @@ const offMsg = sh.onMessage(({ sessionId, fromInstance, payload }) => {
   console.log(`move in ${sessionId} from ${fromInstance}:`, payload);
 });
 
-// Receive incoming session invites (a friend challenged you)
+// Live session events. With a launch context a live `open` is news only —
+// the invite waits in Needs you until Play — so don't seat it as a game.
+// Your own invites are never echoed back to you.
 const offInvite = sh.onSession(({ sessionId, fromInstance }) => {
   console.log(`invite to ${sessionId} from ${fromInstance}`);
 });
@@ -165,6 +176,19 @@ await sh.federation.cancelSession(sessionId, target);
 offMsg();
 offInvite();
 ```
+
+### Launch context (`@socialhome/app-sdk` 1.2)
+
+`AppContext.launch` (type `LaunchContext`) says why Social Home opened the app:
+
+| `launch` | Meaning |
+|---|---|
+| `undefined` | An older Social Home: it accepts every waiting invite on open — use `federation.pendingSessions()` and live `onSession` invites. |
+| `{}` | Opened normally. Nothing was accepted; invites wait in the person's Needs you. |
+| `{ sessionId, invite }` | **Play** in Needs you: Social Home accepted this one invite. Start that game and show it. |
+| `{ sessionId }` | Play, but the invite no longer waits (played on another device, declined, withdrawn, expired): show the game if you have it, else say so. |
+
+Older apps keep working on a newer Social Home: their `pendingSessions()` call gets only the invite Play opened them for, and a live invite they seat themselves is accepted with their first message in that game.
 
 The SDK communicates with the host SPA over `postMessage` (it never has the user's auth token). All calls are async and time out after 15 seconds. In the iframe `sh` is non-null; in non-browser/test contexts it is `null`, so use `createClient(...)` in unit tests.
 

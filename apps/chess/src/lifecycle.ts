@@ -11,10 +11,16 @@
  *
  * A close with no or an unknown reason changes nothing (as before), and a
  * close never creates a game.
+ *
+ * Invites are played from Social Home ("Play" in Needs you): on a host with
+ * launch contexts (`context().launch` present) the app starts a received game
+ * only from `launch` — a live `open` is news, not a game (no toast, no lobby
+ * row), since the invite still waits in Needs you. An older host has no
+ * `launch`, and chess keeps seating live / drained invites for it.
  */
 
 import { parseSessionPayload } from "@socialhome/app-sdk";
-import type { AppMessage } from "@socialhome/app-sdk";
+import type { AppMessage, LaunchContext } from "@socialhome/app-sdk";
 import type { Color, GameState } from "./chess.js";
 
 export interface GameEntry {
@@ -79,10 +85,33 @@ function fromOpponent(entry: GameEntry, msg: AppMessage): boolean {
   return true;
 }
 
+/** How chess takes in invites on this host. */
+export interface InviteOptions {
+  /**
+   * Seat a live / drained `open` as a game (an older host without launch
+   * contexts). `false` on a host with launch contexts — and until the
+   * context says which host this is. Default `true`.
+   */
+  liveInvites?: boolean;
+  /** Our own user id: an `open` from ourselves is never an invite to us. */
+  selfUserId?: string;
+}
+
+/**
+ * True for an `open` that we sent ourselves: an older Social Home echoed a
+ * same-household invite back to the challenger, and the echo raced
+ * `openSession`'s reply — chess read it as an invite from a stranger and
+ * toasted "<our user id> invited you to play!".
+ */
+export function isOwnInvite(msg: AppMessage, selfUserId: string | undefined): boolean {
+  return !!selfUserId && senderOf(msg) === selfUserId;
+}
+
 /** Decide what an inbound `session` event means for the games we know. */
 export function classifySessionEvent(
   msg: AppMessage,
   games: ReadonlyMap<string, GameEntry>,
+  opts: InviteOptions = {},
 ): SessionAction {
   const { verb, reason } = parseSessionPayload(msg.payload);
 
@@ -107,9 +136,41 @@ export function classifySessionEvent(
   }
 
   // An invite: `open`, or no verb at all (older hosts / replayed rows).
-  if (verb === undefined || verb === "open") return { kind: "invite" };
+  if (verb === undefined || verb === "open") {
+    if (opts.liveInvites === false) return { kind: "ignore" };
+    if (isOwnInvite(msg, opts.selfUserId)) return { kind: "ignore" };
+    return { kind: "invite" };
+  }
   return { kind: "ignore" };
 }
+
+/** What chess does with the launch context it was opened with. */
+export type LaunchAction =
+  | { kind: "none" }
+  | { kind: "start"; invite: AppMessage }
+  | { kind: "open"; sessionId: string }
+  | { kind: "gone" };
+
+/**
+ * Social Home opened chess for one game ("Play" in Needs you):
+ * - `start` — the invite was accepted for this launch; seat it and show it.
+ * - `open` — a game we already have (Play again, a reload): show it.
+ * - `gone` — the invite no longer waits and we don't know the game.
+ * - `none` — opened normally, or by an older host (`launch` undefined).
+ */
+export function launchAction(
+  launch: LaunchContext | undefined,
+  games: ReadonlyMap<string, GameEntry>,
+): LaunchAction {
+  const sessionId = launch?.sessionId;
+  if (!sessionId) return { kind: "none" };
+  if (games.has(sessionId)) return { kind: "open", sessionId };
+  if (launch.invite) return { kind: "start", invite: launch.invite };
+  return { kind: "gone" };
+}
+
+/** Toast when Play opened chess for an invite that no longer waits. */
+export const INVITE_GONE = "That invite isn't open any more.";
 
 /** Toast shown to the challenger when the invitee declines. */
 export function declinedMessage(name: string): string {
