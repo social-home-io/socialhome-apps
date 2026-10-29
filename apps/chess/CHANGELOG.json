@@ -1,0 +1,24 @@
+[
+  {
+    "version": "2026.10.29",
+    "date": "2026-10-29",
+    "notes": {
+      "en": "Play with the keyboard: arrow keys move around the board, Enter or Space picks up a piece and moves it, Escape puts it back. Screen readers hear each square, the legal moves and every move, check and checkmate. Abandoning a game asks first and says what happens. Every square and button shows a focus ring.",
+      "de": "Spiel mit der Tastatur: Mit den Pfeiltasten bewegst du dich über das Brett, Enter oder Leertaste nimmt eine Figur auf und zieht sie, Escape stellt sie zurück. Screenreader lesen jedes Feld, die möglichen Züge und jeden Zug vor, auch Schach und Schachmatt. Bevor du eine Partie aufgibst, wirst du gefragt und erfährst, was passiert. Jedes Feld und jeder Button zeigt einen Fokusrahmen.",
+      "nl": "Speel met het toetsenbord: met de pijltjestoetsen ga je over het bord, Enter of spatie pakt een stuk op en zet het, Escape zet het terug. Schermlezers lezen elk veld voor, de mogelijke zetten en elke zet, ook schaak en schaakmat. Voordat je een partij opgeeft, word je eerst gevraagd en zie je wat er gebeurt. Elk veld en elke knop toont een focusrand.",
+      "fr": "Jouez au clavier : les flèches parcourent l’échiquier, Entrée ou Espace prend une pièce et la déplace, Échap la repose. Les lecteurs d’écran annoncent chaque case, les coups possibles et chaque coup, y compris échec et échec et mat. Avant d’abandonner une partie, une confirmation vous est demandée, avec ce qui va se passer. Chaque case et chaque bouton affiche un contour de focus.",
+      "es": "Juega con el teclado: las flechas te mueven por el tablero, Intro o Espacio toma una pieza y la mueve, Escape la devuelve. Los lectores de pantalla anuncian cada casilla, los movimientos posibles y cada jugada, también jaque y jaque mate. Antes de abandonar una partida, se te pregunta y se te explica qué pasa. Cada casilla y cada botón muestran un anillo de foco."
+    }
+  },
+  {
+    "version": "2026.10.28",
+    "date": "2026-10-28",
+    "notes": {
+      "en": "When someone declines your invite, you see it and the game is cleared. When an invite to you is taken back, the waiting game disappears. You can cancel an invite nobody has accepted yet; it also leaves the other person's Notifications › Needs you. Players from other households show by name instead of their household id.",
+      "de": "Lehnt jemand deine Einladung ab, siehst du es und die Partie wird entfernt. Zieht jemand eine Einladung an dich zurück, verschwindet die wartende Partie. Du kannst eine Einladung zurückziehen, die noch niemand angenommen hat; sie verschwindet dann auch bei der anderen Person aus „Mitteilungen › Wartet auf dich“. Spieler aus anderen Haushalten erscheinen mit Namen statt mit der Haushalts-ID.",
+      "nl": "Wijst iemand je uitnodiging af, dan zie je dat en wordt de partij opgeruimd. Trekt iemand een uitnodiging aan jou in, dan verdwijnt de wachtende partij. Je kunt een uitnodiging intrekken die nog niemand heeft aangenomen; die verdwijnt dan ook bij de ander uit Meldingen › Wacht op jou. Spelers uit andere huishoudens staan er met hun naam in plaats van de id van hun huishouden.",
+      "fr": "Quand quelqu’un refuse votre invitation, vous le voyez et la partie est retirée. Quand une invitation qui vous était adressée est retirée, la partie en attente disparaît. Vous pouvez annuler une invitation que personne n’a encore acceptée ; elle disparaît aussi de Notifications › Attend votre décision chez l’autre personne. Les joueurs d’autres foyers apparaissent avec leur nom au lieu de l’identifiant de leur foyer.",
+      "es": "Cuando alguien rechaza tu invitación, lo ves y la partida se quita. Cuando alguien retira una invitación que te envió, la partida en espera desaparece. Puedes cancelar una invitación que nadie ha aceptado todavía; también desaparece de Notificaciones › Te necesita de la otra persona. Los jugadores de otros hogares aparecen con su nombre en lugar del identificador de su hogar."
+    }
+  }
+]

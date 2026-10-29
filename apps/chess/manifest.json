@@ -8,5 +8,29 @@
   "capabilities": [
     "storage",
     "federation"
-  ]
+  ],
+  "min_age": 0,
+  "languages": [
+    "en"
+  ],
+  "homepage": "https://github.com/social-home-io/socialhome-apps/tree/main/apps/chess",
+  "min_core_version": "2026.10.29",
+  "i18n": {
+    "de": {
+      "name": "Schach",
+      "description": "Spiel eine Partie Schach mit einem anderen Haushalt über Social Home."
+    },
+    "nl": {
+      "name": "Schaken",
+      "description": "Speel een potje schaak met een ander huishouden via Social Home."
+    },
+    "fr": {
+      "name": "Échecs",
+      "description": "Jouez une partie d’échecs avec un autre foyer via Social Home."
+    },
+    "es": {
+      "name": "Ajedrez",
+      "description": "Juega una partida de ajedrez con otro hogar a través de Social Home."
+    }
+  }
 }
