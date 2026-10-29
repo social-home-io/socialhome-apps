@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createClient, parseLaunchContext, parseSessionPayload, type SocialHomeClient, type Contact, type SessionTarget, type AppMessage } from "./index.js";
+import { createClient, parseHeldMessages, parseLaunchContext, parseSessionPayload, type SocialHomeClient, type Contact, type SessionTarget, type AppMessage } from "./index.js";
 
 /**
  * A fake host frame: captures messages posted by the SDK and lets the test
@@ -411,5 +411,51 @@ describe("launch context (Play opens the game you were invited to)", () => {
     expect(parseLaunchContext({ invite: { sessionId: "s1" } })).toEqual({});
     const l = parseLaunchContext({ sessionId: "s1", invite: { sessionId: "s1", fromInstance: 3, fromUser: 4 } });
     expect(l?.invite).toEqual({ sessionId: "s1", fromInstance: "3", fromUser: undefined, payload: undefined });
+  });
+});
+
+describe("held messages (moves and declines wait while the app is closed)", () => {
+  it("context() asks to pull held messages only when told to", () => {
+    const h = makeHarness();
+    active = h.client;
+    h.client.context().catch(() => {});
+    h.client.context({ pullHeld: true }).catch(() => {});
+    expect(h.posted[0]).toEqual({ id: h.posted[0].id, method: "app.context" });
+    expect(h.posted[1]).toMatchObject({ method: "app.context", params: { held: "pull" } });
+  });
+
+  it("federation.held() posts app.held and types each row, latest per session", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const p = h.client.federation.held();
+    expect(h.posted[0]).toMatchObject({ method: "app.held" });
+    h.fromHost({
+      id: h.posted[0].id,
+      ok: true,
+      result: [
+        { kind: "message", sessionId: "g1", fromInstance: "peer", fromUser: "alice", payload: { n: 2 } },
+        { kind: "session", sessionId: "g2", fromInstance: "peer", payload: { verb: "close", reason: "declined" } },
+      ],
+    });
+    expect(await p).toEqual([
+      { kind: "message", sessionId: "g1", fromInstance: "peer", fromUser: "alice", payload: { n: 2 } },
+      { kind: "session", sessionId: "g2", fromInstance: "peer", fromUser: undefined, payload: { verb: "close", reason: "declined" } },
+    ]);
+  });
+
+  it("an older host rejects app.held", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const p = h.client.federation.held();
+    h.fromHost({ id: h.posted[0].id, ok: false, error: "Unknown method: app.held" });
+    await expect(p).rejects.toThrow();
+  });
+
+  it("never trusts the shape", () => {
+    expect(parseHeldMessages(undefined)).toEqual([]);
+    expect(parseHeldMessages([null, 3, { kind: "message" }, { sessionId: "" }])).toEqual([]);
+    expect(parseHeldMessages([{ sessionId: "s", kind: "weird" }])).toEqual([
+      { sessionId: "s", fromInstance: "", fromUser: undefined, payload: undefined, kind: "message" },
+    ]);
   });
 });
