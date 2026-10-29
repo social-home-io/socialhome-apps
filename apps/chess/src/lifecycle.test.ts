@@ -13,7 +13,9 @@ import {
   abandonConfirmCopy,
   classifySessionEvent,
   declinedMessage,
+  continueCopy,
   entryForPicked,
+  isUnknownGame,
   isLocalOpponent,
   pickFailure,
   INVITE_GONE,
@@ -385,5 +387,45 @@ describe("new games through Social Home's invite sheet", () => {
       kind: "toast",
       message: "Couldn't open the invite — please try again.",
     });
+  });
+});
+
+describe("continue a game Social Home no longer knows", () => {
+  const game: GameEntry = {
+    sessionId: "old-game",
+    opponentInstanceId: "brookside",
+    opponentRef: "ben",
+    opponentIsLocal: false,
+    opponentName: "Ben",
+    myColor: "w",
+    state: initialState(),
+  };
+
+  it("a refused send for an unknown game offers to continue it", () => {
+    expect(isUnknownGame(new ShError("unknown_session", "x"))).toBe(true);
+    expect(isUnknownGame(new ShError("permission_denied", "x"))).toBe(false);
+    expect(isUnknownGame(new Error("RPC timeout"))).toBe(false);
+    const copy = continueCopy(game);
+    expect(copy.confirm).toBe("Continue game with Ben");
+    expect(copy.primary).toBe(true);
+  });
+
+  it("Play for our game from its opponent (a continue) opens it", () => {
+    const invite = { sessionId: "old-game", fromInstance: "brookside", fromUser: "ben", payload: { verb: "continue" } };
+    expect(launchAction({ sessionId: "old-game", invite }, new Map([["old-game", game]]))).toEqual({
+      kind: "open",
+      sessionId: "old-game",
+    });
+  });
+
+  it("Play for our game from someone else is refused — a session id never moves", () => {
+    for (const invite of [
+      { sessionId: "old-game", fromInstance: "elsewhere", fromUser: "ben", payload: {} },
+      { sessionId: "old-game", fromInstance: "brookside", fromUser: "mallory", payload: {} },
+    ]) {
+      expect(launchAction({ sessionId: "old-game", invite }, new Map([["old-game", game]]))).toEqual({
+        kind: "mismatch",
+      });
+    }
   });
 });

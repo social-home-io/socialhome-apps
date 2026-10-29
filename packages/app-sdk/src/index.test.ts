@@ -608,3 +608,29 @@ describe("people.pick (Social Home's invite sheet)", () => {
     ).toEqual([{ instance_id: "a", user_ref: "b", is_local: true, display_name: "b", sessionId: "s" }]);
   });
 });
+
+describe("people.pick continue (an old game picked up again)", () => {
+  it("asks for the continue sheet with the session id and the opponent", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const ben: SessionTarget = { instance_id: "brookside", user_ref: "ben", is_local: false };
+    const p = h.client.people.pick({ purpose: "continue", sessionId: "old-game", suggest: ben });
+    expect(h.posted[0]).toMatchObject({
+      method: "people.pick",
+      params: { purpose: "continue", max: 1, sessionId: "old-game", suggest: ben },
+    });
+    h.fromHost({
+      id: h.posted[0].id,
+      ok: true,
+      result: [{ ...ben, display_name: "Ben", session_id: "old-game" }],
+    });
+    await expect(p).resolves.toEqual([{ ...ben, display_name: "Ben", sessionId: "old-game" }]);
+  });
+
+  it("a play pick sends no sessionId", () => {
+    const h = makeHarness();
+    active = h.client;
+    void h.client.people.pick().catch(() => {});
+    expect("sessionId" in h.posted[0].params).toBe(false);
+  });
+});

@@ -242,7 +242,9 @@ export function parseHeldMessages(v: unknown): HeldMessage[] {
  * - `"busy"` — an invite sheet is already open.
  * - `"too_soon"` — the sheet just closed; try again after {@link ShError.retryAfterMs}.
  * - `"unknown_session"` — `federation.send` to a game Social Home doesn't know
- *   for that person (not opened through the sheet, not taken in with Play).
+ *   for that person (not opened through the sheet, not taken in with Play,
+ *   or quiet for more than 90 days) — offer `people.pick({purpose: "continue"})`.
+ * - `"invalid"` — `people.pick({purpose: "continue"})` without `sessionId` or `suggest`.
  * - `"unavailable"` — this host can't show the invite sheet.
  * - `"unknown_method"` — an older Social Home without the call.
  * - `"error"` — anything else (`message` says what).
@@ -253,6 +255,7 @@ export type ShErrorCode =
   | "busy"
   | "too_soon"
   | "unknown_session"
+  | "invalid"
   | "unavailable"
   | "unknown_method"
   | "error"
@@ -294,12 +297,21 @@ export function toShError(v: unknown): ShError {
 
 /** Options for `people.pick`. */
 export interface PickOptions {
-  /** What the invite is for. A fixed word — Social Home writes the sheet. */
-  purpose?: "play";
-  /** How many people may be picked (1–10, default 1). */
+  /**
+   * What the sheet is for. A fixed word — Social Home writes the sheet.
+   * - `"play"` (default): invite someone to a new game.
+   * - `"continue"`: pick up a game Social Home no longer knows (a send was
+   *   refused with `"unknown_session"`) with the person you name in
+   *   `suggest` — the sheet asks "Continue game with Ben"; needs `sessionId`.
+   */
+  purpose?: "play" | "continue";
+  /** How many people may be picked (1–10, default 1; always 1 to continue). */
   max?: number;
-  /** One person to show selected (a rematch). The person still taps Send. */
+  /** One person to show selected (a rematch), or the opponent to continue
+   *  with. The person still taps Send. */
   suggest?: SessionTarget;
+  /** `"continue"` only: your own id for the game to pick up again. */
+  sessionId?: string;
 }
 
 /** A person picked in Social Home's invite sheet, with the game it opened. */
@@ -521,6 +533,7 @@ export class SocialHomeClient {
         const { instance_id, user_ref, is_local } = options.suggest;
         params["suggest"] = { instance_id, user_ref, is_local };
       }
+      if (options.sessionId !== undefined) params["sessionId"] = options.sessionId;
       return this._call("people.pick", params, PICK_TIMEOUT_MS).then(parsePicked);
     },
   };

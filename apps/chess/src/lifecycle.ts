@@ -150,12 +150,16 @@ export type LaunchAction =
   | { kind: "none" }
   | { kind: "start"; invite: AppMessage }
   | { kind: "open"; sessionId: string }
+  | { kind: "mismatch" }
   | { kind: "gone" };
 
 /**
  * Social Home opened chess for one game ("Play" in Needs you):
  * - `start` — the invite was accepted for this launch; seat it and show it.
- * - `open` — a game we already have (Play again, a reload): show it.
+ * - `open` — a game we already have (Play again, a reload, or its
+ *   opponent picking it up again — "continue"): show it.
+ * - `mismatch` — Play for a game we have, but from someone else than its
+ *   opponent: refuse (a session id is never moved to another person).
  * - `gone` — the invite no longer waits and we don't know the game.
  * - `none` — opened normally, or by an older host (`launch` undefined).
  */
@@ -165,10 +169,19 @@ export function launchAction(
 ): LaunchAction {
   const sessionId = launch?.sessionId;
   if (!sessionId) return { kind: "none" };
-  if (games.has(sessionId)) return { kind: "open", sessionId };
+  const known = games.get(sessionId);
+  if (known) {
+    // A game we have, invited by someone else than its opponent (a
+    // "continue" naming our game's id): never seat them in it.
+    if (launch.invite && !fromOpponent(known, launch.invite)) return { kind: "mismatch" };
+    return { kind: "open", sessionId };
+  }
   if (launch.invite) return { kind: "start", invite: launch.invite };
   return { kind: "gone" };
 }
+
+/** Toast when Play names a game we have but someone else than its opponent. */
+export const INVITE_MISMATCH = "That invite doesn't match your game, so it wasn't opened.";
 
 /** Toast when Play opened chess for an invite that no longer waits. */
 export const INVITE_GONE = "That invite isn't open any more.";
@@ -201,6 +214,8 @@ export interface ConfirmCopy {
   body: string;
   confirm: string;
   cancel: string;
+  /** The confirm is the safe, wanted step (not destructive). */
+  primary?: boolean;
 }
 
 /** Lobby button label: "Abandon" for a game in play, "Remove" for a finished one. */
@@ -289,4 +304,26 @@ export function pickFailure(err: unknown): PickFailure {
     default:
       return { kind: "toast", message: "Couldn't open the invite — please try again." };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Continue a game Social Home no longer knows
+// ---------------------------------------------------------------------------
+
+/** Whether a send failed because Social Home no longer knows the game
+ *  (from before the mailbox, or quiet for more than 90 days). */
+export function isUnknownGame(err: unknown): boolean {
+  return err instanceof ShError && err.code === "unknown_session";
+}
+
+/** What chess asks before opening Social Home's "Continue game" sheet. */
+export function continueCopy(entry: GameEntry): ConfirmCopy {
+  const name = entry.opponentName;
+  return {
+    title: "This game rested a long time",
+    body: `Social Home no longer keeps this game, so your move didn't reach ${name}. Ask ${name} to continue it? Your board stays as it is.`,
+    confirm: `Continue game with ${name}`,
+    cancel: "Not now",
+    primary: true,
+  };
 }
