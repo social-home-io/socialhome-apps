@@ -3,11 +3,13 @@
  * selection decision, square names and the live-region sentences.
  */
 
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
+import { setLocale } from "./i18n.js";
 import { applyMove, initialState, parseSquare } from "./chess.js";
 import type { Board, GameState, Move } from "./chess.js";
 import {
   activateSquare,
+  boardHint,
   boardLabel,
   buildSquareOrder,
   initialCursor,
@@ -16,6 +18,7 @@ import {
   moveCursor,
   noneAnnouncement,
   selectionAnnouncement,
+  selectionCleared,
   squareLabel,
 } from "./board-nav.js";
 
@@ -260,5 +263,34 @@ describe("moveAnnouncement", () => {
       opponentName: "Ben",
     });
     expect(text).toBe("Ben made a move. Your turn.");
+  });
+});
+
+describe("in the person's language", () => {
+  afterEach(() => setLocale("en"));
+
+  function announce(before: GameState, move: Move, myColor: "w" | "b"): string {
+    return moveAnnouncement({ before, after: applyMove(before, move), move, myColor, opponentName: "Ben" });
+  }
+
+  it("German: squares, board, picking up and moves", () => {
+    setLocale("de");
+    const s = initialState();
+    expect(squareLabel(s, at("d8"), { selected: true })).toBe("d8, schwarze Dame, ausgewählt");
+    expect(boardLabel("b")).toBe("Schachbrett, du spielst Schwarz");
+    expect(selectionAnnouncement(s, at("g1"), [at("h3"), at("f3")])).toBe("Springer auf g1. Züge nach f3 und h3.");
+    expect(announce(s, { from: at("g1"), to: at("f3") }, "b")).toBe("Zug von Ben: Springer nach f3. Du bist dran.");
+    const before = play(["e2", "e4"], ["d7", "d5"]);
+    expect(announce(before, { from: at("e4"), to: at("d5") }, "w")).toBe("Dein Zug: Bauer nach d5, schlägt Bauer.");
+    expect(noneAnnouncement("not-your-turn", "Ben")).toBe("Ben ist dran.");
+    expect(boardHint()).toMatch(/Pfeiltasten/);
+    expect(selectionCleared()).toBe("Auswahl aufgehoben.");
+  });
+
+  it("French and Spanish capitalise the piece that leads", () => {
+    setLocale("fr");
+    expect(selectionAnnouncement(initialState(), at("a1"), [])).toBe("Tour en a1. Aucun coup possible.");
+    setLocale("es");
+    expect(selectionAnnouncement(initialState(), at("e2"), [at("e3")])).toBe("Peón en e2. Puede ir a e3.");
   });
 });

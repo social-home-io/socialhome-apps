@@ -22,6 +22,7 @@
 import { parseSessionPayload, ShError } from "@socialhome/app-sdk";
 import type { AppMessage, Contact, LaunchContext, PickedPerson } from "@socialhome/app-sdk";
 import { initialState } from "./chess.js";
+import { t } from "./i18n.js";
 import type { Color, GameState } from "./chess.js";
 
 export interface GameEntry {
@@ -181,19 +182,23 @@ export function launchAction(
 }
 
 /** Toast when Play names a game we have but someone else than its opponent. */
-export const INVITE_MISMATCH = "That invite doesn't match your game, so it wasn't opened.";
+export function inviteMismatchMessage(): string {
+  return t("invite.mismatch");
+}
 
 /** Toast when Play opened chess for an invite that no longer waits. */
-export const INVITE_GONE = "That invite isn't open any more.";
+export function inviteGoneMessage(): string {
+  return t("invite.gone");
+}
 
 /** Toast shown to the challenger when the invitee declines. */
 export function declinedMessage(name: string): string {
-  return `${name} declined the game.`;
+  return t("invite.declined", { name });
 }
 
 /** Toast shown to the invitee when the challenger withdraws the invite. */
 export function withdrawnMessage(name: string): string {
-  return `${name} took the invite back.`;
+  return t("invite.withdrawn", { name });
 }
 
 /**
@@ -220,7 +225,7 @@ export interface ConfirmCopy {
 
 /** Lobby button label: "Abandon" for a game in play, "Remove" for a finished one. */
 export function abandonButtonLabel(entry: GameEntry): string {
-  return entry.state.result === null ? "Abandon" : "Remove";
+  return entry.state.result === null ? t("btn.abandon") : t("btn.remove");
 }
 
 /**
@@ -232,17 +237,17 @@ export function abandonConfirmCopy(entry: GameEntry): ConfirmCopy {
   const name = entry.opponentName;
   if (entry.state.result !== null) {
     return {
-      title: `Remove your game with ${name}?`,
-      body: "The finished game is removed from your games. This can't be undone.",
-      confirm: "Remove game",
-      cancel: "Keep it",
+      title: t("remove.title", { name }),
+      body: t("remove.body"),
+      confirm: t("remove.confirm"),
+      cancel: t("remove.cancel"),
     };
   }
   return {
-    title: `Abandon your game with ${name}?`,
-    body: `The game is removed from your games and can't be resumed. ${name} isn't told, so their copy stays open.`,
-    confirm: "Abandon game",
-    cancel: "Keep playing",
+    title: t("abandon.title", { name }),
+    body: t("abandon.body", { name }),
+    confirm: t("abandon.confirm"),
+    cancel: t("abandon.cancel"),
   };
 }
 
@@ -298,11 +303,11 @@ export function pickFailure(err: unknown): PickFailure {
     case "busy":
       return { kind: "quiet" };
     case "too_soon":
-      return { kind: "toast", message: "Wait a moment, then try again." };
+      return { kind: "toast", message: t("pick.tooSoon") };
     case "permission_denied":
-      return { kind: "toast", message: "Chess can't invite people in this household." };
+      return { kind: "toast", message: t("pick.denied") };
     default:
-      return { kind: "toast", message: "Couldn't open the invite — please try again." };
+      return { kind: "toast", message: t("pick.failed") };
   }
 }
 
@@ -320,10 +325,10 @@ export function isUnknownGame(err: unknown): boolean {
 export function continueCopy(entry: GameEntry): ConfirmCopy {
   const name = entry.opponentName;
   return {
-    title: "This game rested a long time",
-    body: `Social Home no longer keeps this game, so your move didn't reach ${name}. Ask ${name} to continue it? Your board stays as it is.`,
-    confirm: `Continue game with ${name}`,
-    cancel: "Not now",
+    title: t("continue.title"),
+    body: t("continue.body", { name }),
+    confirm: t("continue.confirm", { name }),
+    cancel: t("continue.cancel"),
     primary: true,
   };
 }

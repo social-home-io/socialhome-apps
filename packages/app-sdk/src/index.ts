@@ -11,6 +11,8 @@
  *                  rejected as an {@link ShError}
  *   Host → app:  { type: 'app:event', kind, sessionId,          real-time relay of an
  *                  fromInstance, payload }                       inbound federation message
+ *   Host → app:  { type: 'app.context-changed', context }       the person switched language
+ *                                                               or theme ({@link AppLook})
  *
  * `kind` is `'message'` for an in-game/app message and `'session'` for a
  * session-control event (e.g. a game invite). `sessionId` scopes the
@@ -73,8 +75,118 @@ export interface LaunchContext {
  */
 export type Permission = "storage" | "people" | "federation";
 
+/**
+ * The eight colours Social Home hands an app, each a plain `#rrggbb` /
+ * `#rrggbbaa` string — see {@link applyTheme} for the CSS variable each one
+ * becomes.
+ *
+ * - `bg` — the page background · `surface` — cards, panels, dialogs
+ * - `text` — body text · `muted` — secondary text (≥ 4.5:1 on bg and surface)
+ * - `accent` — primary buttons, highlights · `onAccent` — text on an accent fill
+ * - `border` — hairlines, dividers · `focus` — the keyboard focus ring
+ */
+export interface ThemeTokens {
+  bg: string;
+  surface: string;
+  text: string;
+  muted: string;
+  accent: string;
+  onAccent: string;
+  border: string;
+  focus: string;
+}
+
+/** The token names, in a fixed order. */
+export const TOKEN_NAMES = [
+  "bg", "surface", "text", "muted", "accent", "onAccent", "border", "focus",
+] as const satisfies readonly (keyof ThemeTokens)[];
+
+/** The CSS variable {@link applyTheme} sets for each token. */
+export const TOKEN_CSS_VARS: Record<keyof ThemeTokens, string> = {
+  bg: "--sh-bg",
+  surface: "--sh-surface",
+  text: "--sh-text",
+  muted: "--sh-muted",
+  accent: "--sh-accent",
+  onAccent: "--sh-on-accent",
+  border: "--sh-border",
+  focus: "--sh-focus",
+};
+
+/**
+ * How the app should look (owner decision D14) — the person's language, its
+ * direction, light or dark, reduced motion and the colour tokens. Every field
+ * is `undefined` on an older Social Home: default to English, left-to-right
+ * and your own colours.
+ */
+export interface AppLook {
+  /** The person's Social Home language (`"en"`, `"de"`, `"pt-BR"`, …). Fall back to English. */
+  locale?: string;
+  dir?: "ltr" | "rtl";
+  /** What Social Home shows right now (its Auto setting already resolved). */
+  theme?: "light" | "dark";
+  /** The person asked for less motion: skip animations. */
+  reducedMotion?: boolean;
+  /** The colours; a token that isn't a plain hex colour is left out. */
+  tokens?: Partial<ThemeTokens>;
+}
+
+const HEX_COLOR = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i;
+const LOCALE_TAG = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
+
+/** Read the look the host sent without trusting its shape: a field that isn't
+ *  what it says is left out — never a string that could carry CSS. */
+export function parseLook(v: unknown): AppLook {
+  if (!isRecord(v)) return {};
+  const out: AppLook = {};
+  const { locale, dir, theme, reducedMotion, tokens } = v;
+  if (typeof locale === "string" && locale.length <= 35 && LOCALE_TAG.test(locale)) out.locale = locale;
+  if (dir === "ltr" || dir === "rtl") out.dir = dir;
+  if (theme === "light" || theme === "dark") out.theme = theme;
+  if (typeof reducedMotion === "boolean") out.reducedMotion = reducedMotion;
+  if (isRecord(tokens)) {
+    const t: Partial<ThemeTokens> = {};
+    for (const name of TOKEN_NAMES) {
+      const c = tokens[name];
+      if (typeof c === "string" && HEX_COLOR.test(c)) t[name] = c;
+    }
+    if (Object.keys(t).length > 0) out.tokens = t;
+  }
+  return out;
+}
+
+/**
+ * Apply the look's colours to the app's own page: each token becomes a CSS
+ * variable on `:root` ({@link TOKEN_CSS_VARS}: `--sh-bg`, `--sh-surface`,
+ * `--sh-text`, `--sh-muted`, `--sh-accent`, `--sh-on-accent`, `--sh-border`,
+ * `--sh-focus`), `color-scheme` follows `theme` (native controls, scrollbars),
+ * and `data-theme` / `data-reduced-motion` are set for your CSS selectors.
+ * Only valid hex colours are written. Write your CSS with fallbacks
+ * (`var(--sh-bg, #1a1a2e)`) so an older Social Home still looks right.
+ *
+ * ```ts
+ * const ctx = await sh.context();
+ * applyTheme(ctx);
+ * sh.onContextChange(applyTheme);
+ * ```
+ */
+export function applyTheme(look: AppLook, root: HTMLElement = document.documentElement): void {
+  const tokens = look.tokens ?? {};
+  for (const name of TOKEN_NAMES) {
+    const c = tokens[name];
+    if (typeof c === "string" && HEX_COLOR.test(c)) root.style.setProperty(TOKEN_CSS_VARS[name], c);
+  }
+  if (look.theme === "light" || look.theme === "dark") {
+    root.style.colorScheme = look.theme;
+    root.dataset["theme"] = look.theme;
+  }
+  if (typeof look.reducedMotion === "boolean") {
+    root.dataset["reducedMotion"] = String(look.reducedMotion);
+  }
+}
+
 /** App context returned by {@link SocialHomeClient.context}. */
-export interface AppContext {
+export interface AppContext extends AppLook {
   appId: string;
   selfUserId: string;
   /**
@@ -370,6 +482,7 @@ export class SocialHomeClient {
   private readonly _pending = new Map<number, PendingCall>();
   private readonly _messageSubs = new Set<(msg: AppMessage) => void>();
   private readonly _sessionSubs = new Set<(msg: AppMessage) => void>();
+  private readonly _contextSubs = new Set<(look: AppLook) => void>();
 
   constructor(targetWindow: Window, parentWindow: Window) {
     this._parent = targetWindow;
@@ -397,6 +510,19 @@ export class SocialHomeClient {
 
     const data: unknown = event.data;
     if (!isRecord(data)) return;
+
+    // The person switched language or theme while the app is open.
+    if (data["type"] === "app.context-changed") {
+      const look = parseLook(data["context"]);
+      for (const cb of this._contextSubs) {
+        try {
+          cb(look);
+        } catch {
+          // Never let a subscriber crash the message loop.
+        }
+      }
+      return;
+    }
 
     // Real-time relayed federation event.
     if (data["type"] === "app:event") {
@@ -478,6 +604,7 @@ export class SocialHomeClient {
     return this._call("app.context", params).then((r) => {
       const o = isRecord(r) ? r : {};
       const ctx: AppContext = {
+        ...parseLook(o),
         appId: String(o["appId"] ?? ""),
         selfUserId: String(o["selfUserId"] ?? ""),
       };
@@ -656,6 +783,21 @@ export class SocialHomeClient {
     this._sessionSubs.add(cb);
     return () => {
       this._sessionSubs.delete(cb);
+    };
+  }
+
+  /**
+   * Hear when the person switches language or theme (or the system flips
+   * light/dark under Social Home's Auto) while the app is open. The callback
+   * gets the whole new {@link AppLook}: re-apply it
+   * (`sh.onContextChange(applyTheme)`) and re-render your strings. Never fires
+   * on an older Social Home.
+   * @returns an unsubscribe function.
+   */
+  onContextChange(cb: (look: AppLook) => void): Unsubscribe {
+    this._contextSubs.add(cb);
+    return () => {
+      this._contextSubs.delete(cb);
     };
   }
 }

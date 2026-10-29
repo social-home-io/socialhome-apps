@@ -9,7 +9,8 @@
  * and Escape cancels a selection.
  *
  * All user-facing copy for the board lives here as small functions (the
- * same pattern as lifecycle.ts), English for now.
+ * same pattern as lifecycle.ts), in the person's language (i18n.ts). Square
+ * names ("e4") stay as they are in every language.
  */
 
 import {
@@ -19,12 +20,13 @@ import {
   squareName,
 } from "./chess.js";
 import type { Color, GameState, Move, PieceType } from "./chess.js";
+import { t } from "./i18n.js";
+import type { MessageKey } from "./i18n.js";
 
-export const PIECE_NAMES: Record<PieceType, string> = {
-  K: "king", Q: "queen", R: "rook", B: "bishop", N: "knight", P: "pawn",
-};
-
-const COLOR_NAMES: Record<Color, string> = { w: "white", b: "black" };
+/** "knight" — a piece's name in the person's language, mid-sentence. */
+export function pieceName(type: PieceType): string {
+  return t(`piece.${type}` as MessageKey);
+}
 
 // ---------------------------------------------------------------------------
 // Orientation + cursor movement
@@ -159,7 +161,7 @@ export function activateSquare(
 /** "white knight" / "empty". */
 export function pieceLabel(state: GameState, square: number): string {
   const piece = state.board[square];
-  return piece ? `${COLOR_NAMES[piece.color]} ${PIECE_NAMES[piece.type]}` : "empty";
+  return piece ? t(`pc.${piece.color}${piece.type}` as MessageKey) : t("sq.empty");
 }
 
 /**
@@ -173,26 +175,27 @@ export function squareLabel(
   flags: { selected?: boolean; legalTarget?: boolean; lastMove?: boolean } = {},
 ): string {
   const parts = [squareName(square), pieceLabel(state, square)];
-  if (flags.selected) parts.push("selected");
-  if (flags.legalTarget) parts.push("legal move");
-  if (flags.lastMove) parts.push("last move");
+  if (flags.selected) parts.push(t("sq.selected"));
+  if (flags.legalTarget) parts.push(t("sq.legal"));
+  if (flags.lastMove) parts.push(t("sq.last"));
   return parts.join(", ");
 }
 
 /** The board's accessible name: "Chess board, you play White". */
 export function boardLabel(myColor: Color): string {
-  return `Chess board, you play ${myColor === "w" ? "White" : "Black"}`;
+  return t(myColor === "w" ? "board.label.w" : "board.label.b");
 }
 
 /** How-to hint, linked from the board with aria-describedby. */
-export const BOARD_HINT =
-  "Use the arrow keys to move between squares. Press Enter or Space to pick up a piece, then again on the square to move it to. Press Escape to put it back.";
+export function boardHint(): string {
+  return t("board.hint");
+}
 
 /** Ordered square names, e.g. "f3 and h3" / "d3, e3 and f3". */
 function listSquares(squares: readonly number[]): string {
   const names = squares.map(squareName).sort();
   if (names.length <= 1) return names.join("");
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return t("list.and", { first: names.slice(0, -1).join(", "), last: names[names.length - 1] });
 }
 
 /** Spoken when a piece is picked up: "Knight on g1. Moves to f3 and h3." */
@@ -202,13 +205,16 @@ export function selectionAnnouncement(
   targets: readonly number[],
 ): string {
   const piece = state.board[square];
-  const name = piece ? PIECE_NAMES[piece.type] : "piece";
-  const lead = `${name[0].toUpperCase()}${name.slice(1)} on ${squareName(square)}.`;
-  if (targets.length === 0) return `${lead} It has no legal moves.`;
-  return `${lead} ${targets.length === 1 ? "Move" : "Moves"} to ${listSquares(targets)}.`;
+  const name = piece ? pieceName(piece.type) : t("piece.any");
+  const lead = t("sel.lead", { Piece: `${name[0].toUpperCase()}${name.slice(1)}`, square: squareName(square) });
+  if (targets.length === 0) return `${lead} ${t("sel.noMoves")}`;
+  return `${lead} ${t(targets.length === 1 ? "sel.oneMove" : "sel.moves", { squares: listSquares(targets) })}`;
 }
 
-export const SELECTION_CLEARED = "Selection cleared.";
+/** Spoken when a picked-up piece is put back. */
+export function selectionCleared(): string {
+  return t("sel.cleared");
+}
 
 /** Spoken when Enter/Space does nothing, so the key press isn't silent. */
 export function noneAnnouncement(
@@ -216,9 +222,9 @@ export function noneAnnouncement(
   opponentName: string,
 ): string {
   switch (reason) {
-    case "game-over": return "The game is over.";
-    case "not-your-turn": return `It's ${opponentName}'s turn.`;
-    case "not-your-piece": return "Pick one of your own pieces first.";
+    case "game-over": return t("none.over");
+    case "not-your-turn": return t("none.notYourTurn", { name: opponentName });
+    case "not-your-piece": return t("none.notYourPiece");
   }
 }
 
@@ -244,27 +250,30 @@ export function moveAnnouncement(args: {
   const { before, after, move, myColor, opponentName } = args;
   const moving = before.board[move.from];
   const byMe = moving ? moving.color === myColor : after.sideToMove !== myColor;
-  const mover = byMe ? "You" : opponentName;
+  const name = opponentName;
 
   const parts: string[] = [];
   if (moving) {
-    let s = `${mover} moved ${PIECE_NAMES[moving.type]} to ${squareName(move.to)}`;
+    const where = { name, piece: pieceName(moving.type), square: squareName(move.to) };
+    let s = t(byMe ? "move.byMe" : "move.byThem", where);
     const taken = before.board[move.to];
-    if (taken && taken.color !== moving.color) s += ` and took the ${PIECE_NAMES[taken.type]}`;
-    if (move.promotion) s += `${taken ? "," : ""} and promoted to a ${PIECE_NAMES[move.promotion]}`;
-    parts.push(`${s}.`);
+    if (taken && taken.color !== moving.color) s += t("move.took", { piece: pieceName(taken.type) });
+    if (move.promotion) {
+      s += t(taken ? "move.promotedAfterTake" : "move.promoted", { piece: pieceName(move.promotion) });
+    }
+    parts.push(`${s}${t("move.end")}`);
   } else {
-    parts.push(`${mover} made a move.`);
+    parts.push(byMe ? t("move.madeByMe") : t("move.madeByThem", { name }));
   }
 
   if (after.result === "draw") {
-    parts.push("Stalemate, it's a draw.");
+    parts.push(t("ann.stalemate"));
   } else if (after.result !== null) {
     const iWon = (after.result === "white") === (myColor === "w");
-    parts.push(iWon ? "Checkmate. You win." : `Checkmate. ${opponentName} wins.`);
+    parts.push(iWon ? t("ann.youWin") : t("ann.theyWin", { name }));
   } else {
-    if (isInCheck(after.board, after.sideToMove)) parts.push("Check.");
-    if (after.sideToMove === myColor) parts.push("Your turn.");
+    if (isInCheck(after.board, after.sideToMove)) parts.push(t("ann.check"));
+    if (after.sideToMove === myColor) parts.push(t("ann.yourTurn"));
   }
   return parts.join(" ");
 }
