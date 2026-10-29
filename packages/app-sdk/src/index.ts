@@ -279,11 +279,16 @@ export interface AppMessage {
  *   Reaches the challenger's app.
  * - `"withdrawn"` — the challenger took the invite back with
  *   {@link SocialHomeClient.federation.cancelSession}. Reaches the invitee's app.
+ * - `"ended"` — the other household uninstalled the app, so the game is over
+ *   (Social Home v_72, SDK 1.7). Reaches either side, for a game being played
+ *   or an invite; Social Home also tells the person in its own notifications.
+ *   Clear the game. A household on an older Social Home sends `"withdrawn"`
+ *   for an invite instead, and nothing for a game.
  *
  * Other values may appear in later Social Home versions: treat an unknown
  * reason (or none) as a plain close.
  */
-export type SessionCloseReason = "declined" | "withdrawn";
+export type SessionCloseReason = "declined" | "withdrawn" | "ended";
 
 /**
  * The control fields of a `session` event's payload ({@link AppMessage.payload}
@@ -316,7 +321,7 @@ export function parseSessionPayload(payload: unknown): SessionControl {
  * turned off — see {@link SocialHomeClient.federation.held}. The same fields
  * as a live event, plus which subscription it belongs to: `"message"` for
  * {@link SocialHomeClient.onMessage} (a move), `"session"` for
- * {@link SocialHomeClient.onSession} (a close: declined / withdrawn).
+ * {@link SocialHomeClient.onSession} (a close: declined / withdrawn / ended).
  */
 export interface HeldMessage extends AppMessage {
   kind: "message" | "session";

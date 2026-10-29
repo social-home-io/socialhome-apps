@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { applyTheme, createClient, parseLook, TOKEN_CSS_VARS, parseHeldMessages, parseLaunchContext, parsePicked, parseSessionPayload, ShError, toShError, type SocialHomeClient, type Contact, type SessionTarget, type AppMessage } from "./index.js";
+import { applyTheme, createClient, parseLook, TOKEN_CSS_VARS, parseHeldMessages, parseLaunchContext, parsePicked, parseSessionPayload, ShError, toShError, type SocialHomeClient, type Contact, type SessionTarget, type AppMessage, type SessionCloseReason } from "./index.js";
 
 /**
  * A fake host frame: captures messages posted by the SDK and lets the test
@@ -357,6 +357,11 @@ describe("parseSessionPayload", () => {
       verb: "close",
       reason: "withdrawn",
     });
+  });
+
+  it("reads the ended reason (the other household uninstalled the app)", () => {
+    const reason: SessionCloseReason = "ended";
+    expect(parseSessionPayload({ verb: "close", reason })).toEqual({ verb: "close", reason: "ended" });
   });
 
   it("an open has no reason", () => {

@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.29.6",
+    "date": "2026-10-29",
+    "notes": {
+      "en": "When the other household removes Chess, your games with them end cleanly: Chess clears the game and says \"Ben no longer has Chess, so your game ended.\" Social Home also tells you in Notifications, even if Chess was closed.",
+      "de": "Entfernt der andere Haushalt Schach, enden deine Partien mit ihm sauber: Schach räumt die Partie weg und sagt, dass die andere Person Schach nicht mehr hat und die Partie darum zu Ende ist. Social Home sagt es dir auch in den Mitteilungen, selbst wenn Schach geschlossen war.",
+      "nl": "Als het andere huishouden Schaken verwijdert, stoppen je partijen met hen netjes: Schaken ruimt de partij op en zegt dat de ander Schaken niet meer heeft en de partij daarom is afgelopen. Social Home laat het je ook weten bij Meldingen, ook als Schaken gesloten was.",
+      "fr": "Quand l’autre foyer retire Échecs, vos parties avec lui se terminent proprement : Échecs retire la partie et indique que l’autre joueur n’a plus Échecs, donc que la partie est terminée. Social Home vous prévient aussi dans les notifications, même si Échecs était fermé.",
+      "es": "Cuando el otro hogar quita Ajedrez, tus partidas con él terminan bien: Ajedrez quita la partida y te dice que la otra persona ya no tiene Ajedrez, así que la partida terminó. Social Home también te avisa en las notificaciones, aunque Ajedrez estuviera cerrado."
+    }
+  },
+  {
     "version": "2026.10.29.5",
     "date": "2026-10-29",
     "notes": {

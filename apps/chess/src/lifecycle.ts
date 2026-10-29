@@ -8,6 +8,9 @@
  *    Social Home's "Needs you".
  *  - `reason: "withdrawn"` reaches the INVITEE: the challenger took the invite
  *    back (`federation.cancelSession`).
+ *  - `reason: "ended"` reaches EITHER side: the opponent's household
+ *    uninstalled Chess (Social Home v_72), so any game with them that isn't
+ *    finished is over — invite or game in play.
  *
  * A close with no or an unknown reason changes nothing (as before), and a
  * close never creates a game.
@@ -42,6 +45,7 @@ export type SessionAction =
   | { kind: "invite" }
   | { kind: "declined"; entry: GameEntry }
   | { kind: "withdrawn"; entry: GameEntry }
+  | { kind: "ended"; entry: GameEntry }
   | { kind: "ignore" };
 
 /**
@@ -134,6 +138,11 @@ export function classifySessionEvent(
     ) {
       return { kind: "withdrawn", entry };
     }
+    // Ended: the opponent's household no longer has Chess — any game with
+    // them that is still going (a finished one stays as it was).
+    if (reason === "ended" && entry.state.result === null) {
+      return { kind: "ended", entry };
+    }
     return { kind: "ignore" };
   }
 
@@ -194,6 +203,11 @@ export function inviteGoneMessage(): string {
 /** Toast shown to the challenger when the invitee declines. */
 export function declinedMessage(name: string): string {
   return t("invite.declined", { name });
+}
+
+/** Toast shown when the opponent's household uninstalled Chess. */
+export function endedMessage(name: string): string {
+  return t("invite.ended", { name });
 }
 
 /** Toast shown to the invitee when the challenger withdraws the invite. */
