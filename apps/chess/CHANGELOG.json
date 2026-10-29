@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.29.5",
+    "date": "2026-10-29",
+    "notes": {
+      "en": "Chess speaks your language and follows light and dark: English, German, Dutch, French or Spanish, as chosen in Social Home, including everything a screen reader hears. It switches along when you change the language or theme. Light mode uses Social Home's colours; dark keeps its own look. With less motion turned on, the board doesn't animate. In a right-to-left language the board still runs a to h from left to right.",
+      "de": "Schach spricht deine Sprache und folgt hell und dunkel: Englisch, Deutsch, Niederländisch, Französisch oder Spanisch, wie in Social Home gewählt, auch für alles, was ein Screenreader vorliest. Es wechselt mit, wenn du Sprache oder Design änderst. Hell nutzt die Farben von Social Home, dunkel bleibt wie bisher. Mit weniger Bewegung gibt es keine Animationen auf dem Brett. In einer Sprache von rechts nach links läuft das Brett weiter von a bis h, links nach rechts.",
+      "nl": "Schaken spreekt jouw taal en volgt licht en donker: Engels, Duits, Nederlands, Frans of Spaans, zoals gekozen in Social Home, ook voor alles wat een schermlezer voorleest. Het wisselt mee als je taal of thema verandert. Licht gebruikt de kleuren van Social Home, donker blijft zoals het was. Met minder beweging zijn er geen animaties op het bord. In een taal van rechts naar links loopt het bord nog steeds van a tot h, van links naar rechts.",
+      "fr": "Échecs parle votre langue et suit le mode clair ou sombre : anglais, allemand, néerlandais, français ou espagnol, selon votre choix dans Social Home, y compris ce que lit un lecteur d’écran. Il change avec vous de langue ou de thème. Le mode clair reprend les couleurs de Social Home, le sombre garde son style. Avec moins d’animations, l’échiquier ne bouge pas. Dans une langue de droite à gauche, l’échiquier va toujours de a à h, de gauche à droite.",
+      "es": "Ajedrez habla tu idioma y sigue el modo claro u oscuro: inglés, alemán, neerlandés, francés o español, según elijas en Social Home, también lo que lee un lector de pantalla. Cambia contigo cuando cambias el idioma o el tema. El modo claro usa los colores de Social Home; el oscuro mantiene su aspecto. Con menos movimiento, el tablero no se anima. En un idioma de derecha a izquierda, el tablero sigue yendo de la a a la h, de izquierda a derecha."
+    }
+  },
+  {
     "version": "2026.10.29.4",
     "date": "2026-10-29",
     "notes": {

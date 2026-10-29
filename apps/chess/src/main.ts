@@ -14,7 +14,7 @@
  */
 
 import sh from "@socialhome/app-sdk";
-import type { AppMessage, Contact, PickedPerson, SessionTarget } from "@socialhome/app-sdk";
+import type { AppLook, AppMessage, Contact, PickedPerson, SessionTarget } from "@socialhome/app-sdk";
 import {
   initialState,
   applyMove,
@@ -29,14 +29,14 @@ import {
   abandonButtonLabel,
   continueCopy,
   entryForPicked,
-  INVITE_MISMATCH,
+  inviteMismatchMessage,
   isUnknownGame,
   isLocalOpponent,
   pickFailure,
   abandonConfirmCopy,
   classifySessionEvent,
   declinedMessage,
-  INVITE_GONE,
+  inviteGoneMessage,
   isAwaitingOpponent,
   isStaleMove,
   launchAction,
@@ -46,7 +46,7 @@ import {
 import type { ConfirmCopy, GameEntry } from "./lifecycle.js";
 import {
   activateSquare,
-  BOARD_HINT,
+  boardHint,
   boardLabel,
   buildSquareOrder,
   initialCursor,
@@ -54,12 +54,14 @@ import {
   moveAnnouncement,
   moveCursor,
   noneAnnouncement,
-  SELECTION_CLEARED,
+  selectionCleared,
   selectionAnnouncement,
   squareLabel,
 } from "./board-nav.js";
 import { createAnnouncer } from "./announcer.js";
 import type { Announcer } from "./announcer.js";
+import { t, tAround } from "./i18n.js";
+import { applyLook } from "./look.js";
 
 // The SDK singleton is non-null in the browser / iframe and `null` outside it
 // (e.g. the Node test runner importing the pure helpers below). `client` is
@@ -125,6 +127,8 @@ interface UIState {
    * lists only people played before, and "New game" opens Social Home's sheet.
    */
   legacyPicker: boolean;
+  /** The person asked for less motion (Social Home's context). */
+  reducedMotion: boolean;
 }
 
 const ui: UIState = {
@@ -139,6 +143,7 @@ const ui: UIState = {
   toasts: [],
   liveInvites: false,
   legacyPicker: false,
+  reducedMotion: false,
 };
 
 let _toastCounter = 0;
@@ -279,8 +284,9 @@ function notifyMyTurn(sessionId: string): void {
       navigator.vibrate([40, 30, 40]);
     }
   } catch { /* vibrate can throw if gated by the UA; ignore */ }
-  // Visual cue: pulse the board if the player is viewing this game.
-  if (ui.view === "board" && ui.activeBoardSession === sessionId) {
+  // Visual cue: pulse the board if the player is viewing this game — not
+  // when they asked for less motion (the announcer still says it).
+  if (ui.view === "board" && ui.activeBoardSession === sessionId && !ui.reducedMotion) {
     const grid = document.getElementById("board-grid");
     if (grid) {
       grid.classList.remove("your-move-pulse");
@@ -354,7 +360,7 @@ function renderLobby(): void {
   // ---- Active games ----
   if (ui.games.size > 0) {
     const section = make("section", { cls: "lobby-section" });
-    const h2 = make("h2", { cls: "section-heading", text: "Active games" });
+    const h2 = make("h2", { cls: "section-heading", text: t("lobby.active") });
     section.appendChild(h2);
 
     const list = make("ul", { cls: "game-list" });
@@ -368,7 +374,7 @@ function renderLobby(): void {
       const nameEl = make("span", { cls: "game-opponent-name", text: entry.opponentName });
       const colorEl = make("span", {
         cls: "game-my-color",
-        text: entry.myColor === "w" ? "White" : "Black",
+        text: t(entry.myColor === "w" ? "color.w" : "color.b"),
       });
       info.appendChild(nameEl);
       info.appendChild(colorEl);
@@ -378,13 +384,13 @@ function renderLobby(): void {
         badge.textContent = resultLabel(entry.state.result!, entry.myColor);
         info.appendChild(badge);
       } else if (isAwaitingOpponent(entry)) {
-        const badge = make("span", { cls: "badge badge-waiting", text: "Invite sent" });
+        const badge = make("span", { cls: "badge badge-waiting", text: t("badge.inviteSent") });
         info.appendChild(badge);
       } else if (myTurn) {
-        const badge = make("span", { cls: "badge badge-your-turn", text: "Your turn" });
+        const badge = make("span", { cls: "badge badge-your-turn", text: t("badge.yourTurn") });
         info.appendChild(badge);
       } else {
-        const badge = make("span", { cls: "badge badge-waiting", text: "Waiting" });
+        const badge = make("span", { cls: "badge badge-waiting", text: t("badge.waiting") });
         info.appendChild(badge);
       }
 
@@ -393,8 +399,8 @@ function renderLobby(): void {
       const actions = make("div", { cls: "game-item-actions" });
       const resumeBtn = make("button", {
         cls: "btn btn-primary",
-        text: "Resume",
-        attrs: { "aria-label": `Resume game with ${entry.opponentName}`, "data-resume": sessionId },
+        text: t("btn.resume"),
+        attrs: { "aria-label": t("btn.resumeWith", { name: entry.opponentName }), "data-resume": sessionId },
       });
       resumeBtn.addEventListener("click", () => {
         openBoardView(sessionId);
@@ -404,15 +410,18 @@ function renderLobby(): void {
       if (isAwaitingOpponent(entry)) {
         // Our invite hasn't been answered: take it back, so the invitee's
         // "Needs you" item goes too (not just our local copy).
-        const cancelBtn = make("button", { cls: "btn btn-ghost", text: "Cancel invite" });
+        const cancelBtn = make("button", { cls: "btn btn-ghost", text: t("btn.cancelInvite") });
         cancelBtn.addEventListener("click", () => void onCancelInvite(sessionId));
         actions.appendChild(cancelBtn);
       } else {
         const label = abandonButtonLabel(entry);
+        const labelWith = t(entry.state.result === null ? "btn.abandonWith" : "btn.removeWith", {
+          name: entry.opponentName,
+        });
         const abandonBtn = make("button", {
           cls: "btn btn-ghost",
           text: label,
-          attrs: { "aria-label": `${label} game with ${entry.opponentName}` },
+          attrs: { "aria-label": labelWith },
         });
         abandonBtn.addEventListener("click", () => void onAbandonGame(sessionId));
         actions.appendChild(abandonBtn);
@@ -430,36 +439,31 @@ function renderLobby(): void {
     // person can message, and chess opens the game itself.
     const { household, friends } = groupContacts(ui.contacts);
     root.appendChild(
-      buildContactSection("Your household", household, "No other household members.", "Challenge"),
+      buildContactSection(t("lobby.household"), household, t("lobby.householdEmpty"), "challenge"),
     );
     root.appendChild(
-      buildContactSection(
-        "Friends",
-        friends,
-        "No paired friends yet — pair a household in Social Home.",
-        "Challenge",
-      ),
+      buildContactSection(t("lobby.friends"), friends, t("lobby.friendsEmpty"), "challenge"),
     );
     return;
   }
 
   // ---- New game: Social Home's invite sheet picks the person ----
   const play = make("section", { cls: "lobby-section lobby-new-game" });
-  play.appendChild(make("h2", { cls: "section-heading", text: "Play someone" }));
+  play.appendChild(make("h2", { cls: "section-heading", text: t("lobby.playSomeone") }));
   play.appendChild(
     make("p", {
       cls: "lobby-hint",
-      text: "Social Home asks who you want to play and sends the invite.",
+      text: t("lobby.hint"),
     }),
   );
-  const newGameBtn = make("button", { cls: "btn btn-primary", text: "New game" });
+  const newGameBtn = make("button", { cls: "btn btn-primary", text: t("btn.newGame") });
   newGameBtn.addEventListener("click", () => void onNewGame());
   play.appendChild(newGameBtn);
   root.appendChild(play);
 
   // ---- People you've played: a rematch goes through the sheet too ----
   if (ui.contacts.length > 0) {
-    root.appendChild(buildContactSection("Played before", ui.contacts, "", "Rematch"));
+    root.appendChild(buildContactSection(t("lobby.playedBefore"), ui.contacts, "", "rematch"));
   }
 }
 
@@ -468,7 +472,7 @@ function buildContactSection(
   heading: string,
   people: Contact[],
   emptyText: string,
-  action: "Challenge" | "Rematch",
+  action: "challenge" | "rematch",
 ): HTMLElement {
   const section = make("section", { cls: "lobby-section" });
   section.appendChild(make("h2", { cls: "section-heading", text: heading }));
@@ -482,7 +486,7 @@ function buildContactSection(
   for (const contact of people) {
     const li = make("li", { cls: "peer-item" });
 
-    const presenceLabel = contact.online ? "online" : "offline";
+    const presenceLabel = t(contact.online ? "presence.online" : "presence.offline");
     const dot = make("span", {
       cls: ["presence-dot", contact.online ? "presence-online" : "presence-offline"],
       attrs: { role: "img", "aria-label": presenceLabel, title: presenceLabel },
@@ -491,13 +495,16 @@ function buildContactSection(
 
     li.appendChild(make("span", { cls: "peer-name", text: contact.display_name }));
 
+    const challenge = action === "challenge";
     const challengeBtn = make("button", {
-      cls: action === "Challenge" ? "btn btn-primary" : "btn btn-ghost",
-      text: action,
-      attrs: { "aria-label": `${action} ${contact.display_name}` },
+      cls: challenge ? "btn btn-primary" : "btn btn-ghost",
+      text: t(challenge ? "btn.challenge" : "btn.rematch"),
+      attrs: {
+        "aria-label": t(challenge ? "btn.challengeWho" : "btn.rematchWho", { name: contact.display_name }),
+      },
     });
     challengeBtn.addEventListener("click", () =>
-      void (action === "Challenge" ? onChallengeContact(contact) : onNewGame(contact)),
+      void (challenge ? onChallengeContact(contact) : onNewGame(contact)),
     );
     li.appendChild(challengeBtn);
 
@@ -508,9 +515,9 @@ function buildContactSection(
 }
 
 function resultLabel(result: "white" | "black" | "draw", myColor: Color): string {
-  if (result === "draw") return "Draw";
+  if (result === "draw") return t("result.draw");
   const iWon = (result === "white" && myColor === "w") || (result === "black" && myColor === "b");
-  return iWon ? "You won!" : "You lost";
+  return t(iWon ? "result.won" : "result.lost");
 }
 
 // ---------------------------------------------------------------------------
@@ -580,8 +587,9 @@ function renderBoard(): void {
   const header = make("div", { cls: "board-header" });
 
   const backBtn = make("button", { cls: "btn btn-ghost btn-back" });
-  backBtn.setAttribute("aria-label", "Back to lobby");
-  backBtn.innerHTML = `<span aria-hidden="true">←</span> Lobby`;
+  backBtn.setAttribute("aria-label", t("board.backLabel"));
+  // The arrow points back in the reading direction (mirrored in RTL, CSS).
+  backBtn.append(make("span", { cls: "flip-rtl", text: "←", attrs: { "aria-hidden": "true" } }), ` ${t("board.back")}`);
   backBtn.addEventListener("click", backToLobby);
   header.appendChild(backBtn);
 
@@ -598,7 +606,7 @@ function renderBoard(): void {
 
   const liveDot = make("span", {
     cls: "live-dot",
-    attrs: { "aria-label": "Live game", title: "Connected" },
+    attrs: { "aria-label": t("board.live"), title: t("board.connected") },
   });
   header.appendChild(liveDot);
 
@@ -609,9 +617,10 @@ function renderBoard(): void {
   if (isAwaitingOpponent(entry)) {
     const banner = make("div", { cls: "invite-pending" });
     const note = make("p", { cls: "invite-pending-text" });
-    note.append("Waiting for ", make("strong", { text: entry.opponentName }), " to accept.");
+    const [before, after] = tAround("board.waitingAccept");
+    note.append(before, make("strong", { text: entry.opponentName }), after);
     banner.appendChild(note);
-    const cancelBtn = make("button", { cls: "btn btn-ghost", text: "Cancel invite" });
+    const cancelBtn = make("button", { cls: "btn btn-ghost", text: t("btn.cancelInvite") });
     cancelBtn.addEventListener("click", () => void onCancelInvite(entry.sessionId));
     banner.appendChild(cancelBtn);
     root.appendChild(banner);
@@ -623,12 +632,15 @@ function renderBoard(): void {
 
   // Pieces the opponent captured (show above board = far side)
   const capturedTop = make("div", { cls: "captured-row captured-top" });
-  capturedTop.setAttribute("aria-label", `Captured by ${entry.opponentName}`);
+  capturedTop.setAttribute("aria-label", t("board.capturedBy", { name: entry.opponentName }));
   renderCapturedPieces(capturedTop, captured[theirColor]);
   root.appendChild(capturedTop);
 
   // ---- Board grid with rank/file labels ----
-  const boardWrap = make("div", { cls: "board-wrap" });
+  // Always left to right, also in a right-to-left language: files a–h run
+  // left→right (from White's side) as on every chess board and in every
+  // chess app; only the text around the board follows the language.
+  const boardWrap = make("div", { cls: "board-wrap", attrs: { dir: "ltr" } });
 
   const boardInner = make("div", { cls: "board-inner" });
 
@@ -712,11 +724,11 @@ function renderBoard(): void {
   boardInner.appendChild(buildFileLabels(entry.myColor));
   boardWrap.appendChild(boardInner);
   root.appendChild(boardWrap);
-  root.appendChild(make("p", { cls: "sr-only", text: BOARD_HINT, attrs: { id: "board-hint" } }));
+  root.appendChild(make("p", { cls: "sr-only", text: boardHint(), attrs: { id: "board-hint" } }));
 
   // ---- Captured pieces (mine = bottom row) ----
   const capturedBottom = make("div", { cls: "captured-row captured-bottom" });
-  capturedBottom.setAttribute("aria-label", "Captured by you");
+  capturedBottom.setAttribute("aria-label", t("board.capturedByYou"));
   renderCapturedPieces(capturedBottom, captured[entry.myColor]);
   root.appendChild(capturedBottom);
 
@@ -806,14 +818,14 @@ function buildStatusContent(entry: GameEntry): DocumentFragment {
   if (game.result !== null) {
     const label = resultLabel(game.result, entry.myColor);
     let detail = "";
-    if (game.result === "draw") detail = "Stalemate — it's a draw!";
+    if (game.result === "draw") detail = t("status.stalemate");
     else if (
       (game.result === "white" && entry.myColor === "w") ||
       (game.result === "black" && entry.myColor === "b")
     ) {
-      detail = "Checkmate — you win!";
+      detail = t("status.youWin");
     } else {
-      detail = `Checkmate — ${entry.opponentName} wins.`;
+      detail = t("status.theyWin", { name: entry.opponentName });
     }
     const p = make("p", { cls: "status-game-over", text: detail });
     const lbl = make("span", { cls: "status-result-badge", text: label });
@@ -824,21 +836,27 @@ function buildStatusContent(entry: GameEntry): DocumentFragment {
 
   const inCheck = isInCheck(game.board, game.sideToMove);
   const myTurn = isMyTurn(game, entry.myColor);
-  const colorLabel = game.sideToMove === "w" ? "White" : "Black";
+  const colorLabel = t(game.sideToMove === "w" ? "color.w" : "color.b");
 
+  // Built as elements: the opponent's name is text, never markup.
   if (myTurn) {
     const p = make("p", { cls: "status-your-turn" });
-    p.innerHTML = `<strong>Your move</strong> <span class="status-color-chip">${colorLabel}</span>`;
+    p.append(
+      make("strong", { text: t("status.yourMove") }),
+      " ",
+      make("span", { cls: "status-color-chip", text: colorLabel }),
+    );
     if (inCheck) {
-      const chip = make("span", { cls: "status-check-chip", text: "Check!" });
+      const chip = make("span", { cls: "status-check-chip", text: t("status.check") });
       p.appendChild(chip);
     }
     frag.appendChild(p);
   } else {
     const p = make("p", { cls: "status-waiting" });
-    p.innerHTML = `Waiting for <strong>${entry.opponentName}</strong>`;
+    const [before, after] = tAround("status.waitingFor");
+    p.append(before, make("strong", { text: entry.opponentName }), after);
     if (inCheck) {
-      const chip = make("span", { cls: "status-check-chip", text: "Check!" });
+      const chip = make("span", { cls: "status-check-chip", text: t("status.check") });
       p.appendChild(chip);
     }
     frag.appendChild(p);
@@ -899,7 +917,7 @@ function onBoardKeydown(ev: KeyboardEvent): void {
     ev.stopPropagation();
     ui.selectedSquare = null;
     ui.legalTargets = [];
-    say(SELECTION_CLEARED);
+    say(selectionCleared());
     renderBoard();
   }
 }
@@ -920,7 +938,7 @@ function activate(sqIdx: number): void {
     case "clear":
       ui.selectedSquare = null;
       ui.legalTargets = [];
-      say(SELECTION_CLEARED);
+      say(selectionCleared());
       break;
     case "move":
       void onMove(entry, action.move);
@@ -1059,7 +1077,7 @@ async function onChallengeContact(contact: Contact): Promise<void> {
     openBoardView(sessionId);
   } catch (err) {
     console.error("Failed to start game:", err);
-    showToast("Could not reach that person — please try again.");
+    showToast(t("toast.challengeFailed"));
   }
 }
 
@@ -1087,10 +1105,10 @@ async function offerContinue(entry: GameEntry, latest: MovePayload): Promise<voi
   if (!picked.some((p) => p.sessionId === entry.sessionId)) return;
   try {
     await client.federation.send(entry.sessionId, targetForEntry(entry), latest);
-    showToast(`Asked ${entry.opponentName} to continue the game.`);
+    showToast(t("toast.askedContinue", { name: entry.opponentName }));
   } catch (err) {
     console.warn("Chess: resend after continue failed", err);
-    showToast(`Couldn't reach ${entry.opponentName} — please try again.`);
+    showToast(t("toast.couldntReach", { name: entry.opponentName }));
   }
 }
 
@@ -1173,10 +1191,10 @@ async function onCancelInvite(sessionId: string): Promise<void> {
   if (!entry) return;
   try {
     await client.federation.cancelSession(sessionId, targetForEntry(entry));
-    showToast(`Invite to ${entry.opponentName} cancelled.`);
+    showToast(t("toast.inviteCancelled", { name: entry.opponentName }));
   } catch (err) {
     console.warn("Chess: cancelSession failed", err);
-    showToast(`Couldn't reach ${entry.opponentName} — the invite may still show for them.`);
+    showToast(t("toast.inviteMayShow", { name: entry.opponentName }));
   }
   await removeGame(sessionId);
 }
@@ -1224,7 +1242,7 @@ function onInboundMessage(msg: AppMessage): void {
     renderBoard();
   } else {
     // Flash a toast so the player notices a move arrived in a background game
-    showToast(`${entry.opponentName} moved in your game!`);
+    showToast(t("toast.moved", { name: entry.opponentName }));
     // Re-render lobby if visible to update badges
     if (ui.view === "lobby") renderLobby();
   }
@@ -1321,17 +1339,17 @@ function showInviteToast(opponentName: string, sessionId: string): void {
   }
 
   const toastEl = make("div", { cls: "toast toast-invite" });
-  const msgSpan = make("span", { text: `♟ ${opponentName} invited you to play!` });
+  const msgSpan = make("span", { text: `♟ ${t("toast.invited", { name: opponentName })}` });
   toastEl.appendChild(msgSpan);
 
-  const acceptBtn = make("button", { cls: "btn btn-toast-accept", text: "Accept" });
+  const acceptBtn = make("button", { cls: "btn btn-toast-accept", text: t("btn.accept") });
   acceptBtn.addEventListener("click", () => {
     toastEl.remove();
     openBoardView(sessionId);
   });
   toastEl.appendChild(acceptBtn);
 
-  const dismissBtn = make("button", { cls: "btn btn-toast-dismiss", text: "Later" });
+  const dismissBtn = make("button", { cls: "btn btn-toast-dismiss", text: t("btn.later") });
   dismissBtn.addEventListener("click", () => {
     toastEl.remove();
   });
@@ -1371,6 +1389,16 @@ async function applyHeld(): Promise<void> {
   }
 }
 
+/** Apply Social Home's look and put the shell's own words in its language. */
+function onLook(look: AppLook): void {
+  applyLook(look, document.documentElement);
+  document.title = t("app.docTitle");
+  const title = document.getElementById("app-title");
+  if (title) title.textContent = t("app.title");
+  document.getElementById("app-root")?.setAttribute("aria-label", t("app.mainLabel"));
+  ui.reducedMotion = look.reducedMotion === true;
+}
+
 async function main(): Promise<void> {
   if (!sh) {
     throw new Error("Social Home SDK not available — must run inside an iframe.");
@@ -1381,7 +1409,7 @@ async function main(): Promise<void> {
 
   // Show initial loading skeleton
   const root = el("app-root");
-  root.innerHTML = `<p class="loading-msg" aria-live="polite">Loading…</p>`;
+  root.replaceChildren(make("p", { cls: "loading-msg", text: t("app.loading"), attrs: { "aria-live": "polite" } }));
 
   try {
     const [ctx, _store] = await Promise.all([
@@ -1389,6 +1417,13 @@ async function main(): Promise<void> {
       client.context({ pullHeld: true }),
       loadAllGames(),
     ]);
+    // Social Home's language, light/dark and colours (D14); live changes
+    // re-apply and redraw (an older Social Home sends none: English, dark).
+    onLook(ctx);
+    client.onContextChange((look) => {
+      onLook(look);
+      render();
+    });
     ui.selfUserId = ctx.selfUserId;
     // After the context: a Play launch has taken its invite in by then, so
     // the inviter is among the people chess may know.
@@ -1425,10 +1460,10 @@ async function main(): Promise<void> {
         openBoardView(launch.sessionId);
         break;
       case "gone":
-        showToast(INVITE_GONE);
+        showToast(inviteGoneMessage());
         break;
       case "mismatch":
-        showToast(INVITE_MISMATCH);
+        showToast(inviteMismatchMessage());
         break;
       case "none":
         break;
@@ -1436,7 +1471,7 @@ async function main(): Promise<void> {
     await applyHeld();
   } catch (err) {
     console.error("Chess: init failed", err);
-    root.innerHTML = `<p class="error-msg">Failed to load — please refresh.</p>`;
+    root.replaceChildren(make("p", { cls: "error-msg", text: t("app.loadFailed") }));
   }
 }
 

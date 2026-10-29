@@ -235,6 +235,50 @@ try {
 
 Without `pullHeld`, Social Home posts held messages as ordinary live events right after `context()` answers — that is how apps on SDK ≤ 1.2 get them, through the `onMessage` / `onSession` handlers already subscribed by then. A message for a game Social Home doesn't know for this person, or from anyone but the other side of that game, is never kept. When the person you invited declines while your app is closed, you also get a notification in Social Home.
 
+### Language, light/dark and colours (`@socialhome/app-sdk` 1.6)
+
+Social Home tells your app how to look, and an app in the catalog must follow the person's **language** and **light/dark** (the colours are a recommendation). `context()` carries:
+
+| Field | Meaning |
+|---|---|
+| `locale` | The person's Social Home language (`en`, `de`, `nl`, `fr`, `es`, …). Pick your closest catalog, fall back to English. |
+| `dir` | `"ltr"` or `"rtl"`. |
+| `theme` | `"light"` or `"dark"` — what Social Home shows now (its Auto already resolved). |
+| `reducedMotion` | The person asked for less motion: skip animations. |
+| `tokens` | Eight colours, each a plain `#rrggbb[aa]` string. |
+
+All five are `undefined` on an older Social Home: default to English, left to right and your own colours. `applyTheme(look)` writes the tokens as CSS variables on your `:root`, sets `color-scheme` (native controls and scrollbars follow) and `data-theme` / `data-reduced-motion` for your selectors; `onContextChange` fires when the person switches language or theme while your app is open.
+
+| Token | CSS variable | Use it for |
+|---|---|---|
+| `bg` | `--sh-bg` | the page background |
+| `surface` | `--sh-surface` | cards, panels, dialogs |
+| `text` | `--sh-text` | body text |
+| `muted` | `--sh-muted` | secondary text (≥ 4.5:1 on bg and surface) |
+| `accent` | `--sh-accent` | primary buttons, highlights |
+| `onAccent` | `--sh-on-accent` | text on an `accent` fill |
+| `border` | `--sh-border` | hairlines, dividers |
+| `focus` | `--sh-focus` | the keyboard focus ring |
+
+```ts
+import { sh, applyTheme } from '@socialhome/app-sdk';
+
+const ctx = await sh.context();
+applyTheme(ctx);                      // tokens, color-scheme, data-theme
+useLanguage(ctx.locale ?? 'en');      // your own string catalog
+document.documentElement.dir = ctx.dir ?? 'ltr';
+sh.onContextChange((look) => { applyTheme(look); useLanguage(look.locale ?? 'en'); render(); });
+```
+
+```css
+/* Always with a fallback, so an older Social Home still looks right. */
+body { background: var(--sh-bg, #fff); color: var(--sh-text, #111); }
+.primary { background: var(--sh-accent, #b54824); color: var(--sh-on-accent, #fff); }
+:focus-visible { outline: 2px solid var(--sh-focus, #a44221); }
+```
+
+The values are plain hex colours — Social Home never injects CSS into your frame, and `parseLook` / `applyTheme` drop anything else. Write your strings in the five languages with the shared glossary ([social-home-io/translations](https://github.com/social-home-io/translations): du / je / vous / tú, "Social Home" and "Apps" never translated) and list them in `languages` in `manifest.json`. Chess is the reference (`apps/chess/src/i18n.ts`, `look.ts`; the board stays left to right in RTL like every chess board).
+
 The SDK communicates with the host SPA over `postMessage` (it never has the user's auth token). All calls are async and time out after 15 seconds. In the iframe `sh` is non-null; in non-browser/test contexts it is `null`, so use `createClient(...)` in unit tests.
 
 ---

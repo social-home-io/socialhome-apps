@@ -66,7 +66,7 @@ async function main() {
 <body>
   <header class="app-header">
     <span class="app-icon" aria-hidden="true">${iconSvg}</span>
-    <h1>Chess</h1>
+    <h1 id="app-title">Chess</h1>
   </header>
   <main id="app-root" aria-label="Chess app"></main>
   <script>${js}</script>

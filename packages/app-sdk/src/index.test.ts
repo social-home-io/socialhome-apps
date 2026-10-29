@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createClient, parseHeldMessages, parseLaunchContext, parsePicked, parseSessionPayload, ShError, toShError, type SocialHomeClient, type Contact, type SessionTarget, type AppMessage } from "./index.js";
+import { applyTheme, createClient, parseLook, TOKEN_CSS_VARS, parseHeldMessages, parseLaunchContext, parsePicked, parseSessionPayload, ShError, toShError, type SocialHomeClient, type Contact, type SessionTarget, type AppMessage } from "./index.js";
 
 /**
  * A fake host frame: captures messages posted by the SDK and lets the test
@@ -632,5 +632,102 @@ describe("people.pick continue (an old game picked up again)", () => {
     active = h.client;
     void h.client.people.pick().catch(() => {});
     expect("sessionId" in h.posted[0].params).toBe(false);
+  });
+});
+
+describe("the look: language, light/dark and colours (D14)", () => {
+  const TOKENS = {
+    bg: "#1a1612", surface: "#2f261e", text: "#f1e9da", muted: "#9a8e7d",
+    accent: "#e96a3f", onAccent: "#1a1612", border: "#3d332a", focus: "#f1d9ca",
+  };
+  const LOOK = { locale: "de", dir: "ltr", theme: "dark", reducedMotion: true, tokens: TOKENS };
+
+  function fakeRoot() {
+    const props: Record<string, string> = {};
+    const root = {
+      style: { setProperty: (k: string, v: string) => { props[k] = v; }, colorScheme: "" },
+      dataset: {} as Record<string, string>,
+    };
+    return { props, root };
+  }
+
+  it("context() reads locale, dir, theme, reducedMotion and the eight tokens", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const p = h.client.context();
+    h.fromHost({ id: h.posted[0].id, ok: true, result: { appId: "chess", selfUserId: "u", ...LOOK } });
+    await expect(p).resolves.toMatchObject(LOOK);
+  });
+
+  it("an older host leaves them all undefined", async () => {
+    const h = makeHarness();
+    active = h.client;
+    const p = h.client.context();
+    h.fromHost({ id: h.posted[0].id, ok: true, result: { appId: "chess", selfUserId: "u" } });
+    const ctx = await p;
+    expect(ctx.locale).toBeUndefined();
+    expect(ctx.theme).toBeUndefined();
+    expect(ctx.tokens).toBeUndefined();
+    expect("dir" in ctx).toBe(false);
+  });
+
+  it("parseLook drops anything that isn't what it says — no CSS gets through", () => {
+    expect(parseLook({
+      locale: "de</style>", dir: "up", theme: "sepia", reducedMotion: "yes",
+      tokens: { ...TOKENS, bg: "url(javascript:alert(1))", accent: "red;}body{x:y", evil: "#000000" },
+    })).toEqual({
+      tokens: {
+        surface: "#2f261e", text: "#f1e9da", muted: "#9a8e7d",
+        onAccent: "#1a1612", border: "#3d332a", focus: "#f1d9ca",
+      },
+    });
+    expect(parseLook({ locale: "pt-BR", dir: "rtl", theme: "light", reducedMotion: false }))
+      .toEqual({ locale: "pt-BR", dir: "rtl", theme: "light", reducedMotion: false });
+    expect(parseLook(null)).toEqual({});
+  });
+
+  it("onContextChange hears app.context-changed from the host only", () => {
+    const h = makeHarness();
+    active = h.client;
+    const seen: unknown[] = [];
+    const off = h.client.onContextChange((l) => seen.push(l));
+    h.fromRogue({ type: "app.context-changed", context: LOOK });
+    h.fromHost({ type: "app.context-changed", context: { ...LOOK, theme: "light" } });
+    expect(seen).toEqual([{ ...LOOK, theme: "light" }]);
+    off();
+    h.fromHost({ type: "app.context-changed", context: LOOK });
+    expect(seen).toHaveLength(1);
+  });
+
+  it("a context change never reaches onMessage / onSession", () => {
+    const h = makeHarness();
+    active = h.client;
+    const msgs: unknown[] = [];
+    h.client.onMessage((m) => msgs.push(m));
+    h.client.onSession((m) => msgs.push(m));
+    h.fromHost({ type: "app.context-changed", context: LOOK });
+    expect(msgs).toEqual([]);
+  });
+
+  it("applyTheme sets the eight CSS variables, color-scheme and data-theme on :root", () => {
+    const { props, root } = fakeRoot();
+    applyTheme(parseLook(LOOK), root as unknown as HTMLElement);
+    expect(props).toEqual({
+      "--sh-bg": "#1a1612", "--sh-surface": "#2f261e", "--sh-text": "#f1e9da",
+      "--sh-muted": "#9a8e7d", "--sh-accent": "#e96a3f", "--sh-on-accent": "#1a1612",
+      "--sh-border": "#3d332a", "--sh-focus": "#f1d9ca",
+    });
+    expect(root.style.colorScheme).toBe("dark");
+    expect(root.dataset["theme"]).toBe("dark");
+    expect(root.dataset["reducedMotion"]).toBe("true");
+    expect(Object.keys(TOKEN_CSS_VARS)).toHaveLength(8);
+  });
+
+  it("applyTheme writes only valid hex colours, and nothing for an older host", () => {
+    const { props, root } = fakeRoot();
+    applyTheme({ tokens: { bg: "expression(x)" } } as never, root as unknown as HTMLElement);
+    expect(props).toEqual({});
+    expect(root.style.colorScheme).toBe("");
+    expect(root.dataset).toEqual({});
   });
 });

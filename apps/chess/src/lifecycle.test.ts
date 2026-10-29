@@ -18,7 +18,7 @@ import {
   isUnknownGame,
   isLocalOpponent,
   pickFailure,
-  INVITE_GONE,
+  inviteGoneMessage,
   isOwnInvite,
   isStaleMove,
   launchAction,
@@ -313,7 +313,7 @@ describe("launchAction — Play opens the game you were invited to", () => {
 
   it("an invite that no longer waits, for a game we don't have: say so", () => {
     expect(launchAction({ sessionId: "s9" }, games())).toEqual({ kind: "gone" });
-    expect(INVITE_GONE).toMatch(/isn't open/);
+    expect(inviteGoneMessage()).toMatch(/isn't open/);
   });
 });
 
