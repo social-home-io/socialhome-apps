@@ -36,6 +36,12 @@ importers:
         specifier: ^4.1.8
         version: 4.1.8(vite@8.0.16(esbuild@0.28.0))
 
+  apps/battleships:
+    dependencies:
+      '@socialhome/app-sdk':
+        specifier: workspace:*
+        version: link:../../packages/app-sdk
+
   apps/chess:
     dependencies:
       '@socialhome/app-sdk':
