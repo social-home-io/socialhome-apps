@@ -392,6 +392,20 @@ Read `apps/chess/` alongside `packages/app-sdk/src/index.ts` when writing a new 
 
 ---
 
+## The Battleships app
+
+`apps/battleships/` is a two-player game that needs fair play without a referee:
+
+- Each player seals all 100 squares of their board at lock-in (`seal.ts`, suite
+  `sha256-cells-v1`: seed-derived salts, the session id in every leaf). Every
+  answer opens just the shot square, so a false "miss" is caught on that shot
+  and voids the game; the seed and fleet are revealed and checked at the end.
+- SHA-256 is inlined (`sha256.ts`): the sandboxed frame has no `crypto.subtle`
+  when Social Home is opened over plain HTTP on the LAN.
+- Every message carries the whole game (`protocol.ts`); the receiver accepts at
+  most one new step on top of its own log and rebuilds score, turn and winner
+  itself. Nothing is sent after a game's final message (it carries the reveal).
+
 ## Security model
 
 - Apps run in a **sandboxed iframe** — no access to the host SPA's DOM, cookies, or auth tokens. The Content Security Policy sets `connect-src 'none'` for the iframe, so apps cannot make arbitrary network requests; all cross-origin communication goes through the SDK's `postMessage` channel.

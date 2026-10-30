@@ -726,6 +726,35 @@ describe("their copy of the past", () => {
   });
 });
 
+describe("our saved copy one step behind", () => {
+  it("catches up from their message when it echoes our answer, worked out again here", () => {
+    const rng = seeded(57);
+    const { A, B } = setup(rng, { fleetA: CLASSIC });
+    B.game = fire(B.game, 11);
+    const saved = A.game; // Anna's store before she answered
+    deliver(A, send(B));
+    deliver(B, send(A)); // Ben has Anna's answer ("hit")
+    // Anna reopens from her saved copy; Ben's latest message holds her answer.
+    const v = receive(saved, wire(buildMessage(B.game)));
+    expect(v.kind).toBe("update");
+    if (v.kind !== "update") return;
+    expect(v.game.shots).toEqual(A.game.shots);
+    expect(v.reply).toBe(false);
+  });
+
+  it("refuses an echo that isn't the answer our fleet gives", () => {
+    const rng = seeded(58);
+    const { A, B } = setup(rng, { fleetA: CLASSIC });
+    B.game = fire(B.game, 11);
+    const saved = A.game;
+    deliver(A, send(B));
+    deliver(B, send(A));
+    const m = wire(buildMessage(B.game));
+    m.shots[0] = [11, "m"];
+    expect(receive(saved, m)).toEqual({ kind: "refuse", reason: "rewrite" });
+  });
+});
+
 describe("game helpers", () => {
   it("replaces a draft fleet only while it is legal and unlocked", () => {
     const rng = seeded(62);

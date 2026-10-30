@@ -1,0 +1,13 @@
+[
+  {
+    "version": "2026.10.30",
+    "date": "2026-10-30",
+    "notes": {
+      "en": "New: Battleships. Place your fleet (or keep the random one), invite someone through Social Home and take turns firing. Every answer is checked against the fleet the other player locked in at the start, and both fleets are shown at the end.",
+      "de": "Neu: Schiffe versenken. Stell deine Flotte auf (oder behalte die zufällige), lade jemanden über Social Home ein und schießt abwechselnd. Jede Antwort wird mit der Flotte geprüft, die die andere Person am Anfang festgelegt hat, und am Ende werden beide Flotten gezeigt.",
+      "nl": "Nieuw: Zeeslag. Zet je vloot op (of houd de willekeurige), nodig iemand uit via Social Home en schiet om de beurt. Elk antwoord wordt gecontroleerd tegen de vloot die de ander aan het begin vastlegde, en aan het eind worden beide vloten getoond.",
+      "fr": "Nouveau : Bataille navale. Placez votre flotte (ou gardez celle tirée au hasard), invitez quelqu’un via Social Home et tirez chacun votre tour. Chaque réponse est vérifiée par rapport à la flotte validée par l’autre joueur au départ, et les deux flottes sont montrées à la fin.",
+      "es": "Nuevo: Hundir la flota. Coloca tu flota (o quédate con la del azar), invita a alguien a través de Social Home y disparad por turnos. Cada respuesta se comprueba con la flota que la otra persona fijó al principio, y al final se muestran las dos flotas."
+    }
+  }
+]

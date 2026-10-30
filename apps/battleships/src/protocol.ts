@@ -294,12 +294,17 @@ export function receive(game: Game, payload: unknown, now = Date.now()): Verdict
   const extra = R.length - L.length;
   if (extra > 1) return { kind: "refuse", reason: "ahead" };
   let newShot: number | null = null;
+  let echo: Answer | undefined;
   if (extra === 1) {
     const k = L.length;
-    // The new shot must be theirs, unanswered (we answer it), and come with
-    // the rest of the log up to date.
-    if (isMine(game, k) || R[k].ans !== undefined || behind) return { kind: "refuse", reason: "rewrite" };
+    // The new shot must be theirs and come with the rest of the log up to
+    // date. Usually it is unanswered and we answer it now. With an answer
+    // already in it, it is a shot we answered but our saved copy missed
+    // (the app closed before the store caught up): our answer is worked out
+    // again from our own fleet and must be exactly the one echoed.
+    if (isMine(game, k) || behind) return { kind: "refuse", reason: "rewrite" };
     newShot = R[k].cell;
+    echo = R[k].ans;
   }
   if (behind && newAnswer >= 0) return { kind: "refuse", reason: "rewrite" };
 
@@ -334,9 +339,10 @@ export function receive(game: Game, payload: unknown, now = Date.now()): Verdict
   if (newShot !== null && !g.outcome) {
     if (!ackOk) return voided(g, "order", now, newShot); // fired without holding our seal
     const answer = answerShot(g, newShot);
+    if (echo !== undefined && echo !== answer.ans) return { kind: "refuse", reason: "rewrite" };
     g.shots = [...g.shots, answer];
     changed = true;
-    reply = true;
+    reply = echo === undefined;
     events.push({
       type: "fired",
       cell: newShot,
