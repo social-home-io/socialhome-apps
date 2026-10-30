@@ -207,6 +207,16 @@ export interface AppContext extends AppLook {
   launch?: LaunchContext;
 }
 
+/** Options for {@link SocialHomeClient.federation} `send` (SDK ≥ 1.8). */
+export interface SendOptions {
+  /**
+   * `true` when this message passes the turn to the other player. Social
+   * Home (2026.10.30+) then shows them "Your turn with … in …" while the app
+   * is closed. Only an exact `true` counts.
+   */
+  turn?: boolean;
+}
+
 /** Read an invite as the host sends it in a launch context. */
 function toAppMessage(v: unknown): AppMessage | undefined {
   if (!isRecord(v) || typeof v["sessionId"] !== "string" || !v["sessionId"]) return undefined;
@@ -687,16 +697,23 @@ export class SocialHomeClient {
      * `"unknown_session"`. The recipient receives it via
      * {@link SocialHomeClient.onMessage}.
      * @param target  the person on the other side of that session.
+     * @param options `{ turn: true }` when this message hands the other
+     *   player the turn (a move, a shot): while their app is closed Social
+     *   Home shows them one "Your turn with … in …" row per game. Leave it
+     *   out for anything informational (a chat line, a final result). An
+     *   older Social Home ignores it and delivers the message as before.
      */
     send: (
       sessionId: string,
       target: SessionTarget,
       payload: unknown,
+      options?: SendOptions,
     ): Promise<void> =>
       this._call("app.send", {
         session_id: sessionId,
         target,
         payload,
+        ...(options?.turn === true ? { turn: true } : {}),
       }).then(() => undefined),
 
     /**

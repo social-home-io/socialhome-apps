@@ -21,7 +21,7 @@ import type { Fleet, Placement } from "./rules.js";
 import { fingerprint, fromB64url, newSeed } from "./seal.js";
 import { fire, firedBy, hitsByMe, hitsOnMe, lockIn, newGame, phase, resign, setFleet } from "./game.js";
 import type { Game } from "./game.js";
-import { buildMessage, canSend, isBsMessage, markSent, receive } from "./protocol.js";
+import { buildMessage, canSend, isBsMessage, markSent, passesTurn, receive } from "./protocol.js";
 import {
   classifySessionEvent,
   continueCopy,
@@ -1154,7 +1154,7 @@ async function sendState(entry: GameEntry): Promise<void> {
   if (!canSend(entry.game)) return;
   const msg = buildMessage(entry.game);
   try {
-    await client.federation.send(entry.sessionId, targetFor(entry), msg);
+    await client.federation.send(entry.sessionId, targetFor(entry), msg, { turn: passesTurn(entry.game) });
     if (entry.game.outcome) {
       entry.game = markSent(entry.game);
       void persist(entry);
@@ -1293,7 +1293,7 @@ async function offerContinue(entry: GameEntry): Promise<void> {
   }
   if (!picked.some((p) => p.sessionId === entry.sessionId)) return;
   try {
-    await client.federation.send(entry.sessionId, targetFor(entry), buildMessage(entry.game));
+    await client.federation.send(entry.sessionId, targetFor(entry), buildMessage(entry.game), { turn: passesTurn(entry.game) });
     entry.game = markSent(entry.game);
     void persist(entry);
     toast(t("toast.askedContinue", { name: personName(entry) }));

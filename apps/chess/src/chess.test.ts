@@ -19,6 +19,8 @@ import {
   lastMove,
   isMyTurn,
   positionOf,
+  passesTurn,
+  applyAction,
 } from "./chess.js";
 import type { Board, GameState, Move, Piece } from "./chess.js";
 import { groupContacts } from "./main.js";
@@ -139,6 +141,59 @@ describe("isMyTurn", () => {
   it("is false once the game is over, even on my color's turn", () => {
     const over: GameState = { ...initialState(), result: "draw" };
     expect(isMyTurn(over, "w")).toBe(false);
+  });
+});
+
+describe("passesTurn (the turn: true flag on a send)", () => {
+  const mv = (s: GameState, from: string, to: string): GameState =>
+    applyMove(s, { from: parseSquare(from), to: parseSquare(to) });
+
+  it("a board move that leaves the opponent to move passes the turn", () => {
+    const s = mv(initialState(), "e2", "e4");
+    expect(passesTurn(s, "w")).toBe(true);
+    expect(passesTurn(mv(s, "e7", "e5"), "b")).toBe(true);
+  });
+
+  it("nothing passes before the first move (the open message)", () => {
+    expect(passesTurn(initialState(), "w")).toBe(false);
+    expect(passesTurn(initialState(), "b")).toBe(false);
+  });
+
+  it("a draw offer keeps the turn: the offerer still moves; the move after it passes", () => {
+    const offered = applyAction(initialState(), { action: "offer-draw", by: "w" });
+    expect(passesTurn(offered, "w")).toBe(false);
+    expect(passesTurn(mv(offered, "e2", "e4"), "w")).toBe(true);
+  });
+
+  it("declining keeps the turn too: the decliner then moves", () => {
+    let s = applyAction(initialState(), { action: "offer-draw", by: "w" });
+    s = mv(s, "e2", "e4");
+    s = applyAction(s, { action: "decline-draw", by: "b" });
+    expect(passesTurn(s, "b")).toBe(false);
+    expect(passesTurn(mv(s, "e7", "e5"), "b")).toBe(true);
+  });
+
+  it("accepting a draw or resigning ends the game: no turn", () => {
+    let s = applyAction(initialState(), { action: "offer-draw", by: "w" });
+    s = mv(s, "e2", "e4");
+    expect(passesTurn(applyAction(s, { action: "accept-draw", by: "b" }), "b")).toBe(false);
+    // Resigning on the opponent's turn (allowed at any time) passes nothing.
+    expect(passesTurn(applyAction(s, { action: "resign", by: "w" }), "w")).toBe(false);
+    expect(passesTurn(applyAction(s, { action: "resign", by: "b" }), "b")).toBe(false);
+  });
+
+  it("a mating move ends the game: no turn", () => {
+    let s = mv(initialState(), "f2", "f3");
+    s = mv(s, "e7", "e5");
+    s = mv(s, "g2", "g4");
+    s = mv(s, "d8", "h4");
+    expect(s.result).toBe("black");
+    expect(passesTurn(s, "b")).toBe(false);
+  });
+
+  it("only the mover's own send carries it (the opponent re-sending this state doesn't)", () => {
+    const s = mv(initialState(), "e2", "e4");
+    expect(passesTurn(s, "b")).toBe(false);
   });
 });
 

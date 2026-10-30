@@ -723,6 +723,22 @@ export function boardMoveCount(state: GameState): number {
   return state.history.filter(isBoardMove).length;
 }
 
+/**
+ * Whether the message `myColor` sends with this state hands the opponent the
+ * turn — the `turn: true` flag on `federation.send`, so Social Home can show
+ * them "Your turn with … in Chess" while their app is closed. True only after
+ * our own board move left a running game with them to move. A draw offer or
+ * a declined offer keeps the turn here (you still make your move after it),
+ * resigning, an accepted draw or a move that ends the game pass nothing.
+ * Computed from the state alone, so a retry of the same state keeps the flag.
+ */
+export function passesTurn(state: GameState, myColor: Color): boolean {
+  if (state.result !== null || state.sideToMove !== opponent(myColor)) return false;
+  const last = state.history[state.history.length - 1];
+  // With the opponent to move, a board move last was ours.
+  return last !== undefined && isBoardMove(last);
+}
+
 /** True when it's `myColor`'s turn and the game isn't over. */
 export function isMyTurn(state: GameState, myColor: Color): boolean {
   return state.result === null && state.sideToMove === myColor;

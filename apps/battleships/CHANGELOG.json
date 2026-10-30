@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.30.1",
+    "date": "2026-10-30",
+    "notes": {
+      "en": "When it's your shot and Battleships is closed, Social Home shows \"Your turn with Ben in Battleships\" — one line per game, gone once you open it. The end of a game doesn't count as your turn.",
+      "de": "Wenn du schießen darfst und Schiffe versenken geschlossen ist, zeigt Social Home „Du bist bei Schiffe versenken mit Ben dran“ – eine Zeile pro Partie, die verschwindet, sobald du sie öffnest. Das Ende einer Partie zählt nicht als dein Zug.",
+      "nl": "Als jij mag schieten en Zeeslag gesloten is, toont Social Home „Jij bent aan de beurt bij Zeeslag met Ben” – één regel per spel, weg zodra je het opent. Het einde van een spel telt niet als jouw beurt.",
+      "fr": "Quand c’est à vous de tirer et que Bataille navale est fermé, Social Home affiche « Bataille navale : à vous de jouer avec Ben » — une ligne par partie, qui disparaît dès que vous l’ouvrez. La fin d’une partie ne compte pas comme votre tour.",
+      "es": "Cuando te toca disparar y Hundir la flota está cerrado, Social Home muestra «Te toca con Ben en Hundir la flota»: una línea por partida, que desaparece al abrirla. El final de una partida no cuenta como tu turno."
+    }
+  },
+  {
     "version": "2026.10.30",
     "date": "2026-10-30",
     "notes": {

@@ -90,6 +90,27 @@ describe("RPC calls", () => {
     });
   });
 
+  it("federation.send leaves turn out unless asked", () => {
+    const h = makeHarness();
+    active = h.client;
+    const target: SessionTarget = { instance_id: "peerB", user_ref: "alice", is_local: false };
+    void h.client.federation.send("sess-1", target, { m: 1 }).catch(() => {});
+    void h.client.federation.send("sess-1", target, { m: 2 }, {}).catch(() => {});
+    void h.client.federation.send("sess-1", target, { m: 3 }, { turn: false }).catch(() => {});
+    for (const p of h.posted) expect("turn" in (p.params as object)).toBe(false);
+  });
+
+  it("federation.send with { turn: true } posts turn: true", () => {
+    const h = makeHarness();
+    active = h.client;
+    const target: SessionTarget = { instance_id: "peerB", user_ref: "alice", is_local: false };
+    void h.client.federation.send("sess-1", target, { move: "e4" }, { turn: true }).catch(() => {});
+    expect(h.posted[0]).toMatchObject({
+      method: "app.send",
+      params: { session_id: "sess-1", payload: { move: "e4" }, turn: true },
+    });
+  });
+
   it("context() returns identity without a token", async () => {
     const h = makeHarness();
     active = h.client;
