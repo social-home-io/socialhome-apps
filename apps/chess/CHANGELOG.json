@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.30.2",
+    "date": "2026-10-30",
+    "notes": {
+      "en": "Chess is clearer: new pieces that read as white or black in light and dark, a board and status line that fit the screen, and Social Home's colours in dark mode. Games are sorted (your turn, waiting, finished) with your colour, the move number and the last move. Step through the moves and copy a game as PGN. Pick White, Black or Random for a new game; a rematch swaps colours. A tap that does nothing says why, and a move that couldn't be sent offers Retry.",
+      "de": "Schach ist übersichtlicher: neue Figuren, die hell und dunkel klar weiß oder schwarz sind, ein Brett samt Statuszeile, das auf den Bildschirm passt, und die Farben von Social Home auch im dunklen Design. Partien sind sortiert (du bist dran, wartet, beendet) mit Farbe, Zugnummer und letztem Zug. Blättere durch die Züge und kopiere eine Partie als PGN. Wähle Weiß, Schwarz oder Zufällig; eine Revanche tauscht die Farben. Ein nicht gesendeter Zug bietet „Erneut versuchen“.",
+      "nl": "Schaken is overzichtelijker: nieuwe stukken die in licht en donker duidelijk wit of zwart zijn, een bord met statusregel dat op het scherm past, en de kleuren van Social Home ook in donker. Partijen staan op volgorde (jij bent aan zet, wachten, afgelopen) met je kleur, het zetnummer en de laatste zet. Blader door de zetten en kopieer een partij als PGN. Kies Wit, Zwart of Willekeurig; een revanche wisselt de kleuren. Een zet die niet verzonden kon worden, biedt Opnieuw proberen.",
+      "fr": "Échecs est plus clair : de nouvelles pièces bien blanches ou noires en mode clair et sombre, un échiquier et une ligne d’état qui tiennent à l’écran, et les couleurs de Social Home en mode sombre. Les parties sont triées (à vous, en attente, terminées) avec votre couleur, le numéro du coup et le dernier coup. Parcourez les coups et copiez une partie en PGN. Choisissez Blancs, Noirs ou Au hasard ; une revanche inverse les couleurs. Un coup non envoyé propose Réessayer.",
+      "es": "Ajedrez es más claro: piezas nuevas que se ven blancas o negras en modo claro y oscuro, un tablero y una línea de estado que caben en la pantalla, y los colores de Social Home también en modo oscuro. Las partidas se ordenan (te toca, en espera, terminadas) con tu color, el número de jugada y la última jugada. Recorre las jugadas y copia una partida como PGN. Elige Blancas, Negras o Al azar; una revancha cambia los colores. Una jugada que no se pudo enviar ofrece Reintentar."
+    }
+  },
+  {
     "version": "2026.10.30.1",
     "date": "2026-10-30",
     "notes": {

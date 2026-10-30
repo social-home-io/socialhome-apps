@@ -17,6 +17,10 @@ import {
   endedMessage,
   continueCopy,
   entryForPicked,
+  colorFromInviter,
+  pliesBy,
+  rematchColor,
+  resolveColor,
   isUnknownGame,
   isLocalOpponent,
   pickFailure,
@@ -452,5 +456,63 @@ describe("continue a game Social Home no longer knows", () => {
         kind: "mismatch",
       });
     }
+  });
+});
+
+describe("the inviter picks the colours (White / Black / Random)", () => {
+  const BEN: PickedPerson = {
+    instance_id: "brookside",
+    user_ref: "ben",
+    is_local: false,
+    display_name: "Ben · Brookside",
+    sessionId: "s1",
+  };
+
+  it("the inviter as Black waits for the invitee, who plays White", () => {
+    const e = entryForPicked(BEN, "b", 42);
+    expect(e).toMatchObject({ myColor: "b", inviter: true, updatedAt: 42 });
+    expect(isAwaitingOpponent(e)).toBe(true);
+    // The invitee's first move answers the invite.
+    expect(isAwaitingOpponent({ ...e, state: stateAfter(["e2", "e4"]) })).toBe(false);
+  });
+
+  it("'Waiting to accept' ends when the invitee presses Play, before any move", () => {
+    const e = entryForPicked(BEN, "w");
+    expect(isAwaitingOpponent({ ...e, state: stateAfter(["e2", "e4"]) })).toBe(true);
+    expect(isAwaitingOpponent({ ...e, accepted: true, state: stateAfter(["e2", "e4"]) })).toBe(false);
+  });
+
+  it("an invitee is never waiting for its own invite (even as White)", () => {
+    expect(isAwaitingOpponent(entry({ myColor: "w", inviter: false }))).toBe(false);
+  });
+
+  it("random draws either colour; a rematch swaps", () => {
+    expect(resolveColor("random", () => 0.1)).toBe("w");
+    expect(resolveColor("random", () => 0.9)).toBe("b");
+    expect(resolveColor("b")).toBe("b");
+    expect(rematchColor(entry({ myColor: "b" }))).toBe("w");
+    expect(rematchColor(entry({ myColor: "w" }))).toBe("b");
+  });
+
+  it("the invitee takes its colour from the inviter's message, only before any move", () => {
+    const invitee = entry({ myColor: "b", inviter: false });
+    expect(colorFromInviter(invitee, { type: "open", youPlay: "w" })).toBe("w");
+    expect(colorFromInviter(invitee, { type: "open" })).toBeUndefined();
+    expect(colorFromInviter(invitee, { type: "open", youPlay: "x" })).toBeUndefined();
+    expect(colorFromInviter({ ...invitee, state: stateAfter(["e2", "e4"]) }, { youPlay: "w" })).toBeUndefined();
+    // The inviter never takes a colour from the invitee.
+    expect(colorFromInviter(entry({ inviter: true }), { youPlay: "b" })).toBeUndefined();
+  });
+
+  it("a withdrawn invite reaches an invitee that plays White too", () => {
+    const invitee = entry({ myColor: "w", inviter: false, opponentRef: "bob" });
+    const games = new Map([["s1", invitee]]);
+    const close = { sessionId: "s1", fromInstance: "inst-b", fromUser: "bob", payload: { verb: "close", reason: "withdrawn" } };
+    expect(classifySessionEvent(close, games).kind).toBe("withdrawn");
+  });
+
+  it("pliesBy counts moves and actions per side", () => {
+    expect(pliesBy(stateAfter(["e2", "e4"], ["e7", "e5"], ["g1", "f3"]), "w")).toBe(2);
+    expect(pliesBy(stateAfter(["e2", "e4"], ["e7", "e5"], ["g1", "f3"]), "b")).toBe(1);
   });
 });

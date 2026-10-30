@@ -15,6 +15,19 @@ describe("style.css", () => {
     }
   });
 
+  it("uses all eight Social Home tokens in dark too (not chess's own navy), each with a fallback", () => {
+    const dark = /:root\[data-theme="dark"\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(dark).not.toBe("");
+    for (const v of Object.values(TOKEN_CSS_VARS)) {
+      expect(dark, v).toMatch(new RegExp(`var\\(${v}, #[0-9a-f]{6}\\)`));
+    }
+  });
+
+  it("draws pieces as SVG (no font glyphs) and marks check on the board", () => {
+    expect(css).not.toMatch(/-webkit-text-stroke/);
+    expect(css).toMatch(/\.square\.in-check\s*\{/);
+  });
+
   it("turns animations off for reduced motion, from Social Home or the system", () => {
     expect(css).toContain(':root[data-reduced-motion="true"] *');
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)/);

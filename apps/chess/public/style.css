@@ -5,11 +5,12 @@
    ============================================================ */
 
 /* ---- Custom properties ----
-   Dark is chess's own look (and what an older Social Home, which sends no
-   theme, gets). In light, chess takes Social Home's colours: the SDK's
-   applyTheme() sets --sh-bg … --sh-focus on :root and data-theme="light"
-   (see the block after this one). The board squares and pieces keep their
-   wood colours in both. */
+   Light and dark take Social Home's colours: the SDK's applyTheme() sets
+   --sh-bg … --sh-focus on :root and data-theme="light" / "dark" (the two
+   blocks after this one), each with Social Home's default palette as the
+   fallback. The block here is only what an older Social Home, which sends
+   no theme, gets. The board squares keep their wood colours, and the pieces
+   are the same SVG figures, in every theme. */
 :root {
   /* App shell */
   --bg:            #0f1117;
@@ -23,6 +24,7 @@
   --text-muted:    #7b82a0;
   --text-dim:      #555a75;
   --danger:        #e05c6a;
+  --on-danger:     #1a0a0c;
   --success:       #4caf7d;
   --warn:          #e8a84a;
   --on-accent:     #fff;
@@ -54,9 +56,12 @@
   /* The band around a focused button (outside the outline). */
   --focus-halo:    var(--focus-outer);
 
-  /* Sizing */
-  --board-max:     440px;
-  --board-size:    min(92vw, var(--board-max));
+  /* Sizing: the board fits the frame's width and height, with room above
+     and below it for the header, status line, captured pieces and labels
+     (--board-chrome), so the result line is never below the fold. */
+  --board-max:     560px;
+  --board-chrome:  12rem;
+  --board-size:    min(92vw, var(--board-max), calc(100vh - var(--board-chrome)));
   --sq-size:       calc(var(--board-size) / 8);
 
   --radius-sm:     6px;
@@ -81,6 +86,7 @@
   --text-muted:    var(--sh-muted, #685f4f);
   --text-dim:      var(--sh-muted, #685f4f);
   --danger:        #a61b1b;
+  --on-danger:     #ffffff;
   --danger-hover:  #861515;
   --success:       #1f6b4a;
   --warn:          #8a5a00;
@@ -94,6 +100,29 @@
   --shadow-soft:   rgba(26,24,20,0.18);
   --backdrop:      rgba(26,24,20,0.38);
   --focus-accent:  var(--sh-focus, #a44221);
+  --focus-halo:    var(--bg);
+}
+
+/* Dark: Social Home's dark colours, its default dark palette as fallback. */
+:root[data-theme="dark"] {
+  --bg:            var(--sh-bg, #1a1612);
+  --surface:       var(--sh-surface, #2f261e);
+  --surface-alt:   color-mix(in srgb, var(--surface) 85%, var(--text));
+  --border:        var(--sh-border, #3d332a);
+  --accent:        var(--sh-accent, #e96a3f);
+  --accent-hover:  color-mix(in srgb, var(--accent) 85%, #fff);
+  --accent-dim:    color-mix(in srgb, var(--accent) 16%, transparent);
+  --on-accent:     var(--sh-on-accent, #1a1612);
+  --text:          var(--sh-text, #f1e9da);
+  --text-muted:    var(--sh-muted, #9a8e7d);
+  --text-dim:      var(--sh-muted, #9a8e7d);
+  --info-bg:       color-mix(in srgb, var(--accent) 10%, transparent);
+  --info-border:   color-mix(in srgb, var(--accent) 32%, transparent);
+  --toast-invite-bg: var(--surface);
+  --shadow:        rgba(0,0,0,0.55);
+  --shadow-soft:   rgba(0,0,0,0.45);
+  --backdrop:      rgba(10,8,6,0.7);
+  --focus-accent:  var(--sh-focus, #f1d9ca);
   --focus-halo:    var(--bg);
 }
 
@@ -135,40 +164,10 @@ html, body {
   overflow-x: hidden;
 }
 
-/* ---- App header ---- */
-.app-header {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0 1rem;
-  height: var(--header-h);
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-
-.app-header h1 {
-  font-size: 1rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--text);
-}
-
-.app-icon {
-  flex-shrink: 0;
-}
-/* The inlined icon carries width/height 64: keep it inside the header. */
-.app-icon svg {
-  display: block;
-  width: 28px;
-  height: 28px;
-}
-
 /* ---- Main content ---- */
+/* No title bar: Social Home already shows the app's name above the frame. */
 #app-root {
-  min-height: calc(100vh - var(--header-h));
+  min-height: 100vh;
 }
 
 /* ============================================================
@@ -235,12 +234,84 @@ html, body {
 
 .game-item-info {
   display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-  flex: 1 1 9rem;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1 1 10rem;
   min-width: 0;
 }
+.game-item-top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+/* "White · move 12 · Nf3": tells two games with the same person apart. */
+.game-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Finished games: collapsed under their count. */
+.lobby-finished > summary {
+  cursor: pointer;
+  list-style-position: inside;
+  padding: 0.2rem 0;
+}
+.lobby-finished[open] > summary { margin-bottom: 0.75rem; }
+
+/* "Play as: White / Black / Random" */
+.color-choice {
+  border: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.color-choice-legend {
+  float: inline-start;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin-inline-end: 0.5rem;
+  padding: 0.4rem 0;
+}
+.color-choice input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.color-choice-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 36px;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.color-choice input:checked + .color-choice-option {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--text);
+}
+.color-choice input:focus-visible + .color-choice-option {
+  outline: 2px solid var(--focus-accent);
+  outline-offset: 2px;
+}
+/* Small pieces outside the board sit on a square-coloured tile, so a black
+   piece reads on a dark surface too. */
+.color-choice-piece,
+.color-indicator {
+  background: var(--sq-light);
+  border-radius: 4px;
+  padding: 1px;
+}
+.color-choice-piece { width: 1.4rem; height: 1.4rem; }
+.game-item-top .game-opponent-name { max-width: none; flex: 0 1 auto; min-width: 0; }
 
 .game-opponent-name {
   font-weight: 600;
@@ -334,6 +405,11 @@ html, body {
   border: 1px solid rgba(232,168,74,0.3);
 }
 
+.badge-unsent {
+  background: var(--danger);
+  color: var(--on-danger);
+}
+
 .badge-over {
   background: var(--info-bg);
   color: var(--accent);
@@ -424,8 +500,176 @@ button:focus-visible {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.75rem 0.5rem 2rem;
+  gap: 0.4rem;
+  padding: 0.5rem 0.5rem 1rem;
+  --row-max: calc(var(--board-size) + 2.4rem);
+}
+
+/* Board on the left, status above it; actions + moves beside it on a wide
+   frame, under it on a narrow one. */
+.board-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+}
+.board-col {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  width: var(--row-max);
+  max-width: 100%;
+}
+.side-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: var(--row-max);
+}
+@media (min-width: 760px) {
+  .view-board { --row-max: calc(var(--board-size) + 2.4rem + 18.75rem); }
+  .board-layout {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: center;
+    max-width: var(--row-max);
+  }
+  .board-col { width: calc(var(--board-size) + 2.4rem); }
+  .side-col { width: 17.5rem; flex: 0 0 17.5rem; padding-top: 0.15rem; }
+  .move-list { max-height: calc(var(--board-size) - 9rem); overflow-y: auto; }
+}
+
+/* Why a tap did nothing: a short pill over the top of the board. */
+.tap-hint {
+  position: absolute;
+  top: 3.4rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  max-width: 92%;
+  padding: 0.3rem 0.8rem;
+  border-radius: 99px;
+  background: var(--surface);
+  border: 1px solid var(--danger);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+  box-shadow: 0 4px 16px var(--shadow-soft);
+  pointer-events: none;
+}
+.tap-hint:empty { display: none; }
+
+/* A square the tap couldn't use: a short shake and a red edge (only the
+   edge with less motion — the global rule turns the animation off). */
+.square.nope {
+  box-shadow: inset 0 0 0 3px var(--danger);
+  animation: nope-shake 0.3s ease;
+}
+@keyframes nope-shake {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-3px); }
+  75%      { transform: translateX(3px); }
+}
+
+/* Looking at an earlier move: the board is read-only. */
+.view-past {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.25rem 0.25rem 0.25rem 0.75rem;
+  border-radius: var(--radius-md);
+  background: var(--accent-dim);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.chess-board--past { filter: saturate(0.6); }
+
+/* A move that didn't go out. */
+.send-failed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  font-size: 0.9rem;
+}
+.send-failed p { flex: 1 1 10rem; }
+
+/* ---- Moves: list, replay, PGN ---- */
+.move-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.panel-heading {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.replay-controls {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+}
+.replay-btn { font-size: 1.1rem; padding: 0.2rem; }
+.replay-btn:disabled { opacity: 0.4; cursor: default; }
+.move-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  font-variant-numeric: tabular-nums;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+.move-pair {
+  display: grid;
+  grid-template-columns: 2.4rem 1fr 1fr;
+  align-items: center;
+}
+.move-no { color: var(--text-muted); font-size: 0.8rem; }
+.move-btn {
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: start;
+  padding: 0.25rem 0.4rem;
+  min-height: 36px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.move-btn:hover { background: var(--surface-alt); }
+.move-btn[aria-current] { background: var(--accent-dim); font-weight: 700; color: var(--text); }
+.move-gap { color: var(--text-muted); cursor: default; }
+.btn-copy-pgn { align-self: flex-start; }
+.pgn-text {
+  width: 100%;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  padding: 0.5rem;
+  margin-bottom: 0.9rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  resize: vertical;
 }
 
 /* ---- Board header ---- */
@@ -434,7 +678,7 @@ button:focus-visible {
   align-items: center;
   gap: 0.75rem;
   width: 100%;
-  max-width: calc(var(--board-size) + 3rem); /* aligns with board + labels */
+  max-width: var(--row-max); /* aligns with the board (+ the side column) */
 }
 
 /* ---- Our invite is still unanswered ---- */
@@ -445,7 +689,7 @@ button:focus-visible {
   flex-wrap: wrap;
   gap: 0.5rem 0.75rem;
   width: 100%;
-  max-width: calc(var(--board-size) + 3rem);
+  max-width: var(--row-max);
   padding: 0.5rem 0.75rem;
   background: var(--accent-dim);
   border: 1px solid var(--border);
@@ -468,8 +712,9 @@ button:focus-visible {
 }
 
 .color-indicator {
-  font-size: 1.25rem;
-  line-height: 1;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
 }
 
 .opponent-label {
@@ -480,19 +725,13 @@ button:focus-visible {
   white-space: nowrap;
 }
 
-/* Live dot pulsing indicator */
+/* Online now (Social Home's presence): a quiet green dot after the name. */
 .live-dot {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  background: var(--success);
+  background: var(--presence-online);
   flex-shrink: 0;
-  animation: pulse 2.4s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%       { opacity: 0.45; transform: scale(0.75); }
 }
 
 /* ---- Captured pieces ---- */
@@ -500,16 +739,16 @@ button:focus-visible {
   display: flex;
   flex-wrap: wrap;
   gap: 1px;
-  min-height: 1.4rem;
+  min-height: 1.1rem;
   width: 100%;
   max-width: var(--board-size);
   padding: 0 0.1rem;
 }
 
 .captured-piece {
-  font-size: 1rem;
-  line-height: 1.2;
-  opacity: 0.72;
+  width: 1.1rem;
+  height: 1.1rem;
+  opacity: 0.85;
 }
 
 /* ---- Board wrapper ---- */
@@ -690,38 +929,17 @@ button:focus-visible {
   z-index: 0;
 }
 
-/* ---- Pieces ---- */
+/* ---- Pieces (inline SVG, pieces.ts) ---- */
 .piece {
-  font-size: calc(var(--sq-size) * 0.74);
-  line-height: 1;
+  width: 90%;
+  height: 90%;
   pointer-events: none;
   display: block;
   /* Sit above the .last-move ::before tint */
   position: relative;
   z-index: 1;
-  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45));
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.35));
   transition: transform 0.08s ease;
-}
-
-/* Solid white vs black figures. The piece reads as its true colour from the
-   FILL; a thin opposite-tone rim is only an edge (not a dominant outline, so a
-   white piece never looks black or vice-versa), and an opposite-tone halo
-   lifts the figure off a same-tone square (white on light / black on dark —
-   the weak case). White = white fill + thin dark rim + dark halo; black =
-   near-black fill + thin light rim + light halo. */
-.piece--w {
-  color: #ffffff;
-  -webkit-text-stroke: 1px #15110a;
-  text-shadow:
-    0 0 2px rgba(0,0,0,0.55),
-    0 1px 1px rgba(0,0,0,0.45);
-}
-.piece--b {
-  color: #111118;
-  -webkit-text-stroke: 1px #f4ecdc;
-  text-shadow:
-    0 0 2px rgba(255,255,255,0.65),
-    0 1px 1px rgba(0,0,0,0.40);
 }
 
 .square.selected .piece {
@@ -738,7 +956,7 @@ button:focus-visible {
 .game-status {
   width: 100%;
   max-width: var(--board-size);
-  min-height: 3rem;
+  min-height: 2.5rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -751,7 +969,7 @@ button:focus-visible {
   background: rgba(76,175,125,0.13);
   border: 1px solid rgba(76,175,125,0.3);
   border-radius: var(--radius-md);
-  padding: 0.55rem 1rem;
+  padding: 0.4rem 0.9rem;
   width: 100%;
   color: var(--success-text);
   font-size: 0.95rem;
@@ -766,7 +984,7 @@ button:focus-visible {
   background: rgba(232,168,74,0.1);
   border: 1px solid rgba(232,168,74,0.25);
   border-radius: var(--radius-md);
-  padding: 0.55rem 1rem;
+  padding: 0.4rem 0.9rem;
   width: 100%;
   color: var(--warn-text);
   font-size: 0.95rem;
@@ -781,7 +999,7 @@ button:focus-visible {
   background: var(--info-bg);
   border: 1px solid var(--info-border);
   border-radius: var(--radius-md);
-  padding: 0.55rem 1rem;
+  padding: 0.4rem 0.9rem;
   width: 100%;
   color: var(--text);
   font-size: 0.95rem;
@@ -802,15 +1020,16 @@ button:focus-visible {
   color: var(--accent);
 }
 
+/* Solid, so it reads in light mode too (white on #a61b1b ≈ 6.9:1). */
 .status-check-chip {
   display: inline-block;
-  padding: 0.15em 0.5em;
-  background: rgba(220,60,60,0.2);
+  padding: 0.15em 0.55em;
+  background: var(--danger);
   border-radius: 99px;
   font-size: 0.8rem;
   font-weight: 700;
-  color: var(--danger);
-  border: 1px solid rgba(220,60,60,0.4);
+  color: var(--on-danger);
+  border: 1px solid var(--danger);
   animation: check-flash 0.6s ease-in-out 2;
 }
 
@@ -879,8 +1098,8 @@ button:focus-visible {
   color: #1a1814;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  --sq-size: 3rem;
 }
+.promotion-choice .piece { width: 2.6rem; height: 2.6rem; }
 .promotion-choice:hover { border-color: var(--accent); }
 .promotion-label { font-size: 0.8rem; font-weight: 600; }
 
@@ -1026,7 +1245,8 @@ button:focus-visible {
   }
 
   .board-header,
-  .invite-pending {
+  .invite-pending,
+  .board-col {
     max-width: 100%;
   }
 
