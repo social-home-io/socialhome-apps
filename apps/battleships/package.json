@@ -1,0 +1,13 @@
+{
+  "name": "battleships-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MPL-2.0",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@socialhome/app-sdk": "workspace:*"
+  }
+}
