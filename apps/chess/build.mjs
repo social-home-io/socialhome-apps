@@ -2,7 +2,7 @@
  * Chess app build script.
  *
  * Produces a SINGLE self-contained, fully-inlined entry:
- *   dist/index.html    — HTML with the JS bundle, CSS, and icon all inlined
+ *   dist/index.html    — HTML with the JS bundle and CSS inlined
  *   dist/manifest.json — app metadata (the backend reads this)
  *
  * Why everything is inlined: a Social Home App runs in a sandboxed iframe with
@@ -11,7 +11,7 @@
  * origin, which (a) fails CSP `'self'` (the document's origin is "null", not the
  * serving origin) and (b) for module scripts is CORS-blocked and uncredentialed.
  * Inlining sidesteps all of it: no sub-resource fetch, only inline JS/CSS
- * (allowed by `script-src/style-src 'unsafe-inline'`) and a data-URI/inline icon.
+ * (allowed by `script-src/style-src 'unsafe-inline'`) (the icon is a data: URI in the manifest).
  * => Social Home apps should ship a single inlined entry document.
  *
  * Usage: node build.mjs
@@ -48,9 +48,9 @@ async function main() {
   });
   const js = result.outputFiles[0].text;
 
-  // 2. Read CSS + icon to inline.
+  // 2. Read the CSS to inline. (No title bar: Social Home shows the app's
+  //    name and icon above the frame; the manifest carries the icon.)
   const css = await readFile(path.join(PUBLIC, "style.css"), "utf8");
-  const iconSvg = (await readFile(path.join(PUBLIC, "icon.svg"), "utf8")).trim();
 
   // 3. Compose a single self-contained document.
   const html = `<!DOCTYPE html>
@@ -64,10 +64,6 @@ async function main() {
   <style>${css}</style>
 </head>
 <body>
-  <header class="app-header">
-    <span class="app-icon" aria-hidden="true">${iconSvg}</span>
-    <h1 id="app-title">Chess</h1>
-  </header>
   <main id="app-root" aria-label="Chess app"></main>
   <script>${js}</script>
 </body>

@@ -24,7 +24,7 @@
 
 import { parseSessionPayload, ShError } from "@socialhome/app-sdk";
 import type { AppMessage, Contact, LaunchContext, PickedPerson } from "@socialhome/app-sdk";
-import { initialState } from "./chess.js";
+import { initialState, isBoardMove } from "./chess.js";
 import { t } from "./i18n.js";
 import type { Color, GameState } from "./chess.js";
 
@@ -38,6 +38,34 @@ export interface GameEntry {
   opponentName: string;
   myColor: Color;
   state: GameState;
+  /** We sent the invite (older games: White sent it). */
+  inviter?: boolean;
+  /** The invitee pressed Play (their chess said so, or they made a move). */
+  accepted?: boolean;
+  /** Our newest entry couldn't be sent: show "Couldn't send — Retry". */
+  unsent?: boolean;
+  /** When the game last changed here (ms since 1970), for the lobby's order. */
+  updatedAt?: number;
+}
+
+/** Whether we sent this game's invite (games from before the field: White did). */
+export function isInviter(entry: GameEntry): boolean {
+  return entry.inviter ?? entry.myColor === "w";
+}
+
+/** How many history entries `color` made (board moves alternate from White). */
+export function pliesBy(state: GameState, color: Color): number {
+  let n = 0;
+  let board = 0;
+  for (const ply of state.history) {
+    if (isBoardMove(ply)) {
+      if ((board % 2 === 0 ? "w" : "b") === color) n++;
+      board++;
+    } else if (ply.by === color) {
+      n++;
+    }
+  }
+  return n;
 }
 
 /** What the app does with an inbound `session` event. */
@@ -49,17 +77,14 @@ export type SessionAction =
   | { kind: "ignore" };
 
 /**
- * True while our own invite has not been answered: we are the challenger
- * (White) and the opponent has made no move yet. The challenger may already
- * have played their first move — an invite waits for the reply, not for us.
- * Derived from the game itself, so games saved by older versions work too.
+ * True while our own invite has not been answered: we sent it, the invitee
+ * hasn't pressed Play (their chess tells us, `accepted`) and hasn't made a
+ * move either. The inviter may already have played a first move as White —
+ * an invite waits for the reply, not for us.
  */
 export function isAwaitingOpponent(entry: GameEntry): boolean {
-  return (
-    entry.myColor === "w" &&
-    entry.state.result === null &&
-    entry.state.history.length <= 1
-  );
+  if (!isInviter(entry) || entry.accepted || entry.state.result !== null) return false;
+  return pliesBy(entry.state, entry.myColor === "w" ? "b" : "w") === 0;
 }
 
 /**
@@ -128,13 +153,13 @@ export function classifySessionEvent(
     if (reason === "declined" && isAwaitingOpponent(entry)) {
       return { kind: "declined", entry };
     }
-    // Withdrawn: only an invite we received (we play Black) and haven't
-    // answered with a move yet.
+    // Withdrawn: only an invite we received and haven't answered with a
+    // move yet.
     if (
       reason === "withdrawn" &&
-      entry.myColor === "b" &&
+      !isInviter(entry) &&
       entry.state.result === null &&
-      entry.state.history.length <= 1
+      pliesBy(entry.state, entry.myColor) === 0
     ) {
       return { kind: "withdrawn", entry };
     }
@@ -256,21 +281,49 @@ export function endGameConfirmCopy(entry: GameEntry): ConfirmCopy {
 // New games go through Social Home's invite sheet (`people.pick`)
 // ---------------------------------------------------------------------------
 
+/** The inviter's choice in "New game": a colour, or random. */
+export type ColorChoice = Color | "random";
+
+/** The colour a choice gives (`random` draws one). */
+export function resolveColor(choice: ColorChoice, random: () => number = Math.random): Color {
+  if (choice === "random") return random() < 0.5 ? "w" : "b";
+  return choice;
+}
+
+/** A rematch swaps colours: you play the side you didn't play last time. */
+export function rematchColor(previous: GameEntry): Color {
+  return previous.myColor === "w" ? "b" : "w";
+}
+
 /**
  * The game Social Home opened for a person picked in its invite sheet: we
- * challenged them, so we play White and the board starts fresh. The opponent
- * is exactly who was picked — the session only takes messages to them.
+ * invited them and play the colour we chose (White when nothing says
+ * otherwise); the board starts fresh. The opponent is exactly who was
+ * picked — the session only takes messages to them.
  */
-export function entryForPicked(p: PickedPerson): GameEntry {
+export function entryForPicked(p: PickedPerson, myColor: Color = "w", now = 0): GameEntry {
   return {
     sessionId: p.sessionId,
     opponentInstanceId: p.instance_id,
     opponentRef: p.user_ref,
     opponentIsLocal: p.is_local,
     opponentName: p.display_name,
-    myColor: "w", // the challenger always plays White
+    myColor,
     state: initialState(),
+    inviter: true,
+    updatedAt: now,
   };
+}
+
+/**
+ * The colour the inviter's chess says we play (`youPlay` on its open and
+ * move messages), or undefined. Taken only while nobody has made a move.
+ */
+export function colorFromInviter(entry: GameEntry, payload: unknown): Color | undefined {
+  if (isInviter(entry) || entry.state.history.length > 0) return undefined;
+  if (typeof payload !== "object" || payload === null) return undefined;
+  const c = (payload as Record<string, unknown>)["youPlay"];
+  return c === "w" || c === "b" ? c : undefined;
 }
 
 /**
