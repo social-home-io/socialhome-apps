@@ -5,6 +5,7 @@
   "type": "module",
   "license": "MPL-2.0",
   "scripts": {
+    "build": "node build.mjs",
     "test": "vitest run"
   },
   "dependencies": {
