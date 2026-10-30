@@ -952,7 +952,7 @@ function renderGame(): void {
   r.appendChild(boards);
 
   // Fire bar / end actions
-  const bar = make("div", { cls: "firebar" });
+  const bar = make("div", { cls: phase(g) === "my-turn" ? "firebar playing" : "firebar" });
   if (over) {
     bar.append(button(t("btn.rematch"), "primary", () => startNewGame(contactFor(entry))), button(t("btn.backToGames"), "", toLobby));
   } else if (phase(g) === "my-turn") {
