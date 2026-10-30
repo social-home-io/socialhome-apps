@@ -215,7 +215,7 @@ export function withdrawnMessage(name: string): string {
   return t("invite.withdrawn", { name });
 }
 
-/** Copy for the in-app confirm shown before a game is abandoned or removed. */
+/** Copy for an in-app confirm (resign, remove, continue). */
 export interface ConfirmCopy {
   title: string;
   body: string;
@@ -225,17 +225,16 @@ export interface ConfirmCopy {
   primary?: boolean;
 }
 
-/** Lobby button label: "Abandon" for a game in play, "Remove" for a finished one. */
-export function abandonButtonLabel(entry: GameEntry): string {
-  return entry.state.result === null ? t("btn.abandon") : t("btn.remove");
+/** Lobby button label: "Resign" for a game in play, "Remove" for a finished one. */
+export function endGameButtonLabel(entry: GameEntry): string {
+  return entry.state.result === null ? t("btn.resign") : t("btn.remove");
 }
 
 /**
- * What the confirm says before a game leaves this player's list. States the
- * real consequence: the game is gone here for good, and (today) the opponent
- * is not told — their copy stays open.
+ * What the confirm says before this player resigns a game in play (the
+ * opponent is told and wins) or removes a finished one from their list.
  */
-export function abandonConfirmCopy(entry: GameEntry): ConfirmCopy {
+export function endGameConfirmCopy(entry: GameEntry): ConfirmCopy {
   const name = entry.opponentName;
   if (entry.state.result !== null) {
     return {
@@ -246,10 +245,10 @@ export function abandonConfirmCopy(entry: GameEntry): ConfirmCopy {
     };
   }
   return {
-    title: t("abandon.title", { name }),
-    body: t("abandon.body", { name }),
-    confirm: t("abandon.confirm"),
-    cancel: t("abandon.cancel"),
+    title: t("resign.title", { name }),
+    body: t("resign.body", { name }),
+    confirm: t("resign.confirm"),
+    cancel: t("resign.cancel"),
   };
 }
 

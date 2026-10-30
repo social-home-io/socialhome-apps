@@ -17,23 +17,27 @@ import sh from "@socialhome/app-sdk";
 import type { AppLook, AppMessage, Contact, PickedPerson, SessionTarget } from "@socialhome/app-sdk";
 import {
   initialState,
+  applyAction,
   applyMove,
+  canTakeAction,
   isInCheck,
+  positionOf,
   rowOf,
   colOf,
   lastMove,
   isMyTurn,
+  PROMOTION_PIECES,
 } from "./chess.js";
-import type { GameState, Move, Color } from "./chess.js";
+import type { GameAction, GameState, Move, Color, PieceType, Ply } from "./chess.js";
 import {
-  abandonButtonLabel,
+  endGameButtonLabel,
+  endGameConfirmCopy,
   continueCopy,
   entryForPicked,
   inviteMismatchMessage,
   isUnknownGame,
   isLocalOpponent,
   pickFailure,
-  abandonConfirmCopy,
   classifySessionEvent,
   declinedMessage,
   endedMessage,
@@ -44,12 +48,14 @@ import {
   withdrawnMessage,
 } from "./lifecycle.js";
 import type { ConfirmCopy, GameEntry } from "./lifecycle.js";
-import { catchUpFromOwnCopy, judgeInbound, routeInbound } from "./inbound.js";
+import { catchUpFromOwnCopy, judgeInbound, restoreState, routeInbound } from "./inbound.js";
 import {
   activateSquare,
   boardHint,
   boardLabel,
   buildSquareOrder,
+  checkedKing,
+  endingText,
   initialCursor,
   isNavKey,
   moveAnnouncement,
@@ -153,11 +159,27 @@ let _toastCounter = 0;
 // Wire message shapes
 // ---------------------------------------------------------------------------
 
+/**
+ * A move or action message. `move` is the newest history entry; `state` the
+ * game in the shape every chess version reads (`history` is all a current
+ * chess takes — the receiver replays it; the board and result are for older
+ * versions only).
+ */
 interface MovePayload {
   type: "move";
   sessionId: string;
-  move: Move;
-  state: GameState;
+  move: Ply;
+  state: Pick<GameState, "board" | "sideToMove" | "history" | "result">;
+}
+
+function movePayload(entry: GameEntry): MovePayload {
+  const { board, sideToMove, history, result } = entry.state;
+  return {
+    type: "move",
+    sessionId: entry.sessionId,
+    move: history[history.length - 1],
+    state: { board, sideToMove, history, result },
+  };
 }
 
 interface OpenPayload {
@@ -202,7 +224,9 @@ async function loadAllGames(): Promise<void> {
       typeof e.state === "object" && e.state !== null
     ) {
       // Be tolerant of games persisted before the person-addressing fields
-      // existed: fall back to "" / false so old games still resume.
+      // existed: fall back to "" / false so old games still resume. The game
+      // itself is rebuilt from its moves (castling rights, clocks and the
+      // rest follow), else kept as it was saved.
       const entry: GameEntry = {
         sessionId: e.sessionId,
         opponentInstanceId: e.opponentInstanceId,
@@ -210,11 +234,20 @@ async function loadAllGames(): Promise<void> {
         opponentIsLocal: e.opponentIsLocal === true,
         opponentName: e.opponentName,
         myColor: e.myColor,
-        state: e.state as GameState,
+        state: restoreState(e.state) ?? legacyState(e.state as GameState),
       };
       ui.games.set(entry.sessionId, entry);
     }
   }
+}
+
+/** A saved game today's engine can't replay: keep its board and moves as they are. */
+function legacyState(raw: GameState): GameState {
+  return {
+    ...positionOf(raw.board, raw.sideToMove),
+    history: Array.isArray(raw.history) ? raw.history : [],
+    result: raw.result ?? null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -409,17 +442,17 @@ function renderLobby(): void {
         cancelBtn.addEventListener("click", () => void onCancelInvite(sessionId));
         actions.appendChild(cancelBtn);
       } else {
-        const label = abandonButtonLabel(entry);
-        const labelWith = t(entry.state.result === null ? "btn.abandonWith" : "btn.removeWith", {
+        const label = endGameButtonLabel(entry);
+        const labelWith = t(entry.state.result === null ? "btn.resignWith" : "btn.removeWith", {
           name: entry.opponentName,
         });
-        const abandonBtn = make("button", {
+        const endBtn = make("button", {
           cls: "btn btn-ghost",
           text: label,
           attrs: { "aria-label": labelWith },
         });
-        abandonBtn.addEventListener("click", () => void onAbandonGame(sessionId));
-        actions.appendChild(abandonBtn);
+        endBtn.addEventListener("click", () => void onEndGame(sessionId));
+        actions.appendChild(endBtn);
       }
 
       li.appendChild(actions);
@@ -658,6 +691,7 @@ function renderBoard(): void {
 
   const game = entry.state;
   const lm = lastMove(game);
+  const checked = checkedKing(game);
 
   // Determine rendering order: if I play Black, flip so my pieces are near me
   const squareIndices = buildSquareOrder(entry.myColor);
@@ -691,6 +725,7 @@ function renderBoard(): void {
     if (selected) cell.classList.add("selected");
     if (legalTarget) cell.classList.add("legal-target");
     if (isLast) cell.classList.add("last-move");
+    if (sqIdx === checked) cell.classList.add("in-check");
 
     if (piece) {
       const glyph = make("span", {
@@ -733,6 +768,8 @@ function renderBoard(): void {
   const statusEl = make("div", { cls: "game-status" });
   statusEl.appendChild(buildStatusContent(entry));
   root.appendChild(statusEl);
+  const actionsEl = buildGameActions(entry);
+  if (actionsEl) root.appendChild(actionsEl);
 
   if (hadBoardFocus) focusCursor();
 }
@@ -811,19 +848,8 @@ function buildStatusContent(entry: GameEntry): DocumentFragment {
   const game = entry.state;
 
   if (game.result !== null) {
-    const label = resultLabel(game.result, entry.myColor);
-    let detail = "";
-    if (game.result === "draw") detail = t("status.stalemate");
-    else if (
-      (game.result === "white" && entry.myColor === "w") ||
-      (game.result === "black" && entry.myColor === "b")
-    ) {
-      detail = t("status.youWin");
-    } else {
-      detail = t("status.theyWin", { name: entry.opponentName });
-    }
-    const p = make("p", { cls: "status-game-over", text: detail });
-    const lbl = make("span", { cls: "status-result-badge", text: label });
+    const p = make("p", { cls: "status-game-over", text: endingText(game, entry.myColor, entry.opponentName) });
+    const lbl = make("span", { cls: "status-result-badge", text: resultLabel(game.result, entry.myColor) });
     p.appendChild(lbl);
     frag.appendChild(p);
     return frag;
@@ -857,6 +883,49 @@ function buildStatusContent(entry: GameEntry): DocumentFragment {
     frag.appendChild(p);
   }
   return frag;
+}
+
+/**
+ * The game's own buttons under the board: an open draw offer (theirs, with
+ * Accept / Decline on our turn; ours, waiting for them), Offer draw on our
+ * turn, and Resign while the game runs.
+ */
+function buildGameActions(entry: GameEntry): HTMLElement | null {
+  const game = entry.state;
+  if (game.result !== null) return null;
+  const me = entry.myColor;
+  const bar = make("div", { cls: "game-actions" });
+
+  if (game.drawOffer !== null && game.drawOffer !== me) {
+    const offer = make("div", { cls: "draw-offer", attrs: { role: "group", "aria-label": t("draw.theyOffer", { name: entry.opponentName }) } });
+    offer.appendChild(make("p", { cls: "draw-offer-text", text: t("draw.theyOffer", { name: entry.opponentName }) }));
+    if (canTakeAction(game, "accept-draw", me)) {
+      const accept = make("button", { cls: "btn btn-primary", text: t("btn.acceptDraw"), attrs: { type: "button" } });
+      accept.addEventListener("click", () => void onAction(entry, "accept-draw"));
+      const decline = make("button", { cls: "btn btn-ghost", text: t("btn.declineDraw"), attrs: { type: "button" } });
+      decline.addEventListener("click", () => void onAction(entry, "decline-draw"));
+      offer.append(accept, decline);
+    }
+    bar.appendChild(offer);
+  } else if (game.drawOffer === me) {
+    bar.appendChild(make("p", { cls: "draw-offer-text", text: t("draw.youOffered", { name: entry.opponentName }) }));
+  }
+
+  const buttons = make("div", { cls: "game-actions-buttons" });
+  if (canTakeAction(game, "offer-draw", me)) {
+    const offerBtn = make("button", { cls: "btn btn-ghost", text: t("btn.offerDraw"), attrs: { type: "button" } });
+    offerBtn.addEventListener("click", () => void onAction(entry, "offer-draw"));
+    buttons.appendChild(offerBtn);
+  }
+  const resignBtn = make("button", {
+    cls: "btn btn-ghost btn-resign",
+    text: t("btn.resign"),
+    attrs: { type: "button", "aria-label": t("btn.resignWith", { name: entry.opponentName }) },
+  });
+  resignBtn.addEventListener("click", () => void onEndGame(entry.sessionId));
+  buttons.appendChild(resignBtn);
+  bar.appendChild(buttons);
+  return bar;
 }
 
 // ---------------------------------------------------------------------------
@@ -938,11 +1007,78 @@ function activate(sqIdx: number): void {
     case "move":
       void onMove(entry, action.move);
       break;
+    case "promote":
+      void onPromote(entry, action.from, action.to);
+      return;
     case "none":
       say(noneAnnouncement(action.reason, entry.opponentName));
       break;
   }
   renderBoard();
+}
+
+/** A pawn reached the last rank: ask which piece it becomes, then move. */
+async function onPromote(entry: GameEntry, from: number, to: number): Promise<void> {
+  const piece = await promotionDialog(entry.myColor);
+  if (!piece) {
+    // Cancelled: the pawn stays picked up, so another target can be chosen.
+    renderBoard();
+    focusCursor();
+    return;
+  }
+  await onMove(entry, { from, to, promotion: piece });
+  focusCursor();
+}
+
+/**
+ * The promotion picker: a native modal <dialog> with one button per piece
+ * (queen first and focused), reachable by Tab / arrow keys; Escape cancels.
+ */
+function promotionDialog(color: Color): Promise<PieceType | null> {
+  return new Promise((resolve) => {
+    const dlg = make("dialog", {
+      cls: "confirm-dialog promotion-dialog",
+      attrs: { "aria-labelledby": "promo-title", "aria-describedby": "promo-hint" },
+    });
+    dlg.appendChild(make("h2", { cls: "confirm-title", text: t("promo.title"), attrs: { id: "promo-title" } }));
+    dlg.appendChild(make("p", { cls: "confirm-body", text: t("promo.hint"), attrs: { id: "promo-hint" } }));
+    const choices = make("div", { cls: "promotion-choices", attrs: { role: "group", "aria-labelledby": "promo-title" } });
+    let chosen: PieceType | null = null;
+    const buttons: HTMLButtonElement[] = [];
+    for (const type of PROMOTION_PIECES) {
+      const btn = make("button", { cls: "btn promotion-choice", attrs: { type: "button", "data-piece": type } });
+      btn.append(
+        make("span", { cls: ["piece", pieceColorClass(color + type)], text: PIECE_GLYPHS[color + type], attrs: { "aria-hidden": "true" } }),
+        make("span", { cls: "promotion-label", text: t(`promo.${type}` as "promo.Q") }),
+      );
+      btn.addEventListener("click", () => { chosen = type; dlg.close(); });
+      buttons.push(btn);
+      choices.appendChild(btn);
+    }
+    // Arrow keys move between the four pieces as well as Tab.
+    choices.addEventListener("keydown", (ev) => {
+      const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      if (i === -1) return;
+      const step = ev.key === "ArrowRight" || ev.key === "ArrowDown" ? 1 : ev.key === "ArrowLeft" || ev.key === "ArrowUp" ? -1 : 0;
+      if (!step) return;
+      ev.preventDefault();
+      buttons[(i + step + buttons.length) % buttons.length].focus();
+    });
+    dlg.appendChild(choices);
+    const actions = make("div", { cls: "confirm-actions" });
+    const cancel = make("button", { cls: "btn btn-ghost", text: t("promo.cancel"), attrs: { type: "button" } });
+    cancel.addEventListener("click", () => dlg.close());
+    actions.appendChild(cancel);
+    dlg.appendChild(actions);
+    dlg.addEventListener("click", (ev) => { if (ev.target === dlg) dlg.close(); });
+    dlg.addEventListener("close", () => {
+      dlg.remove();
+      resolve(chosen);
+    });
+    document.body.appendChild(dlg);
+    dlg.showModal();
+    buttons[0].focus();
+  });
 }
 
 async function onMove(entry: GameEntry, move: Move): Promise<void> {
@@ -956,32 +1092,53 @@ async function onMove(entry: GameEntry, move: Move): Promise<void> {
     say(moveAnnouncement({
       before, after: next, move, myColor: entry.myColor, opponentName: entry.opponentName,
     }));
-
-    await persistGame(entry);
-    const payload = {
-      type: "move",
-      sessionId: entry.sessionId,
-      move,
-      state: next,
-    } satisfies MovePayload;
-    try {
-      await client.federation.send(entry.sessionId, targetForEntry(entry), payload);
-    } catch (err) {
-      if (!isUnknownGame(err)) throw err;
-      // Social Home no longer knows this game: offer to pick it up again
-      // through its own sheet (the move stays on our board).
-      renderBoard();
-      await offerContinue(entry, payload);
-      return;
-    }
-
-    renderBoard();
+    await persistAndSend(entry);
   } catch (err) {
     console.error("Move failed:", err);
     ui.selectedSquare = null;
     ui.legalTargets = [];
     renderBoard();
   }
+}
+
+/** Offer / accept / decline a draw, or resign — a history entry like a move. */
+async function onAction(entry: GameEntry, action: GameAction): Promise<void> {
+  const before = entry.state;
+  const ply = { action, by: entry.myColor };
+  let next: GameState;
+  try {
+    next = applyAction(before, ply);
+  } catch (err) {
+    console.warn("Chess: action not allowed", err);
+    renderBoard();
+    return;
+  }
+  entry.state = next;
+  ui.selectedSquare = null;
+  ui.legalTargets = [];
+  say(moveAnnouncement({ before, after: next, move: ply, myColor: entry.myColor, opponentName: entry.opponentName }));
+  await persistAndSend(entry);
+}
+
+/** Save our newest entry and send the game to the opponent. */
+async function persistAndSend(entry: GameEntry): Promise<void> {
+  await persistGame(entry);
+  const payload = movePayload(entry);
+  try {
+    await client.federation.send(entry.sessionId, targetForEntry(entry), payload);
+  } catch (err) {
+    if (!isUnknownGame(err)) {
+      console.error("Chess: send failed", err);
+      render();
+      return;
+    }
+    // Social Home no longer knows this game: offer to pick it up again
+    // through its own sheet (the move stays on our board).
+    render();
+    await offerContinue(entry, payload);
+    return;
+  }
+  render();
 }
 
 // ---------------------------------------------------------------------------
@@ -1125,10 +1282,18 @@ async function removeGame(sessionId: string): Promise<void> {
   render();
 }
 
-async function onAbandonGame(sessionId: string): Promise<void> {
+/**
+ * Resign a game in play (the opponent is told and wins; the game stays in
+ * the list as finished) or remove a finished one from this list.
+ */
+async function onEndGame(sessionId: string): Promise<void> {
   const entry = ui.games.get(sessionId);
   if (!entry) return;
-  if (!(await confirmDialog(abandonConfirmCopy(entry)))) return;
+  if (!(await confirmDialog(endGameConfirmCopy(entry)))) return;
+  if (entry.state.result === null) {
+    await onAction(entry, "resign");
+    return;
+  }
   await removeGame(sessionId);
   firstControl()?.focus();
 }
@@ -1221,7 +1386,7 @@ async function takeInboundMove(msg: AppMessage): Promise<void> {
   const sessionId = entry.sessionId;
 
   let verdict = judgeInbound(entry.state, entry.myColor, msg.payload);
-  if (verdict.kind === "refuse" && verdict.reason === "too-many") {
+  if (verdict.kind === "refuse" && (verdict.reason === "too-many" || verdict.reason === "wrong-colour")) {
     // This screen may hold an older copy than our store (the same person
     // played on another screen): catch up from our own copy and judge again.
     const stored = await client.store.get(storeKey(sessionId)).catch(() => null);
@@ -1249,14 +1414,11 @@ async function takeInboundMove(msg: AppMessage): Promise<void> {
   if (ui.view === "board" && ui.activeBoardSession === sessionId) {
     ui.selectedSquare = null;
     ui.legalTargets = [];
-    say(moveAnnouncement({
-      before, after: entry.state, move: verdict.move,
-      myColor: entry.myColor, opponentName: entry.opponentName,
-    }));
+    say(announceAdded(entry, before, verdict.added));
     renderBoard();
   } else {
-    // Flash a toast so the player notices a move arrived in a background game
-    showToast(t("toast.moved", { name: entry.opponentName }));
+    // A toast so the player notices what happened in a background game.
+    showToast(backgroundToast(entry, verdict.added));
     // Re-render lobby if visible to update badges
     if (ui.view === "lobby") renderLobby();
   }
@@ -1264,6 +1426,37 @@ async function takeInboundMove(msg: AppMessage): Promise<void> {
   // Alert (vibrate + board pulse) when the opponent's move handed us the turn.
   // Runs after renderBoard so the freshly-rendered #board-grid is present.
   if (becameMyTurn) notifyMyTurn(sessionId);
+}
+
+/** The live-region sentence for the opponent's new entries, oldest first. */
+function announceAdded(entry: GameEntry, before: GameState, added: readonly Ply[]): string {
+  // Replay from the shared start of the new entries for each sentence.
+  const base = before.history.length;
+  const parts: string[] = [];
+  let st = before;
+  for (const [i, ply] of added.entries()) {
+    const next = i === added.length - 1 ? entry.state : stateAt(entry.state, base + i + 1) ?? entry.state;
+    parts.push(moveAnnouncement({ before: st, after: next, move: ply, myColor: entry.myColor, opponentName: entry.opponentName }));
+    st = next;
+  }
+  return parts.join(" ");
+}
+
+/** The game after its first `n` history entries (replayed), or null. */
+function stateAt(state: GameState, n: number): GameState | null {
+  return restoreState({ history: state.history.slice(0, n) });
+}
+
+/** The toast for an opponent's news in a game that isn't on screen. */
+function backgroundToast(entry: GameEntry, added: readonly Ply[]): string {
+  const name = entry.opponentName;
+  const last = added[added.length - 1];
+  if (last && "action" in last) {
+    if (last.action === "resign") return t("toast.resigned", { name });
+    if (last.action === "accept-draw") return t("toast.drawAccepted", { name });
+  }
+  if (entry.state.drawOffer !== null && entry.state.drawOffer !== entry.myColor) return t("toast.drawOffered", { name });
+  return t("toast.moved", { name });
 }
 
 function onInboundSession(msg: AppMessage): void {
