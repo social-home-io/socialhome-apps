@@ -12,7 +12,9 @@ import { appIdOf, checkVersions } from "./version-guard-lib.mjs";
 const baseRef = process.argv[2] ?? "origin/main";
 
 function git(...args) {
-  return execFileSync("git", args, { encoding: "utf8" });
+  // stderr is ignored: `git show` of a file that doesn't exist yet (a new
+  // app) is an expected miss, handled by jsonAt, not an error to print.
+  return execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
 }
 
 /** JSON of `path` at `ref`, or null when the file doesn't exist there. */
