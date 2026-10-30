@@ -14,7 +14,7 @@
  */
 
 import sh from "@socialhome/app-sdk";
-import type { AppLook, AppMessage, Contact, PickedPerson, SessionTarget } from "@socialhome/app-sdk";
+import type { AppLook, AppMessage, Contact, PickedPerson, SendOptions, SessionTarget } from "@socialhome/app-sdk";
 import {
   initialState,
   applyAction,
@@ -27,6 +27,7 @@ import {
   lastMove,
   isMyTurn,
   opponent,
+  passesTurn,
   PROMOTION_PIECES,
 } from "./chess.js";
 import type { GameAction, GameState, Move, Color, PieceType, Ply } from "./chess.js";
@@ -206,6 +207,16 @@ function movePayload(entry: GameEntry): MovePayload {
     state: { board, sideToMove, history, result },
     ...(isInviter(entry) ? { youPlay: opponent(entry.myColor) } : {}),
   };
+}
+
+/**
+ * `turn: true` when our newest entry hands the opponent the turn (a board
+ * move; not a draw offer, an answer to one, resigning or a game-ending move).
+ * Only move messages carry it — "open" and "accepted" are news. Worked out
+ * from the state, so a retry keeps it.
+ */
+function turnOption(entry: GameEntry): SendOptions {
+  return { turn: passesTurn(entry.state, entry.myColor) };
 }
 
 interface OpenPayload {
@@ -1450,7 +1461,7 @@ async function persistAndSend(entry: GameEntry): Promise<void> {
   await persistGame(entry).catch(() => {});
   const payload = movePayload(entry);
   try {
-    await client.federation.send(entry.sessionId, targetForEntry(entry), payload);
+    await client.federation.send(entry.sessionId, targetForEntry(entry), payload, turnOption(entry));
   } catch (err) {
     if (!isUnknownGame(err)) {
       console.warn("chess.send_failed", { session_id: entry.sessionId });
@@ -1474,7 +1485,7 @@ async function persistAndSend(entry: GameEntry): Promise<void> {
 /** Send a game's newest entry again (Retry, or on open). */
 async function retrySend(entry: GameEntry, quiet = false): Promise<void> {
   try {
-    await client.federation.send(entry.sessionId, targetForEntry(entry), movePayload(entry));
+    await client.federation.send(entry.sessionId, targetForEntry(entry), movePayload(entry), turnOption(entry));
   } catch (err) {
     if (isUnknownGame(err)) {
       entry.unsent = false;
@@ -1622,7 +1633,7 @@ async function offerContinue(entry: GameEntry, latest: MovePayload): Promise<voi
   }
   if (!picked.some((p) => p.sessionId === entry.sessionId)) return;
   try {
-    await client.federation.send(entry.sessionId, targetForEntry(entry), latest);
+    await client.federation.send(entry.sessionId, targetForEntry(entry), latest, turnOption(entry));
     showToast(t("toast.askedContinue", { name: entry.opponentName }));
   } catch (err) {
     console.warn("Chess: resend after continue failed", err);

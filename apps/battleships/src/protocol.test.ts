@@ -23,7 +23,7 @@ import {
   shotCount,
 } from "./game.js";
 import type { Game, Role } from "./game.js";
-import { MAX_MESSAGE_BYTES, buildMessage, canSend, isBsMessage, markSent, receive } from "./protocol.js";
+import { MAX_MESSAGE_BYTES, buildMessage, canSend, isBsMessage, markSent, passesTurn, receive } from "./protocol.js";
 import type { Verdict, WireMessage } from "./protocol.js";
 
 const SID = "a1b2c3d4-e5f6-4000-8000-00000000beef";
@@ -279,6 +279,77 @@ describe("honest games", () => {
     expect(() => setFleet(A.game, CLASSIC)).toThrow();
     expect(() => lockIn(A.game, new Uint8Array(32))).toThrow();
     expect(() => lockIn(newGame(SID, "invitee", CLASSIC), new Uint8Array(3))).toThrow();
+  });
+});
+
+describe("passesTurn (the turn: true flag on a send)", () => {
+  it("the challenger's first seal passes nothing (the invite still waits)", () => {
+    const rng = seeded(31);
+    const A: Player = { name: "Anna", game: lockIn(newGame(SID, "challenger", randomFleet(rng)), seedBytes(rng)) };
+    expect(passesTurn(A.game)).toBe(false);
+  });
+
+  it("a shot passes the turn; an answer alone doesn't; the shot after it does", () => {
+    const rng = seeded(32);
+    const { A, B } = setup(rng);
+    expect(passesTurn(B.game)).toBe(false); // Ben fires first: nothing to send yet
+    B.game = fire(B.game, 0);
+    expect(passesTurn(B.game)).toBe(true); // Ben's shot
+    deliver(A, send(B));
+    expect(passesTurn(A.game)).toBe(false); // Anna's answer: she fires next
+    deliver(B, send(A));
+    A.game = fire(A.game, 5);
+    expect(passesTurn(A.game)).toBe(true); // answer + Anna's shot
+    const m = send(A);
+    expect(m.shots.length).toBe(2);
+    expect(passesTurn(A.game)).toBe(true); // a resend of the same state keeps it
+    deliver(B, m);
+    expect(passesTurn(B.game)).toBe(false); // Ben's answer
+  });
+
+  it("a late seal: Ben's seal passes nothing, Anna's seal back gives Ben his first turn", () => {
+    const rng = seeded(33);
+    const A: Player = { name: "Anna", game: lockIn(newGame(SID, "challenger", randomFleet(rng)), seedBytes(rng)) };
+    const B: Player = { name: "Ben", game: lockIn(newGame(SID, "invitee", randomFleet(rng)), seedBytes(rng)) };
+    expect(passesTurn(B.game)).toBe(false);
+    deliver(A, send(B));
+    expect(passesTurn(A.game)).toBe(true);
+  });
+
+  it("every message of whole games: true exactly when the other side acts next, never on the final", () => {
+    for (let s = 0; s < 20; s++) {
+      const rng = seeded(500 + s);
+      const { A, B } = setup(rng);
+      for (let guard = 0; guard < 400; guard++) {
+        const shooter = [A, B].find((p) => phase(p.game) === "my-turn");
+        if (!shooter) break;
+        const other = shooter === A ? B : A;
+        shooter.game = fire(shooter.game, randomTarget(shooter, rng));
+        expect(passesTurn(shooter.game)).toBe(true);
+        let from = shooter;
+        let to = other;
+        let v = deliver(to, send(from));
+        while (v.kind === "update" && v.reply) {
+          // A reply only answers (we fire next) or is the final message.
+          expect(passesTurn(to.game)).toBe(false);
+          const m = send(to);
+          [from, to] = [to, from];
+          v = deliver(to, m);
+        }
+      }
+      expect(phase(A.game)).toBe("over");
+      expect(passesTurn(A.game)).toBe(false);
+      expect(passesTurn(B.game)).toBe(false);
+    }
+  });
+
+  it("resigning is final: no turn", () => {
+    const rng = seeded(34);
+    const { A, B } = setup(rng);
+    B.game = fire(B.game, 0);
+    deliver(A, send(B));
+    A.game = resign(A.game);
+    expect(passesTurn(A.game)).toBe(false);
   });
 });
 

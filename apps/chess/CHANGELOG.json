@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.30.3",
+    "date": "2026-10-30",
+    "notes": {
+      "en": "When it's your move and Chess is closed, Social Home shows \"Your turn with Ben in Chess\" — one line per game, gone once you open it. A draw offer, resigning or the end of a game doesn't count as your turn.",
+      "de": "Wenn du am Zug bist und Schach geschlossen ist, zeigt Social Home „Du bist bei Schach mit Ben dran“ – eine Zeile pro Partie, die verschwindet, sobald du sie öffnest. Ein Remisangebot, Aufgeben oder das Ende einer Partie zählt nicht als dein Zug.",
+      "nl": "Als jij aan zet bent en Schaken gesloten is, toont Social Home „Jij bent aan de beurt bij Schaken met Ben” – één regel per partij, weg zodra je hem opent. Remise aanbieden, opgeven of het einde van een partij telt niet als jouw beurt.",
+      "fr": "Quand c’est à vous de jouer et qu’Échecs est fermé, Social Home affiche « Échecs : à vous de jouer avec Ben » — une ligne par partie, qui disparaît dès que vous l’ouvrez. Une proposition de nulle, un abandon ou la fin d’une partie ne comptent pas comme votre tour.",
+      "es": "Cuando te toca mover y Ajedrez está cerrado, Social Home muestra «Te toca con Ben en Ajedrez»: una línea por partida, que desaparece al abrirla. Una oferta de tablas, rendirse o el final de una partida no cuentan como tu turno."
+    }
+  },
+  {
     "version": "2026.10.30.2",
     "date": "2026-10-30",
     "notes": {

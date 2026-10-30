@@ -146,6 +146,12 @@ if (picked) {
   // sessions Social Home knows for that person take messages: a made-up
   // session id is refused with ShError code 'unknown_session'.
   await sh.federation.send(picked.sessionId, target, { move: 'e2e4' });
+
+  // A message that hands them the turn (a move, a shot) says so (SDK ≥ 1.8):
+  // while their app is closed Social Home shows them one "Your turn with …
+  // in …" row per game. Leave it out for anything informational (a chat
+  // line, a final result). An older Social Home ignores it.
+  await sh.federation.send(picked.sessionId, target, { move: 'e2e4' }, { turn: true });
 }
 
 // A rematch: suggest the person; the sheet still asks and Send names them.

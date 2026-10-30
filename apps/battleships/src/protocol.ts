@@ -32,6 +32,7 @@ import {
   hitsOnMe,
   isMine,
   ownReveal,
+  phase,
   samePlacement,
   sunkByMe,
 } from "./game.js";
@@ -436,6 +437,20 @@ function parseEnd(v: unknown): WireEnd | undefined | null {
 /** Whether our own message is due now (we're locked in and haven't ended). */
 export function canSend(game: Game): boolean {
   return !!game.root && !game.sentFinal;
+}
+
+/**
+ * Whether our message with this game hands the other side the turn — the
+ * `turn: true` flag on `federation.send`, so Social Home can show them "Your
+ * turn with … in Battleships" while their app is closed. True when, as the
+ * game stands, the other side must act next: our shot waits for their answer
+ * (that message also carries our answer to their last shot), or our seal
+ * reached them late and they fire first. Never for a message that only
+ * answers (we fire next), our first seal (they still have to Play), or the
+ * final message. Worked out from the game alone, so a resend keeps it.
+ */
+export function passesTurn(game: Game): boolean {
+  return canSend(game) && phase(game) === "their-turn";
 }
 
 /** The game after our final message went out. */
