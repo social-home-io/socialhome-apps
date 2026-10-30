@@ -108,7 +108,8 @@ RELEASE_TAG=ci-dry-run pnpm catalog
 
 | Workflow | Trigger | Does |
 |---|---|---|
-| [`ci.yml`](.github/workflows/ci.yml) | every push to `main` + every PR (+ manual) | type-check, build, test, catalog dry-run — the always-on quality gate |
+| [`ci.yml`](.github/workflows/ci.yml) | every push to `main` + every PR (+ manual) | lint, build, type-check, test, catalog dry-run, and on PRs the version guard — the always-on quality gate |
+| [`release-draft.yml`](.github/workflows/release-draft.yml) | every merge to `main` (+ manual, optionally back-dated) | refreshes the one draft release (`YYYY.M.D`) with notes generated from the merged PRs' labels |
 | [`release.yml`](.github/workflows/release.yml) | a published GitHub release (+ manual dry-run) | build + test, then publish `catalog.json` + each app tarball as release assets |
 
 ---
@@ -286,19 +287,24 @@ The SDK communicates with the host SPA over `postMessage` (it never has the user
 
 ---
 
-## Cutting a release (step by step)
+## Cutting a release
 
-To publish a new version of one or more apps:
+The release strategy — versions, labels, when and how to publish — is in
+**[RELEASING.md](RELEASING.md)**. In short:
 
-1. **Bump the version** in each changed app's `apps/<id>/manifest.json` (`"version"`). Commit it to `main`.
-2. **Verify green CI** — the [CI workflow](.github/workflows/ci.yml) runs on every push/PR (type-check + build + test + catalog dry-run). You can also dry-run the release build via **Actions → Release → Run workflow** (`workflow_dispatch`) without publishing.
-3. **Create the GitHub release** with a tag — either:
-   - CLI: `gh release create 2026.10.29 --title 2026.10.29 --notes "What changed"`, or
-   - UI: **Releases → Draft a new release → Choose a tag → Publish**.
-4. Publishing fires the [**Release** workflow](.github/workflows/release.yml), which builds everything and uploads `catalog.json` + each `<app>-<version>.tgz` (SHA-256-pinned) as **release assets**.
-5. Social Home installs fetch `releases/latest/download/catalog.json`, so the new version is live for the **Browse Apps** page as soon as the workflow finishes. (The tag must be the highest/most-recent release for `latest` to point at it.)
+1. Each PR that changes an app bumps its `version` and adds a `CHANGELOG.json`
+   entry (CI's version guard checks it) and carries one label.
+2. Every merge refreshes one draft release named after today's date.
+3. A maintainer publishes the draft (Releases → Publish, or
+   `gh release edit <tag> --draft=false`), which runs the Release workflow.
 
-> **Adding a new app:** create `apps/<new-id>/` with a `manifest.json` + a `build` script that emits a self-contained `dist/`, give it a `package.json` (`"build"` script), and the catalog script + workflows pick it up automatically — no workflow edits needed.
+> **Adding a new app:** create `apps/<new-id>/` with a `manifest.json`, a
+> `CHANGELOG.json` and a `build` script that emits a self-contained `dist/`,
+> give it a `package.json` (`"build"` script), and the catalog script +
+> workflows pick it up automatically — no workflow edits needed.
+
+For agents and contributors: **[CLAUDE.md](CLAUDE.md)** has the working rules
+and how to run, develop and test apps.
 
 ---
 

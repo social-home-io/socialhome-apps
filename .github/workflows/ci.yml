@@ -22,6 +22,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The version guard compares the PR with its merge base.
+          fetch-depth: 0
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -53,6 +56,12 @@ jobs:
 
       - name: Unit tests
         run: pnpm test
+
+      - name: Version guard (PRs only)
+        # A PR that changes what an app or the SDK ships must bump its
+        # version and add a CHANGELOG entry — see RELEASING.md "Versions".
+        if: github.event_name == 'pull_request'
+        run: node scripts/check-versions.mjs "origin/${{ github.base_ref }}"
 
       - name: Catalog dry-run (verify packaging)
         # Proves build-catalog.mjs packages every app + emits a valid catalog.
