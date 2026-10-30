@@ -18,6 +18,7 @@ import {
   colOf,
   lastMove,
   isMyTurn,
+  positionOf,
 } from "./chess.js";
 import type { Board, GameState, Move, Piece } from "./chess.js";
 import { groupContacts } from "./main.js";
@@ -96,7 +97,7 @@ function sparseBoard(pieces: Record<string, Piece>): Board {
 }
 
 function state(board: Board, sideToMove: "w" | "b" = "w"): GameState {
-  return { board, sideToMove, history: [], result: null };
+  return positionOf(board, sideToMove);
 }
 
 // ---------------------------------------------------------------------------
@@ -271,7 +272,7 @@ describe("pawn moves", () => {
     const s = initialState();
     // It's white's turn; manufacture a black-to-move state
     const board = s.board.slice();
-    const bs = { board, sideToMove: "b" as const, history: [], result: null };
+    const bs = positionOf(board, "b");
     const moves = legalMoves(bs, parseSquare("e7")).map((m) => squareName(m.to));
     expect(moves).toContain("e6");
     expect(moves).toContain("e5");

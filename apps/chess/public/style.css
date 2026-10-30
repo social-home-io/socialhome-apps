@@ -728,6 +728,12 @@ button:focus-visible {
   transform: scale(1.08);
 }
 
+/* A king in check: a red ring and glow on its square, so check is seen on
+   the board itself (the square's label says "in check" too). */
+.square.in-check {
+  box-shadow: inset 0 0 0 3px var(--danger), inset 0 0 calc(var(--sq-size) * 0.45) var(--sq-check);
+}
+
 /* ---- Game status ---- */
 .game-status {
   width: 100%;
@@ -819,6 +825,64 @@ button:focus-visible {
   color: var(--accent);
   margin-inline-start: 0.4rem;
 }
+
+/* ---- Draw offer, Offer draw, Resign (under the board) ---- */
+.game-actions {
+  width: 100%;
+  max-width: var(--board-size);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+.game-actions-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+.draw-offer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--info-border);
+  background: var(--info-bg);
+  border-radius: var(--radius-md);
+}
+.draw-offer-text {
+  flex: 1 1 100%;
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+.game-actions > .draw-offer-text { color: var(--text-muted); }
+.btn-resign { color: var(--danger); }
+
+/* ---- Promotion picker ---- */
+.promotion-choices {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.9rem;
+}
+.promotion-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0.25rem;
+  min-height: 4.5rem;
+  background: var(--sq-light);
+  color: #1a1814;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  --sq-size: 3rem;
+}
+.promotion-choice:hover { border-color: var(--accent); }
+.promotion-label { font-size: 0.8rem; font-weight: 600; }
 
 @keyframes check-flash {
   0%, 100% { opacity: 1; }

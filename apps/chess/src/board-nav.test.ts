@@ -5,10 +5,13 @@
 
 import { afterEach, describe, it, expect } from "vitest";
 import { setLocale } from "./i18n.js";
-import { applyMove, initialState, parseSquare } from "./chess.js";
-import type { Board, GameState, Move } from "./chess.js";
+import { applyMove, applyPly, fromFen, initialState, parseSquare, positionOf } from "./chess.js";
+import type { Board, GameState, Move, Ply } from "./chess.js";
 import {
   activateSquare,
+  checkedKing,
+  endingText,
+  targetsOf,
   boardHint,
   boardLabel,
   buildSquareOrder,
@@ -151,14 +154,26 @@ describe("activateSquare", () => {
     expect(activateSquare(over, "w", null, [], at("e2"))).toEqual({ kind: "none", reason: "game-over" });
   });
 
-  it("a pawn reaching the last rank promotes to a queen", () => {
+  it("a pawn reaching the last rank asks which piece it becomes", () => {
     const board = emptyBoard();
     board[at("a7")] = { type: "P", color: "w" };
     board[at("e1")] = { type: "K", color: "w" };
     board[at("h8")] = { type: "K", color: "b" };
-    const s: GameState = { board, sideToMove: "w", history: [], result: null };
+    const s: GameState = positionOf(board, "w");
+    // One target square for the four promotion pieces.
+    expect(targetsOf(s, at("a7"))).toEqual([at("a8")]);
     expect(activateSquare(s, "w", at("a7"), [at("a8")], at("a8"))).toEqual({
-      kind: "move", move: { from: at("a7"), to: at("a8"), promotion: "Q" },
+      kind: "promote", from: at("a7"), to: at("a8"),
+    });
+  });
+
+  it("the king's castling square is a target, and moving there castles", () => {
+    const s = fromFen("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
+    const targets = targetsOf(s, at("e1"));
+    expect(targets).toContain(at("g1"));
+    expect(targets).toContain(at("c1"));
+    expect(activateSquare(s, "w", at("e1"), targets, at("g1"))).toEqual({
+      kind: "move", move: { from: at("e1"), to: at("g1") },
     });
   });
 });
@@ -238,9 +253,64 @@ describe("moveAnnouncement", () => {
   it("announces checkmate and who won", () => {
     const before = play(["f2", "f3"], ["e7", "e5"], ["g2", "g4"]);
     expect(announce(before, { from: at("d8"), to: at("h4") }, "w"))
-      .toBe("Ben moved queen to h4. Checkmate. Ben wins.");
+      .toBe("Ben moved queen to h4. Checkmate — Ben wins.");
     expect(announce(before, { from: at("d8"), to: at("h4") }, "b"))
-      .toBe("You moved queen to h4. Checkmate. You win.");
+      .toBe("You moved queen to h4. Checkmate — you win!");
+  });
+
+  it("announces castling and en passant", () => {
+    const castle = fromFen("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
+    expect(announce(castle, { from: at("e1"), to: at("g1") }, "b")).toBe("Ben castled kingside. Your turn.");
+    expect(announce(castle, { from: at("e1"), to: at("c1") }, "w")).toBe("You castled queenside.");
+    const ep = play(["e2", "e4"], ["a7", "a6"], ["e4", "e5"], ["d7", "d5"]);
+    expect(announce(ep, { from: at("e5"), to: at("d6") }, "w")).toBe("You moved pawn to d6 and took the pawn en passant.");
+  });
+
+  it("announces a promotion to a knight", () => {
+    const s = fromFen("7k/P6p/8/8/8/8/8/K7 w - - 0 1");
+    expect(announce(s, { from: at("a7"), to: at("a8"), promotion: "N" }, "b"))
+      .toBe("Ben moved pawn to a8 and promoted to a knight. Your turn.");
+  });
+
+  it("announces draw offers, answers and resignations", () => {
+    const s = initialState();
+    const say = (before: GameState, ply: Ply, me: "w" | "b"): string =>
+      moveAnnouncement({ before, after: applyPly(before, ply), move: ply, myColor: me, opponentName: "Ben" });
+    expect(say(s, { action: "offer-draw", by: "w" }, "b")).toBe("Ben offers a draw.");
+    expect(say(s, { action: "offer-draw", by: "w" }, "w")).toBe("You offered a draw.");
+    const offered = applyMove(applyPly(s, { action: "offer-draw", by: "w" }), { from: at("e2"), to: at("e4") });
+    expect(say(offered, { action: "decline-draw", by: "b" }, "w")).toBe("Ben declined your draw offer.");
+    expect(say(offered, { action: "accept-draw", by: "b" }, "w")).toBe("Ben accepted your draw offer. Draw agreed.");
+    expect(say(offered, { action: "resign", by: "b" }, "w")).toBe("Ben resigned — you win!");
+    expect(say(offered, { action: "resign", by: "w" }, "w")).toBe("You resigned — Ben wins.");
+  });
+
+  // endingText names every way a game ends.
+  const end = (fen: string, ...moves: [string, string, Move["promotion"]?][]): GameState => {
+    let s = fromFen(fen);
+    for (const [f, to, p] of moves) s = applyMove(s, p ? { from: at(f), to: at(to), promotion: p } : { from: at(f), to: at(to) });
+    return s;
+  };
+
+  it("endingText: checkmate, stalemate, insufficient material, the 50-move rule", () => {
+    const mate = play(["f2", "f3"], ["e7", "e5"], ["g2", "g4"], ["d8", "h4"]);
+    expect(endingText(mate, "w", "Ben")).toBe("Checkmate — Ben wins.");
+    expect(endingText(end("k7/8/1Q6/8/8/8/8/K7 w - - 0 1", ["b6", "c7"]), "w", "Ben")).toBe("Stalemate — it's a draw.");
+    expect(endingText(end("4k3/8/8/8/8/8/3r4/4K3 w - - 0 1", ["e1", "d2"]), "w", "Ben")).toMatch(/^Draw: neither side/);
+    expect(endingText(end("4k3/8/8/8/8/8/R7/4K3 w - - 99 80", ["a2", "b2"]), "w", "Ben")).toMatch(/^Draw by the 50-move rule/);
+  });
+
+  it("endingText: repetition and an ongoing game", () => {
+    const rep = play(["g1", "f3"], ["g8", "f6"], ["f3", "g1"], ["f6", "g8"], ["g1", "f3"], ["g8", "f6"], ["f3", "g1"], ["f6", "g8"]);
+    expect(endingText(rep, "b", "Ben")).toBe("Draw by repetition: the same position came up three times.");
+    expect(endingText(initialState(), "w", "Ben")).toBe("");
+  });
+
+  it("a king in check is marked on its square", () => {
+    const check = play(["e2", "e4"], ["f7", "f6"], ["d1", "h5"]);
+    expect(checkedKing(check)).toBe(at("e8"));
+    expect(squareLabel(check, at("e8"))).toBe("e8, black king, in check");
+    expect(checkedKing(initialState())).toBe(-1);
   });
 
   it("announces promotion", () => {
@@ -248,7 +318,7 @@ describe("moveAnnouncement", () => {
     board[at("a7")] = { type: "P", color: "w" };
     board[at("e1")] = { type: "K", color: "w" };
     board[at("h6")] = { type: "K", color: "b" };
-    const before: GameState = { board, sideToMove: "w", history: [], result: null };
+    const before: GameState = positionOf(board, "w");
     expect(announce(before, { from: at("a7"), to: at("a8"), promotion: "Q" }, "b"))
       .toBe("Ben moved pawn to a8 and promoted to a queen. Your turn.");
   });

@@ -3,14 +3,15 @@
  * events (declined / withdrawn) and when an invite counts as unanswered.
  */
 
+import { setLocale } from "./i18n.js";
 import { describe, it, expect } from "vitest";
 import { ShError } from "@socialhome/app-sdk";
 import type { AppMessage, PickedPerson } from "@socialhome/app-sdk";
 import { applyMove, initialState, parseSquare } from "./chess.js";
 import type { GameState } from "./chess.js";
 import {
-  abandonButtonLabel,
-  abandonConfirmCopy,
+  endGameButtonLabel,
+  endGameConfirmCopy,
   classifySessionEvent,
   declinedMessage,
   endedMessage,
@@ -268,22 +269,33 @@ describe("messages", () => {
   });
 });
 
-describe("abandon confirm", () => {
-  it("a game in play: Abandon, and says the opponent isn't told", () => {
+describe("resign / remove confirm", () => {
+  it("a game in play: Resign, and says the opponent wins", () => {
     const e = entry({ opponentName: "Ben", state: stateAfter(["e2", "e4"], ["e7", "e5"]) });
-    expect(abandonButtonLabel(e)).toBe("Abandon");
-    const copy = abandonConfirmCopy(e);
-    expect(copy.title).toBe("Abandon your game with Ben?");
-    expect(copy.body).toContain("can't be resumed");
-    expect(copy.body).toContain("Ben isn't told");
-    expect(copy.confirm).toBe("Abandon game");
+    expect(endGameButtonLabel(e)).toBe("Resign");
+    const copy = endGameConfirmCopy(e);
+    expect(copy.title).toBe("Resign your game with Ben?");
+    expect(copy.body).toContain("Ben wins");
+    expect(copy.body).toContain("for both of you");
+    expect(copy.confirm).toBe("Resign");
     expect(copy.cancel).toBe("Keep playing");
+  });
+
+  it("German, Dutch, French and Spanish say resign in chess words", () => {
+    const e = entry({ opponentName: "Ben", state: stateAfter(["e2", "e4"], ["e7", "e5"]) });
+    const expected = { de: "Aufgeben", nl: "Opgeven", fr: "Abandonner", es: "Abandonar" } as const;
+    for (const [loc, word] of Object.entries(expected)) {
+      setLocale(loc as "de");
+      expect(endGameButtonLabel(e)).toBe(word);
+      expect(endGameConfirmCopy(e).body).toContain("Ben");
+    }
+    setLocale("en");
   });
 
   it("a finished game: Remove", () => {
     const e = entry({ opponentName: "Ben", state: { ...initialState(), result: "black" } });
-    expect(abandonButtonLabel(e)).toBe("Remove");
-    expect(abandonConfirmCopy(e)).toMatchObject({
+    expect(endGameButtonLabel(e)).toBe("Remove");
+    expect(endGameConfirmCopy(e)).toMatchObject({
       title: "Remove your game with Ben?",
       confirm: "Remove game",
       cancel: "Keep it",

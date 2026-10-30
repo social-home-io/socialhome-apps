@@ -1,21 +1,31 @@
 /**
- * Judging a move that another household's chess sent us.
+ * Judging a message that another household's chess sent us.
  *
- * Our copy of a game is ours: a message can only ever add ONE move to the
- * history we already have. That move must be the opponent's (never ours),
- * legal from the current position, and the message's move list must be our
- * list plus that move. The board, the side to move and the result are always
- * rebuilt here by replaying the moves through our own engine — nothing the
- * sender says about the board or the outcome is taken.
+ * Our copy of a game is ours. A message can only add entries to the history
+ * we already have, and every new entry must be the opponent's (never ours):
+ * their move, their draw offer or its answer, or their resignation — at
+ * most `MAX_NEW` of them, since the latest message of a game is all Social
+ * Home keeps while chess is closed (a move and then a draw offer arrive as
+ * one). The board, the side to move and the result are always rebuilt here
+ * by replaying the whole history through our own engine (chess.ts) — the
+ * same rules on both sides; nothing the sender says about the board or the
+ * outcome is taken.
+ *
+ * One race is resolved rather than refused: resigning is allowed on either
+ * turn, so a resignation can cross a move in flight. When the only
+ * difference is the other player's resignation against our own new entries
+ * (or ours against theirs), both sides end with the moves first and the
+ * resignation last, as long as the game was still running.
  *
  * Every chess version sends the same shape, `{type: "move", sessionId, move,
- * state}` with the whole game in `state`. Only `state.history` and `move` are
- * read; a message with just a `move` is taken as our list plus that move.
+ * state}` with the whole game in `state`. Only `state.history` and `move` (the
+ * latest entry) are read; a message with just a `move` is taken as our list
+ * plus that entry.
  */
 
-import { applyMove, initialState } from "./chess.js";
+import { GAME_ACTIONS, actorOf, applyPly, initialState, isBoardMove, opponent } from "./chess.js";
 import type { AppMessage } from "@socialhome/app-sdk";
-import type { Color, GameState, Move, PieceType } from "./chess.js";
+import type { ActionPly, Color, GameAction, GameState, Move, PieceType, Ply } from "./chess.js";
 import { fromOpponent } from "./lifecycle.js";
 import type { GameEntry } from "./lifecycle.js";
 
@@ -23,24 +33,30 @@ import type { GameEntry } from "./lifecycle.js";
 export type RefuseReason =
   /** Not a move message chess can read. */
   | "malformed"
-  /** Its moves differ from the ones we already have. */
+  /** Its history differs from the one we already have. */
   | "rewrite"
-  /** A move in it is not allowed from its position (or after the game ended). */
+  /** An entry in it is not allowed from its position (or after the game ended). */
   | "illegal"
-  /** The new move is for our colour: the opponent can't move our pieces. */
+  /** A new entry is ours: the opponent can't move our pieces or speak for us. */
   | "wrong-colour"
-  /** It adds more than one move (one of them would be ours). */
+  /** It adds more entries than one turn of the opponent can. */
   | "too-many"
-  /** Its `move` is not the last move of its own list. */
+  /** Its `move` is not the last entry of its own history. */
   | "inconsistent";
 
 export type InboundVerdict =
-  /** Take this state (built here) — it adds `move`, the opponent's. */
-  | { kind: "apply"; state: GameState; move: Move }
-  /** A copy of moves we already have: nothing to do, nothing to say. */
+  /** Take this state (built here). `added` are the opponent's new entries, `move` the last. */
+  | { kind: "apply"; state: GameState; move: Ply; added: Ply[] }
+  /** A copy of entries we already have: nothing to do, nothing to say. */
   | { kind: "stale" }
   /** Keep our game as it is. */
   | { kind: "refuse"; reason: RefuseReason };
+
+/**
+ * The most entries one message may add: the opponent's answer to our draw
+ * offer, their move, their own offer and their resignation.
+ */
+export const MAX_NEW = 4;
 
 const PROMOTIONS: readonly PieceType[] = ["Q", "R", "B", "N"];
 
@@ -59,24 +75,64 @@ export function parseMove(v: unknown): Move | null {
   return { from: r["from"], to: r["to"], promotion: promotion as PieceType };
 }
 
-/** A clean move list from untrusted input, or `null` if any entry is bad. */
-function parseHistory(v: unknown): Move[] | null {
+/** A clean history entry (a move or an action) from untrusted input, or `null`. */
+export function parsePly(v: unknown): Ply | null {
+  if (typeof v !== "object" || v === null) return null;
+  const r = v as Record<string, unknown>;
+  if (r["action"] === undefined) return parseMove(v);
+  if (!GAME_ACTIONS.includes(r["action"] as GameAction)) return null;
+  if (r["by"] !== "w" && r["by"] !== "b") return null;
+  return { action: r["action"] as GameAction, by: r["by"] };
+}
+
+/** A clean history from untrusted input, or `null` if any entry is bad. */
+function parseHistory(v: unknown): Ply[] | null {
   if (!Array.isArray(v)) return null;
-  const out: Move[] = [];
+  const out: Ply[] = [];
   for (const item of v) {
-    const mv = parseMove(item);
-    if (!mv) return null;
-    out.push(mv);
+    const ply = parsePly(item);
+    if (!ply) return null;
+    out.push(ply);
   }
   return out;
 }
 
-export function sameMove(a: Move, b: Move): boolean {
-  return a.from === b.from && a.to === b.to && (a.promotion ?? null) === (b.promotion ?? null);
+export function samePly(a: Ply, b: Ply): boolean {
+  if (isBoardMove(a) && isBoardMove(b)) {
+    return a.from === b.from && a.to === b.to && (a.promotion ?? null) === (b.promotion ?? null);
+  }
+  if (!isBoardMove(a) && !isBoardMove(b)) return a.action === b.action && a.by === b.by;
+  return false;
 }
 
+/** @deprecated name kept for older callers: same as `samePly`. */
+export const sameMove = samePly;
+
+/** A replay of a history, with who made each entry; `null` if one isn't allowed. */
+interface Replay {
+  state: GameState;
+  actors: Color[];
+}
+
+function replay(history: readonly Ply[]): Replay | null {
+  let state = initialState();
+  const actors: Color[] = [];
+  for (const ply of history) {
+    try {
+      actors.push(actorOf(state, ply));
+      state = applyPly(state, ply);
+    } catch {
+      return null;
+    }
+  }
+  return { state, actors };
+}
+
+const isResignBy = (ply: Ply | undefined, by: Color): boolean =>
+  ply !== undefined && !isBoardMove(ply) && ply.action === "resign" && ply.by === by;
+
 /**
- * Decide what an inbound move message does to our copy of the game.
+ * Decide what an inbound message does to our copy of the game.
  * Pure and total: never throws, whatever the payload holds.
  */
 export function judgeInbound(local: GameState, myColor: Color, payload: unknown): InboundVerdict {
@@ -85,11 +141,11 @@ export function judgeInbound(local: GameState, myColor: Color, payload: unknown)
   if (p["type"] !== "move") return { kind: "refuse", reason: "malformed" };
 
   const rawMove = p["move"];
-  const move = rawMove === undefined ? null : parseMove(rawMove);
+  const move = rawMove === undefined ? null : parsePly(rawMove);
   if (rawMove !== undefined && !move) return { kind: "refuse", reason: "malformed" };
 
   const state = p["state"];
-  let history: Move[] | null;
+  let history: Ply[] | null;
   if (typeof state === "object" && state !== null) {
     history = parseHistory((state as Record<string, unknown>)["history"]);
     if (!history) return { kind: "refuse", reason: "malformed" };
@@ -99,42 +155,93 @@ export function judgeInbound(local: GameState, myColor: Color, payload: unknown)
     return { kind: "refuse", reason: "malformed" };
   }
 
-  if (move && (history.length === 0 || !sameMove(move, history[history.length - 1]))) {
+  if (move && (history.length === 0 || !samePly(move, history[history.length - 1]))) {
     return { kind: "refuse", reason: "inconsistent" };
   }
 
-  // Our past must be its past.
+  const them = opponent(myColor);
   const ours = local.history;
-  const shared = Math.min(ours.length, history.length);
-  for (let i = 0; i < shared; i++) {
-    if (!sameMove(ours[i], history[i])) return { kind: "refuse", reason: "rewrite" };
-  }
-  if (history.length <= ours.length) return { kind: "stale" };
+  let shared = 0;
+  while (shared < ours.length && shared < history.length && samePly(ours[shared], history[shared])) shared++;
 
-  // One new move at most (checked first, so a huge forged list costs nothing).
-  if (history.length - ours.length > 1) return { kind: "refuse", reason: "too-many" };
+  if (shared === history.length) return { kind: "stale" };
+  if (shared < ours.length) return judgeResignRace(ours, history, shared, myColor);
 
-  // Replay every move from the start through our own engine.
-  const replay = replayMoves(history);
-  if (!replay) return { kind: "refuse", reason: "illegal" };
-
-  // After the opponent's move it is our turn; otherwise the move was ours.
-  if (replay.sideToMove !== myColor) return { kind: "refuse", reason: "wrong-colour" };
-
-  return { kind: "apply", state: replay, move: history[history.length - 1] };
+  // Our past is its past: it adds entries, each of them the opponent's.
+  const added = history.slice(ours.length);
+  // Checked first, so a huge forged list costs nothing.
+  if (added.length > MAX_NEW) return { kind: "refuse", reason: "too-many" };
+  const r = replay(history);
+  if (!r) return { kind: "refuse", reason: "illegal" };
+  if (r.actors.slice(ours.length).some((c) => c !== them)) return { kind: "refuse", reason: "wrong-colour" };
+  return { kind: "apply", state: r.state, move: added[added.length - 1], added };
 }
 
-/** Play `history` from the start through our engine; `null` if a move isn't allowed. */
-function replayMoves(history: readonly Move[]): GameState | null {
-  let state = initialState();
-  for (const mv of history) {
-    try {
-      state = applyMove(state, mv);
-    } catch {
-      return null;
+/**
+ * The two histories part after `shared` entries. Fine only when one side's
+ * tail is just a resignation and the other's is the other player's own
+ * entries made meanwhile: the result is those entries, then the resignation
+ * (if the game was still running after them).
+ */
+function judgeResignRace(ours: readonly Ply[], theirs: readonly Ply[], shared: number, myColor: Color): InboundVerdict {
+  const them = opponent(myColor);
+  const ourTail = ours.slice(shared);
+  const theirTail = theirs.slice(shared);
+  if (theirTail.length > MAX_NEW || ourTail.length > MAX_NEW) return { kind: "refuse", reason: "rewrite" };
+  const base = replay(ours.slice(0, shared));
+  if (!base) return { kind: "refuse", reason: "rewrite" };
+
+  const byOnly = (tail: readonly Ply[], who: Color): boolean => {
+    let st = base.state;
+    for (const ply of tail) {
+      if (actorOf(st, ply) !== who) return false;
+      try {
+        st = applyPly(st, ply);
+      } catch {
+        return false;
+      }
     }
+    return true;
+  };
+
+  // They resigned while we added our own entries: ours first, then theirs.
+  if (theirTail.length === 1 && isResignBy(theirTail[0], them) && byOnly(ourTail, myColor)) {
+    const r = replay([...ours, theirTail[0]]);
+    // Our own entries ended the game already (mate, an accepted draw): keep it.
+    if (!r) return { kind: "stale" };
+    return { kind: "apply", state: r.state, move: theirTail[0], added: [theirTail[0]] };
   }
-  return state;
+
+  // We resigned while they added their entries: theirs first, then our resignation.
+  if (ourTail.length === 1 && isResignBy(ourTail[0], myColor) && byOnly(theirTail, them)) {
+    const moved = replay(theirs);
+    if (!moved) return { kind: "refuse", reason: "illegal" };
+    const resignation = ourTail[0] as ActionPly;
+    const withResign = moved.state.result === null ? replay([...theirs, resignation]) : null;
+    return {
+      kind: "apply",
+      state: (withResign ?? moved).state,
+      move: theirTail[theirTail.length - 1],
+      added: theirTail,
+    };
+  }
+  return { kind: "refuse", reason: "rewrite" };
+}
+
+/** Play `history` from the start through our engine; `null` if an entry isn't allowed. */
+function replayMoves(history: readonly Ply[]): GameState | null {
+  return replay(history)?.state ?? null;
+}
+
+/**
+ * Our saved copy of a game rebuilt from its history through today's engine
+ * (castling rights, the draw offer and the rest follow from the moves), so
+ * games saved by an older chess carry on. `null` when it can't be rebuilt.
+ */
+export function restoreState(stored: unknown): GameState | null {
+  if (typeof stored !== "object" || stored === null) return null;
+  const history = parseHistory((stored as Record<string, unknown>)["history"]);
+  return history ? replayMoves(history) : null;
 }
 
 /**
@@ -146,7 +253,7 @@ export function catchUpFromOwnCopy(local: GameState, stored: unknown): GameState
   if (typeof stored !== "object" || stored === null) return null;
   const history = parseHistory((stored as Record<string, unknown>)["history"]);
   if (!history || history.length <= local.history.length) return null;
-  if (!local.history.every((mv, i) => sameMove(mv, history[i]))) return null;
+  if (!local.history.every((ply, i) => samePly(ply, history[i]))) return null;
   return replayMoves(history);
 }
 

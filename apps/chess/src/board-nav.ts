@@ -14,12 +14,18 @@
  */
 
 import {
+  colOf,
+  findKing,
+  isBoardMove,
+  isCastling,
+  isEnPassant,
   isInCheck,
+  lastMove,
   legalMoves,
-  rowOf,
+  needsPromotion,
   squareName,
 } from "./chess.js";
-import type { Color, GameState, Move, PieceType } from "./chess.js";
+import type { Color, GameState, Move, PieceType, Ply } from "./chess.js";
 import { t } from "./i18n.js";
 import type { MessageKey } from "./i18n.js";
 
@@ -97,7 +103,7 @@ export function moveCursor(
  * landed (what changed), else the player's king-side centre pawn (e2 / e7).
  */
 export function initialCursor(state: GameState, myColor: Color): number {
-  const last = state.history.length ? state.history[state.history.length - 1] : null;
+  const last = lastMove(state);
   if (last) return last.to;
   return myColor === "w" ? 52 /* e2 */ : 12 /* e7 */;
 }
@@ -109,6 +115,8 @@ export function initialCursor(state: GameState, myColor: Color): number {
 export type SelectionAction =
   | { kind: "select"; square: number; targets: number[] }
   | { kind: "move"; move: Move }
+  /** A pawn reaches the last rank: ask which piece it becomes, then move. */
+  | { kind: "promote"; from: number; to: number }
   | { kind: "clear" }
   | { kind: "none"; reason: "game-over" | "not-your-turn" | "not-your-piece" };
 
@@ -118,7 +126,8 @@ export type SelectionAction =
  *  - nothing selected: your piece → select it (even with no legal moves, so
  *    the player hears why nothing lights up); anything else → none.
  *  - the selected square again → clear (toggle off).
- *  - a legal target → move (pawns reaching the last rank promote to a queen).
+ *  - a legal target → move (castling is the king's two-square move); a pawn
+ *    reaching the last rank → promote (the caller asks for the piece).
  *  - another of your pieces → select it instead.
  *  - anything else → clear.
  */
@@ -137,21 +146,22 @@ export function activateSquare(
 
   if (selected === null) {
     if (!mine) return { kind: "none", reason: "not-your-piece" };
-    return { kind: "select", square, targets: legalMoves(state, square).map((m) => m.to) };
+    return { kind: "select", square, targets: targetsOf(state, square) };
   }
   if (square === selected) return { kind: "clear" };
   if (targets.includes(square)) {
-    const move: Move = { from: selected, to: square };
-    const moving = state.board[selected];
-    if (moving?.type === "P" && rowOf(square) === (moving.color === "w" ? 0 : 7)) {
-      move.promotion = "Q";
-    }
-    return { kind: "move", move };
+    if (needsPromotion(state, selected, square)) return { kind: "promote", from: selected, to: square };
+    return { kind: "move", move: { from: selected, to: square } };
   }
   if (mine) {
-    return { kind: "select", square, targets: legalMoves(state, square).map((m) => m.to) };
+    return { kind: "select", square, targets: targetsOf(state, square) };
   }
   return { kind: "clear" };
+}
+
+/** The squares a piece can go to (a promotion square once, not per piece). */
+export function targetsOf(state: GameState, square: number): number[] {
+  return [...new Set(legalMoves(state, square).map((m) => m.to))];
 }
 
 // ---------------------------------------------------------------------------
@@ -175,10 +185,19 @@ export function squareLabel(
   flags: { selected?: boolean; legalTarget?: boolean; lastMove?: boolean } = {},
 ): string {
   const parts = [squareName(square), pieceLabel(state, square)];
+  if (square === checkedKing(state)) parts.push(t("sq.check"));
   if (flags.selected) parts.push(t("sq.selected"));
   if (flags.legalTarget) parts.push(t("sq.legal"));
   if (flags.lastMove) parts.push(t("sq.last"));
   return parts.join(", ");
+}
+
+/** The square of a king in check (the side to move's), or -1. */
+export function checkedKing(state: GameState): number {
+  if (state.ending === "checkmate" || (state.result === null && isInCheck(state.board, state.sideToMove))) {
+    return findKing(state.board, state.sideToMove);
+  }
+  return -1;
 }
 
 /** The board's accessible name: "Chess board, you play White". */
@@ -229,52 +248,94 @@ export function noneAnnouncement(
 }
 
 /**
- * What happened on a half-move, for the live region:
+ * How the game ended, as one sentence for the status line and the live
+ * region: "Checkmate — you win!", "Draw by repetition: …", "Ben resigned —
+ * you win!". Empty while the game goes on.
+ */
+export function endingText(state: GameState, myColor: Color, opponentName: string): string {
+  if (state.result === null) return "";
+  const name = opponentName;
+  const iWon = state.result !== "draw" && (state.result === "white") === (myColor === "w");
+  switch (state.ending) {
+    case "resign":
+      return iWon ? t("end.resignWon", { name }) : t("end.resignLost", { name });
+    case "stalemate":
+      return t("end.stalemate");
+    case "repetition":
+      return t("end.repetition");
+    case "fifty-moves":
+      return t("end.fiftyMoves");
+    case "insufficient":
+      return t("end.insufficient");
+    case "agreement":
+      return t("end.agreement");
+    default:
+      // Checkmate — and games saved before endings had names.
+      if (state.result === "draw") return t("end.stalemate");
+      return iWon ? t("end.checkmateWon") : t("end.checkmateLost", { name });
+  }
+}
+
+/**
+ * What happened on one history entry, for the live region:
  *   "Ben moved knight to f3."           (opponent)
  *   "You moved pawn to e4."             (you)
- *   "… and took the bishop." / "… and promoted to a queen."
- *   then "Check.", "Checkmate. Ben wins." / "Stalemate, it's a draw.",
- *   or "Your turn." when the move hands you the turn.
+ *   "… and took the bishop." / "… and promoted to a knight." /
+ *   "… and took the pawn en passant." / "Ben castled kingside."
+ *   "Ben offers a draw." / "Ben declined your draw offer."
+ *   then the ending ("Checkmate — Ben wins.", "Draw by repetition: …"),
+ *   or "Check." and "Your turn." when they apply.
  *
- * `before` is the position the move was played from; `after` the result. If
+ * `before` is the position the entry was played from; `after` the result. If
  * `before` doesn't hold the moving piece (a resync that skipped moves) the
  * sentence falls back to "Ben made a move."
  */
 export function moveAnnouncement(args: {
   before: GameState;
   after: GameState;
-  move: Move;
+  move: Ply;
   myColor: Color;
   opponentName: string;
 }): string {
   const { before, after, move, myColor, opponentName } = args;
-  const moving = before.board[move.from];
-  const byMe = moving ? moving.color === myColor : after.sideToMove !== myColor;
   const name = opponentName;
-
   const parts: string[] = [];
-  if (moving) {
-    const where = { name, piece: pieceName(moving.type), square: squareName(move.to) };
-    let s = t(byMe ? "move.byMe" : "move.byThem", where);
-    const taken = before.board[move.to];
-    if (taken && taken.color !== moving.color) s += t("move.took", { piece: pieceName(taken.type) });
-    if (move.promotion) {
-      s += t(taken ? "move.promotedAfterTake" : "move.promoted", { piece: pieceName(move.promotion) });
+
+  if (!isBoardMove(move)) {
+    const mine = move.by === myColor;
+    switch (move.action) {
+      case "offer-draw": parts.push(mine ? t("act.offerMe") : t("act.offerThem", { name })); break;
+      case "decline-draw": parts.push(mine ? t("act.declineMe") : t("act.declineThem", { name })); break;
+      case "accept-draw": parts.push(mine ? t("act.acceptMe") : t("act.acceptThem", { name })); break;
+      case "resign": break; // the ending says it
     }
-    parts.push(`${s}${t("move.end")}`);
   } else {
-    parts.push(byMe ? t("move.madeByMe") : t("move.madeByThem", { name }));
+    const moving = before.board[move.from];
+    const byMe = moving ? moving.color === myColor : after.sideToMove !== myColor;
+    if (moving && isCastling(before.board, move)) {
+      const kingSide = colOf(move.to) > colOf(move.from);
+      const key = kingSide ? (byMe ? "move.castleKMe" : "move.castleKThem") : (byMe ? "move.castleQMe" : "move.castleQThem");
+      parts.push(`${t(key, { name })}${t("move.end")}`);
+    } else if (moving) {
+      const where = { name, piece: pieceName(moving.type), square: squareName(move.to) };
+      let s = t(byMe ? "move.byMe" : "move.byThem", where);
+      const taken = before.board[move.to];
+      if (isEnPassant(before, move)) s += t("move.enPassant");
+      else if (taken && taken.color !== moving.color) s += t("move.took", { piece: pieceName(taken.type) });
+      if (move.promotion) {
+        s += t(taken ? "move.promotedAfterTake" : "move.promoted", { piece: pieceName(move.promotion) });
+      }
+      parts.push(`${s}${t("move.end")}`);
+    } else {
+      parts.push(byMe ? t("move.madeByMe") : t("move.madeByThem", { name }));
+    }
   }
 
-  if (after.result === "draw") {
-    parts.push(t("ann.stalemate"));
-  } else if (after.result !== null) {
-    const iWon = (after.result === "white") === (myColor === "w");
-    parts.push(iWon ? t("ann.youWin") : t("ann.theyWin", { name }));
-  } else {
+  if (after.result !== null) {
+    if (before.result === null) parts.push(endingText(after, myColor, name));
+  } else if (isBoardMove(move)) {
     if (isInCheck(after.board, after.sideToMove)) parts.push(t("ann.check"));
     if (after.sideToMove === myColor) parts.push(t("ann.yourTurn"));
   }
   return parts.join(" ");
 }
-

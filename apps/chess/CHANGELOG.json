@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.30.1",
+    "date": "2026-10-30",
+    "notes": {
+      "en": "Chess plays by the full rules: castling, en passant and promotion to the piece you choose. Games end in a draw by repetition, the 50-move rule or when nobody can mate, each named. Offer a draw or accept one, and Resign tells the other player, who wins. A king in check is marked on the board. Both households check every move with the same rules.",
+      "de": "Schach spielt nach allen Regeln: Rochade, en passant und Umwandlung in die Figur deiner Wahl. Partien enden remis durch Stellungswiederholung, die 50-Züge-Regel oder wenn niemand mattsetzen kann, jeweils mit Namen. Biete Remis an oder nimm es an, und Aufgeben sagt es der anderen Person, die dann gewinnt. Ein König im Schach ist auf dem Brett markiert. Beide Haushalte prüfen jeden Zug nach denselben Regeln.",
+      "nl": "Schaken volgt alle regels: rokade, en passant en promotie tot het stuk dat jij kiest. Partijen eindigen in remise door herhaling, de 50-zettenregel of als niemand mat kan zetten, elk bij naam. Bied remise aan of neem het aan, en Opgeven laat de ander weten dat die wint. Een koning die schaak staat, is op het bord gemarkeerd. Beide huishoudens controleren elke zet met dezelfde regels.",
+      "fr": "Échecs suit toutes les règles : roque, prise en passant et promotion en la pièce de votre choix. Une partie peut finir nulle par répétition, par la règle des 50 coups ou si personne ne peut mater, chaque fois nommée. Proposez ou acceptez la nulle, et Abandonner prévient l’autre joueur, qui gagne. Un roi en échec est marqué sur l’échiquier. Les deux foyers vérifient chaque coup avec les mêmes règles.",
+      "es": "Ajedrez sigue todas las reglas: enroque, captura al paso y coronación en la pieza que elijas. Una partida acaba en tablas por repetición, por la regla de los 50 movimientos o si nadie puede dar mate, cada caso con su nombre. Ofrece tablas o acéptalas, y Abandonar avisa a la otra persona, que gana. Un rey en jaque se marca en el tablero. Los dos hogares comprueban cada jugada con las mismas reglas."
+    }
+  },
+  {
     "version": "2026.10.30",
     "date": "2026-10-30",
     "notes": {
