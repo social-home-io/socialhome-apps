@@ -39,12 +39,12 @@ import {
   endedMessage,
   inviteGoneMessage,
   isAwaitingOpponent,
-  isStaleMove,
   launchAction,
   senderOf,
   withdrawnMessage,
 } from "./lifecycle.js";
 import type { ConfirmCopy, GameEntry } from "./lifecycle.js";
+import { catchUpFromOwnCopy, judgeInbound, routeInbound } from "./inbound.js";
 import {
   activateSquare,
   boardHint,
@@ -165,15 +165,9 @@ interface OpenPayload {
   opponentName?: string;
 }
 
-function isMovePayload(v: unknown): v is MovePayload {
-  if (typeof v !== "object" || v === null) return false;
-  const p = v as Record<string, unknown>;
-  return (
-    p["type"] === "move" &&
-    typeof p["sessionId"] === "string" &&
-    typeof p["move"] === "object" && p["move"] !== null &&
-    typeof p["state"] === "object" && p["state"] !== null
-  );
+/** A move message of any chess version (judged in full by `judgeInbound`). */
+function isMoveMessage(v: unknown): boolean {
+  return typeof v === "object" && v !== null && (v as Record<string, unknown>)["type"] === "move";
 }
 
 // ---------------------------------------------------------------------------
@@ -1205,24 +1199,48 @@ async function onCancelInvite(sessionId: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 function onInboundMessage(msg: AppMessage): void {
-  if (!isMovePayload(msg.payload)) return;
-  const sessionId = msg.payload.sessionId;
-  const entry = ui.games.get(sessionId);
-  if (!entry) return; // unknown session
-  // Social Home may hand over (on open) the latest move of a game we already
-  // saw live, or one older than ours: never replay or roll back a game.
-  if (isStaleMove(entry, msg.payload.state)) return;
+  void takeInboundMove(msg).catch((err) => {
+    console.error("Chess: inbound move failed", err);
+  });
+}
 
-  const before = entry.state;
-  try {
-    const verified = applyMove(entry.state, msg.payload.move);
-    entry.state = verified;
-  } catch {
-    // Diverged — accept opponent's state, log it
-    console.warn("Chess: local verify failed; accepting remote state", sessionId);
-    entry.state = msg.payload.state;
+/**
+ * Our copy of a game is ours: a message adds at most ONE opponent move that
+ * our own engine finds legal on top of the moves we have (`judgeInbound`).
+ * Anything else leaves the game unchanged, is logged (never its content) and
+ * gets a calm notice. Routed by the session Social Home delivered it in.
+ */
+async function takeInboundMove(msg: AppMessage): Promise<void> {
+  if (!isMoveMessage(msg.payload)) return;
+  const route = routeInbound(msg, ui.games);
+  if (route.kind === "drop") {
+    console.warn("chess.inbound_dropped", { session_id: msg.sessionId, reason: route.reason });
+    return;
+  }
+  const entry = route.entry;
+  const sessionId = entry.sessionId;
+
+  let verdict = judgeInbound(entry.state, entry.myColor, msg.payload);
+  if (verdict.kind === "refuse" && verdict.reason === "too-many") {
+    // This screen may hold an older copy than our store (the same person
+    // played on another screen): catch up from our own copy and judge again.
+    const stored = await client.store.get(storeKey(sessionId)).catch(() => null);
+    const own = catchUpFromOwnCopy(entry.state, (stored as Partial<GameEntry> | null)?.state);
+    if (own) {
+      entry.state = own;
+      verdict = judgeInbound(entry.state, entry.myColor, msg.payload);
+    }
   }
 
+  if (verdict.kind === "stale") return;
+  if (verdict.kind === "refuse") {
+    console.warn("chess.inbound_refused", { session_id: sessionId, reason: verdict.reason });
+    showToast(t("toast.moveRefused", { name: entry.opponentName }));
+    return;
+  }
+
+  const before = entry.state;
+  entry.state = verdict.state;
   void persistGame(entry);
 
   const becameMyTurn = isMyTurn(entry.state, entry.myColor);
@@ -1231,15 +1249,10 @@ function onInboundMessage(msg: AppMessage): void {
   if (ui.view === "board" && ui.activeBoardSession === sessionId) {
     ui.selectedSquare = null;
     ui.legalTargets = [];
-    // Speak the move once — only when the game actually advanced (a repeat
-    // delivery of the same move changes nothing and says nothing).
-    const played = lastMove(entry.state);
-    if (played && entry.state.history.length > before.history.length) {
-      say(moveAnnouncement({
-        before, after: entry.state, move: played,
-        myColor: entry.myColor, opponentName: entry.opponentName,
-      }));
-    }
+    say(moveAnnouncement({
+      before, after: entry.state, move: verdict.move,
+      myColor: entry.myColor, opponentName: entry.opponentName,
+    }));
     renderBoard();
   } else {
     // Flash a toast so the player notices a move arrived in a background game
