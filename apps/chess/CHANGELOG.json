@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.30",
+    "date": "2026-10-30",
+    "notes": {
+      "en": "Chess keeps your game honest: it only takes the other player's next move when its own rules allow it, and never a move of your pieces, a changed past or a made-up win. Checkmate and stalemate are worked out on your side. A move that isn't allowed leaves your game unchanged, and Chess says so calmly.",
+      "de": "Schach hält deine Partie ehrlich: Es übernimmt nur den nächsten Zug der anderen Person, wenn seine eigenen Regeln ihn erlauben, und nie einen Zug mit deinen Figuren, eine geänderte Vorgeschichte oder einen erfundenen Sieg. Matt und Patt prüft Schach bei dir. Ein Zug, der nicht erlaubt ist, ändert deine Partie nicht, und Schach sagt es dir ruhig.",
+      "nl": "Schaken houdt je partij eerlijk: het neemt alleen de volgende zet van de ander over als de eigen regels die toestaan, en nooit een zet met jouw stukken, een veranderd verloop of een verzonnen winst. Mat en pat rekent Schaken bij jou uit. Een zet die niet is toegestaan verandert je partij niet, en Schaken laat het je rustig weten.",
+      "fr": "Échecs garde votre partie honnête : il n’accepte le coup suivant de l’autre joueur que si ses propres règles le permettent, et jamais un coup avec vos pièces, un historique modifié ou une victoire inventée. Le mat et le pat sont calculés de votre côté. Un coup non autorisé ne change pas votre partie, et Échecs vous le signale calmement.",
+      "es": "Ajedrez mantiene tu partida limpia: solo acepta la siguiente jugada de la otra persona si sus propias reglas la permiten, y nunca una jugada con tus piezas, un historial cambiado ni una victoria inventada. El jaque mate y el ahogado se calculan en tu lado. Una jugada no permitida no cambia tu partida, y Ajedrez te lo dice con calma."
+    }
+  },
+  {
     "version": "2026.10.29.6",
     "date": "2026-10-29",
     "notes": {

@@ -82,7 +82,7 @@ export function senderOf(msg: AppMessage): string | undefined {
  * True when the event comes from the person this game is with: the same
  * household, and — when both sides name a person — the same person.
  */
-function fromOpponent(entry: GameEntry, msg: AppMessage): boolean {
+export function fromOpponent(entry: GameEntry, msg: AppMessage): boolean {
   if (msg.fromInstance !== entry.opponentInstanceId) return false;
   const sender = senderOf(msg);
   if (sender && entry.opponentRef && sender !== entry.opponentRef) {
@@ -213,18 +213,6 @@ export function endedMessage(name: string): string {
 /** Toast shown to the invitee when the challenger withdraws the invite. */
 export function withdrawnMessage(name: string): string {
   return t("invite.withdrawn", { name });
-}
-
-/**
- * True when an incoming move's game is not ahead of ours: we already have it
- * (a live move repeated by Social Home's held copy on open) or something newer.
- * Social Home keeps only the latest message of each game while chess is closed
- * or turned off, and may hand over one chess already saw — chess sends the
- * whole game with every move, so the move count decides. Such a message
- * changes nothing (it must never roll the board back).
- */
-export function isStaleMove(entry: GameEntry, incoming: GameState): boolean {
-  return incoming.history.length <= entry.state.history.length;
 }
 
 /** Copy for the in-app confirm shown before a game is abandoned or removed. */
