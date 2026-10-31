@@ -268,14 +268,26 @@ describe("buildEntry", () => {
     expect(e).not.toHaveProperty("homepage");
     expect(e).not.toHaveProperty("min_core_version");
     expect(e).not.toHaveProperty("players");
+    expect(e).not.toHaveProperty("tables");
   });
 
-  it("carries players for the Apps page (schema stays 2), not tables / late_join", () => {
+  it("carries players and tables (schema stays 2), not late_join", () => {
     const m = manifest({ players: { min: 3, max: 8 }, tables: true, late_join: true });
     const e = buildEntry({ manifest: m, changelog: null, ...base });
     expect(e.players).toEqual({ min: 3, max: 8 });
-    expect(e).not.toHaveProperty("tables");
+    expect(e.tables).toBe(true);
     expect(e).not.toHaveProperty("late_join");
+  });
+
+  it("carries tables for a two-player game that opts in (open games in a space)", () => {
+    const e = buildEntry({ manifest: manifest({ players: { min: 2, max: 2 }, tables: true }), changelog: null, ...base });
+    expect(e.players).toEqual({ min: 2, max: 2 });
+    expect(e.tables).toBe(true);
+  });
+
+  it("leaves tables out unless the manifest says true", () => {
+    const e = buildEntry({ manifest: manifest({ tables: false }), changelog: null, ...base });
+    expect(e).not.toHaveProperty("tables");
   });
 
   it("copies v2 manifest fields and keeps only the newest changelog entries", () => {

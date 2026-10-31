@@ -292,6 +292,11 @@ export function buildEntry({ manifest, changelog, bundleUrl, bundleSha256, bundl
   if (m.min_core_version) entry.min_core_version = m.min_core_version;
   // Group games: "2–8 players" on the Apps page. Additive (schema stays 2).
   if (m.players) entry.players = { min: m.players.min, max: m.players.max };
+  // The app can be played at a table — e.g. an open game in a space. Social
+  // Home reads it from the catalog for an app a household hasn't installed
+  // yet ("Games allowed here" lists only such apps); `late_join` only matters
+  // once installed, so it stays in the manifest.
+  if (m.tables === true) entry.tables = true;
   entry.changelog = (changelog ?? []).slice(0, MAX_CHANGELOG_ENTRIES);
   return entry;
 }
