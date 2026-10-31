@@ -1,0 +1,271 @@
+/* ============================================================
+   Go — Social Home App
+   Self-contained; no external origins. From 360 px wide.
+   Colours: Social Home's eight tokens in light AND dark (the SDK's
+   applyTheme writes --sh-*), with Social Home's default palettes as the
+   fallbacks. The board is a flat tint mixed from them (no wood); stones
+   are black and white in both themes, told apart by brightness and by
+   their labels, never by hue.
+   ============================================================ */
+
+:root {
+  --bg: #f4ece0;
+  --surface: #efe3d2;
+  --text: #1a1814;
+  --muted: #5e564b;
+  --accent: #b54824;
+  --on-accent: #f4ece0;
+  --border: #d8cfc0;
+  --focus: #a44221;
+  --ok: #2e7d4f;
+  --bad: #b3261e;
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+
+:root[data-theme="light"] {
+  --bg: var(--sh-bg, #f4ece0);
+  --surface: var(--sh-surface, #efe3d2);
+  --text: var(--sh-text, #1a1814);
+  --muted: var(--sh-muted, #5e564b);
+  --accent: var(--sh-accent, #b54824);
+  --on-accent: var(--sh-on-accent, #f4ece0);
+  --border: var(--sh-border, #d8cfc0);
+  --focus: var(--sh-focus, #a44221);
+}
+
+:root[data-theme="dark"] {
+  --bg: var(--sh-bg, #14161c);
+  --surface: var(--sh-surface, #1e2129);
+  --text: var(--sh-text, #e9e6df);
+  --muted: var(--sh-muted, #a8a294);
+  --accent: var(--sh-accent, #e07a52);
+  --on-accent: var(--sh-on-accent, #14161c);
+  --border: var(--sh-border, #343846);
+  --focus: var(--sh-focus, #f0a07e);
+  --ok: #6fd39a;
+  --bad: #ff8a80;
+  color-scheme: dark;
+}
+
+:root {
+  /* A flat board: the surface warmed by the accent; lines from the text colour. */
+  --board: color-mix(in srgb, var(--accent) 16%, var(--surface));
+  --line: color-mix(in srgb, var(--text) 62%, var(--board));
+  --stone-b: #19191b;
+  --stone-b-edge: #000000;
+  --stone-w: #f7f5f0;
+  --stone-w-edge: #5f5b55;
+}
+:root[data-theme="dark"] {
+  /* Lighter board so black stones keep their edge on a dark page. */
+  --board: color-mix(in srgb, var(--accent) 22%, color-mix(in srgb, var(--text) 38%, var(--surface)));
+  --line: color-mix(in srgb, var(--bg) 70%, var(--board));
+  --stone-b-edge: #000000;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.4 var(--font);
+  padding: 12px 16px 24px;
+}
+
+.app-header { display: flex; align-items: center; gap: 10px; max-width: 1040px; margin: 0 auto 8px; }
+.app-header h1 { font-size: 20px; margin: 0; }
+.app-icon svg { width: 28px; height: 28px; display: block; }
+#app-root { max-width: 1040px; margin: 0 auto; }
+
+h2, h3 { margin: 0; }
+p { margin: 4px 0; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row.end { justify-content: flex-end; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* ---- Buttons, cards, chips ---- */
+.btn {
+  min-height: 44px; padding: 0 16px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.btn.ghost { background: transparent; }
+.btn.danger { color: var(--bad); }
+dialog .btn.danger { background: var(--bad); color: var(--bg); border-color: transparent; }
+.btn.wide { width: 100%; }
+.btn:focus-visible, .choice input:focus-visible + label {
+  outline: 3px solid var(--focus); outline-offset: 2px;
+}
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px;
+  font-size: 13px; font-weight: 600; border: 1px solid var(--border); background: var(--bg);
+}
+.chip.turn { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.chip.good { color: var(--ok); border-color: currentColor; }
+.chip.bad { color: var(--bad); border-color: currentColor; }
+
+/* Stone swatches (lobby, players, score table). */
+.swatch {
+  display: inline-block; width: 16px; height: 16px; border-radius: 50%; flex: none; vertical-align: -3px;
+  border: 1.5px solid var(--stone-w-edge);
+}
+.swatch-b { background: var(--stone-b); border-color: var(--stone-b-edge); }
+:root[data-theme="dark"] .swatch-b { border-color: var(--muted); }
+.swatch-w { background: var(--stone-w); }
+.swatch-random { background: linear-gradient(90deg, var(--stone-b) 50%, var(--stone-w) 50%); }
+
+/* ---- Lobby ---- */
+.new-game { display: grid; gap: 12px; margin-top: 4px; }
+.section-title { font-size: 16px; margin: 22px 0 8px; }
+.new-game .section-title { margin: 0; }
+.choice { border: 0; margin: 0; padding: 0; min-width: 0; }
+.choice legend { font-weight: 600; margin-bottom: 6px; padding: 0; }
+.choice-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.choice input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.choice label {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg); cursor: pointer; font-weight: 600;
+}
+.choice input:checked + label { border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg)); }
+.choice input:checked + label::after { content: "✓"; color: var(--accent); }
+.empty { padding: 8px 0; }
+.game-list, .people { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.game { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; }
+.game-top { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.who { font-weight: 700; overflow-wrap: anywhere; }
+.game .meta { margin: 0; grid-column: 1; }
+.game .acts { display: flex; gap: 8px; grid-column: 2; grid-row: 1 / span 2; flex-wrap: wrap; justify-content: flex-end; }
+.person { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.error { display: grid; gap: 10px; justify-items: start; }
+
+/* ---- Game ---- */
+.topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.topbar .title { font-size: 20px; overflow-wrap: anywhere; }
+.status-card { max-width: 520px; }
+.status-card .big, .status .big { font-size: 18px; font-weight: 700; }
+/* The board takes what the frame's height allows (it never needs scrolling on a desktop). */
+.game-layout {
+  --board-max: min(620px, max(300px, calc(100vh - 140px)));
+  display: grid; grid-template-columns: minmax(0, var(--board-max)) minmax(240px, 320px);
+  grid-template-areas: "board info" "board lower"; grid-template-rows: auto 1fr;
+  gap: 12px 24px; align-items: start; justify-content: center;
+}
+.game-layout .info { grid-area: info; }
+.game-layout .lower { grid-area: lower; }
+.game-layout .board-wrap { grid-area: board; }
+.side { display: grid; gap: 12px; align-content: start; }
+.players { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.player {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center;
+  padding: 8px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface);
+}
+.player .swatch { width: 22px; height: 22px; grid-row: 1 / span 2; }
+.player .pname { font-weight: 700; overflow-wrap: anywhere; }
+.player .caps { color: var(--muted); font-size: 13px; }
+.player.to-move { border: 2px solid var(--accent); }
+.status p { margin: 2px 0 0; }
+.preview-score { font-weight: 600; margin: 0; }
+.notice { border-color: var(--accent); }
+.unsent { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.hint { margin: 0; padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+.acts .btn { flex: 1 1 auto; }
+.resign { justify-self: start; }
+.verdict { display: grid; gap: 6px; }
+.verdict.good { border-color: var(--ok); }
+.verdict.bad { border-color: var(--bad); }
+.verdict-title { font-weight: 700; font-size: 18px; }
+.verdict-line { font-weight: 600; }
+table.score { border-collapse: collapse; width: 100%; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.score th, .score td { padding: 4px 6px; text-align: end; border-bottom: 1px solid var(--border); }
+.score th[scope="row"] { text-align: start; font-weight: 500; color: var(--muted); }
+.score tr.total th, .score tr.total td { font-weight: 700; color: var(--text); border-bottom: 0; }
+
+/* ---- The board ---- */
+.board-wrap {
+  position: relative; width: 100%; aspect-ratio: 1;
+  user-select: none; -webkit-user-select: none; touch-action: manipulation;
+}
+.board-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.bd-bg { fill: var(--board); }
+.bd-line line { stroke: var(--line); stroke-width: 0.04; stroke-linecap: square; }
+.bd-star { fill: var(--line); }
+.bd-label text { fill: color-mix(in srgb, var(--text) 72%, var(--board)); font: 600 0.34px var(--font); }
+.stone { stroke-width: 0.05; }
+.st-b { fill: var(--stone-b); stroke: var(--stone-b-edge); }
+.st-w { fill: var(--stone-w); stroke: var(--stone-w-edge); }
+.stone.dead { opacity: 0.42; }
+.stone.preview { opacity: 0.6; }
+.preview-ring { fill: none; stroke: var(--accent); stroke-width: 0.09; }
+.last-mark { fill: none; stroke-width: 0.07; }
+.last-mark.on-b, .dead-x.on-b { stroke: var(--stone-w); }
+.last-mark.on-w, .dead-x.on-w { stroke: var(--stone-b); }
+.dead-x { stroke-width: 0.08; stroke-linecap: round; fill: none; }
+.terr { stroke-width: 0.03; }
+.terr-b { fill: var(--stone-b); stroke: var(--stone-b-edge); }
+.terr-w { fill: var(--stone-w); stroke: var(--stone-w-edge); }
+
+.grid {
+  position: absolute; display: grid;
+  grid-template-columns: repeat(var(--n), 1fr); grid-template-rows: repeat(var(--n), 1fr);
+}
+.grid-row { display: contents; }
+.cell { border-radius: 50%; outline: none; }
+.grid.playable .cell.free, .grid.marking .cell:not(.free) { cursor: pointer; }
+.cell:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; z-index: 2; }
+@media (hover: hover) {
+  .grid.playable.mine-b .cell.free:hover { background: radial-gradient(circle, color-mix(in srgb, var(--stone-b) 45%, transparent) 0 44%, transparent 46%); }
+  .grid.playable.mine-w .cell.free:hover { background: radial-gradient(circle, color-mix(in srgb, var(--stone-w) 70%, transparent) 0 44%, transparent 46%); }
+}
+
+/* ---- Toasts, dialog ---- */
+#toasts { position: fixed; inset-inline: 0; bottom: 16px; display: grid; justify-items: center; gap: 8px; pointer-events: none; z-index: 10; }
+.toast {
+  pointer-events: auto; max-width: min(92vw, 520px); padding: 10px 14px; border-radius: 10px;
+  background: var(--text); color: var(--bg); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  animation: rise 0.2s ease-out;
+}
+@keyframes rise { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+dialog.confirm {
+  border: 1px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--text);
+  max-width: min(92vw, 440px); padding: 18px;
+}
+dialog.confirm h2 { font-size: 18px; margin-bottom: 8px; }
+dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+
+/* ---- Phone ---- */
+@media (max-width: 700px) {
+  body { padding: 10px 8px 20px; }
+  .game-layout { grid-template-columns: 1fr; grid-template-areas: "info" "board" "lower"; gap: 10px; justify-items: center; }
+  .board-wrap { width: 100%; }
+  .side { width: 100%; gap: 8px; }
+  .players { grid-template-columns: 1fr 1fr; }
+  .player { padding: 6px 8px; gap: 0 8px; }
+  .player .pname { font-size: 14px; }
+  .player .caps { font-size: 12px; }
+  .status-card .big, .status .big { font-size: 16px; }
+  .game { grid-template-columns: 1fr; }
+  .game .acts { grid-column: 1; grid-row: auto; justify-content: stretch; }
+  .game .acts .btn { flex: 1; }
+  .keys { display: none; }
+  .choice-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .choice label { justify-content: center; text-align: center; padding: 4px 8px; }
+}
+
+/* The back arrow points back in the reading direction. */
+[dir="rtl"] .flip-rtl { display: inline-block; transform: scaleX(-1); }
+
+/* Less motion: from Social Home, or from the system. */
+:root[data-reduced-motion="true"] *, :root[data-reduced-motion="true"] *::before, :root[data-reduced-motion="true"] *::after {
+  animation: none !important; transition: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
