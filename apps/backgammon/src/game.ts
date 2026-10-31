@@ -9,8 +9,11 @@
  *   - `"open"`: the inviter shows its link for the opening roll when the
  *     invitee won it (the invitee then plays it). When the inviter won it,
  *     its first turn shows that link instead.
- *   - `"double"`: the player to move offers the doubling cube (turn 2 on,
- *     their roll is shown with it); `"take"` / `"drop"` the answer.
+ *   - `"roll"`: the player to move, who could double, rolls instead;
+ *     `"show"`: the other player's app answers with its link for that roll.
+ *   - `"double"`: the player to move offers the doubling cube before rolling;
+ *     `"take"` (which also shows the taker's link for the roll) / `"drop"`
+ *     the answer.
  *   - `"resign-w"` / `"resign-b"`: that player gives up (on either turn).
  *   - `"timeout-w"` / `"timeout-b"`: with a clock, the player who has to act
  *     confirms their own time ran out (their app adds it when the other
@@ -18,9 +21,21 @@
  *
  * Every roll comes from the two players' dice chains (dice.ts) through a
  * `DiceSource`; this file decides which link each player must have shown
- * after each entry (`reveals`): link t + 1 with your finished turn t, link t
- * with a double on turn t, link 1 with "open". A roll is known to a player
- * only when both links are.
+ * after each entry (`reveals`). Turn t's roll needs link t of both chains;
+ * a roll is known to a player only when both links are. The roller always
+ * has its own link, so the roll stays hidden from it until the OTHER player
+ * shows link t, and from the other player until the roller shows its own
+ * link t with the finished turn:
+ *
+ *   - with your finished turn t you show link t (the other side checks your
+ *     roll) and, when the other player can't double at turn t + 1, also
+ *     link t + 1: their roll is then known to them at once, no extra
+ *     message;
+ *   - when the other player CAN double at turn t + 1 you hold link t + 1
+ *     back, so they decide on the cube without knowing their roll: they
+ *     send "roll" (your app answers "show" with link t + 1) or "double"
+ *     (your "take" shows it; "drop" ends the game);
+ *   - "open" shows link 1.
  */
 
 import {
@@ -44,6 +59,8 @@ import type { Opening } from "./dice.js";
 export type Entry =
   | number[]
   | "open"
+  | "roll"
+  | "show"
   | "double"
   | "take"
   | "drop"
@@ -64,8 +81,8 @@ export interface Setup {
 
 /** The longest a game can be: one link per turn, the last one shown with turn L − 1. */
 export const MAX_TURN = CHAIN_LENGTH - 1;
-/** Entries a log may have: every turn, plus room for cube steps and the end. */
-export const MAX_LOG = MAX_TURN + 2 * 7 + 4;
+/** Entries a log may have: per turn at most a roll (or a double) and its answer, then the turn; plus "open" and the end. */
+export const MAX_LOG = 3 * MAX_TURN + 4;
 /** Most numbers in one turn entry: four steps. */
 export const MAX_TURN_NUMBERS = 8;
 
@@ -76,11 +93,26 @@ export interface DiceSource {
   roll(t: number): [number, number] | null;
 }
 
-export type Phase = "start" | "play" | "cube" | "over";
+/**
+ * - "start": before the opening roll is played;
+ * - "ask": the mover may double, before its roll is known: "roll" or "double";
+ * - "dice": the mover rolled; the other app shows its link ("show");
+ * - "play": the mover plays its roll;
+ * - "cube": the other player answers a double;
+ * - "over".
+ */
+export type Phase = "start" | "ask" | "dice" | "play" | "cube" | "over";
 
+/**
+ * How a game ended. `kind` is what the position was worth: the win itself,
+ * or for a resignation or running out of time what the board shows at that
+ * moment (no checker borne off is a gammon, one still in the winner's home
+ * board or on the bar a backgammon), so giving up never saves a gammon.
+ * A declined double is always a single game at the cube's old value.
+ */
 export type Result =
-  | { winner: Color; by: WinKind | "drop" | "resign" | "time"; cube: number; points: number }
-  | { winner: null; by: "limit"; cube: number; points: 0 };
+  | { winner: Color; by: WinKind | "drop" | "resign" | "time"; kind: WinKind; cube: number; points: number }
+  | { winner: null; by: "limit"; kind: null; cube: number; points: 0 };
 
 export interface LastTurn {
   by: Color;
@@ -97,9 +129,9 @@ export interface GameState {
   turn: number;
   /** Whose turn it is (`null` in "start" until the opening is known). */
   mover: Color | null;
-  /** Who has to act now: the mover, the player answering a double, or (start) the inviter. */
+  /** Who has to act now: the mover, the player answering a double or showing its link, or (start) the inviter. */
   toMove: Color;
-  /** The mover's roll for this turn when this side knows it. */
+  /** The mover's roll for this turn when this side knows it (never in "ask"). */
   roll: [number, number] | null;
   opening: Opening | null;
   cube: { value: number; owner: Color | null };
@@ -147,6 +179,11 @@ export function initialState(setup: Setup, dice: DiceSource): GameState {
   return st;
 }
 
+/** Whether *mover* may offer the cube at the start of turn *t*. */
+export function mayDouble(setup: Setup, cube: { value: number; owner: Color | null }, t: number, mover: Color): boolean {
+  return setup.cube && t >= 2 && cube.value < MAX_CUBE && (cube.owner === null || cube.owner === mover);
+}
+
 export const isResign = (e: Entry): e is "resign-w" | "resign-b" => e === "resign-w" || e === "resign-b";
 export const isTimeout = (e: Entry): e is "timeout-w" | "timeout-b" => e === "timeout-w" || e === "timeout-b";
 export const isTurn = (e: Entry): e is number[] => Array.isArray(e);
@@ -173,17 +210,23 @@ export function sameEntry(a: Entry, b: Entry): boolean {
   return a === b;
 }
 
-/** Whether the player to move may offer the cube now. */
+/** Whether the player to move may offer the cube now (before rolling). */
 export function canDouble(state: GameState): boolean {
-  if (state.phase !== "play" || !state.setup.cube || state.turn < 2 || state.mover === null) return false;
-  const { value, owner } = state.cube;
-  return value < MAX_CUBE && (owner === null || owner === state.mover);
+  return state.phase === "ask" && state.mover !== null && mayDouble(state.setup, state.cube, state.turn, state.mover);
 }
 
-/** Start turn *t* for *mover*: its roll when known. */
+/** Start turn *t* for *mover*: "ask" when it may double, else "play" with its roll when known. */
 function beginTurn(state: GameState, t: number, mover: Color, dice: DiceSource): GameState {
+  if (mayDouble(state.setup, state.cube, t, mover)) return { ...state, phase: "ask", turn: t, mover, toMove: mover, roll: null };
   const roll = t === 1 ? (state.opening ? [state.opening.w, state.opening.b] as [number, number] : null) : dice.roll(t);
   return { ...state, phase: "play", turn: t, mover, toMove: mover, roll };
+}
+
+/** The game won by *winner* now: what the board is worth times the cube. */
+function wonNow(state: GameState, winner: Color, by: "resign" | "time"): Result {
+  const kind = winKind(state.board, winner);
+  const value = state.cube.value;
+  return { winner, by, kind, cube: value, points: value * WIN_MULTIPLIER[kind] };
 }
 
 function finish(state: GameState, result: Result): GameState {
@@ -199,13 +242,13 @@ export function applyEntry(state: GameState, entry: Entry, dice: DiceSource): Ga
 
   if (isResign(entry)) {
     const by: Color = entry === "resign-w" ? "w" : "b";
-    return finish(base, { winner: other(by), by: "resign", cube: value, points: value });
+    return finish(base, wonNow(state, other(by), "resign"));
   }
   if (isTimeout(entry)) {
     if (state.setup.days <= 0) throw new IllegalMove("bad-entry");
     const by: Color = entry === "timeout-w" ? "w" : "b";
     if (by !== state.toMove) throw new IllegalMove("turn");
-    return finish(base, { winner: other(by), by: "time", cube: value, points: value });
+    return finish(base, wonNow(state, other(by), "time"));
   }
   // The last slot stays free for a resignation or running out of time.
   if (state.n >= MAX_LOG - 1) throw new IllegalMove("too-long");
@@ -219,21 +262,31 @@ export function applyEntry(state: GameState, entry: Entry, dice: DiceSource): Ga
     return beginTurn({ ...base, opening, reveals }, 1, opening.starter, dice);
   }
 
+  if (entry === "roll") {
+    if (!canDouble(state)) throw new IllegalMove("phase");
+    return { ...base, phase: "dice", toMove: other(state.mover!) };
+  }
+
+  if (entry === "show") {
+    if (state.phase !== "dice") throw new IllegalMove("phase");
+    const mover = state.mover!;
+    const reveals = { ...state.reveals, [other(mover)]: state.turn };
+    return { ...base, phase: "play", toMove: mover, reveals, roll: dice.roll(state.turn) };
+  }
+
   if (entry === "double") {
     if (!canDouble(state)) throw new IllegalMove("cube");
-    const mover = state.mover!;
-    const reveals = { ...state.reveals, [mover]: state.turn };
-    // With the offer the mover shows link t: both now know the roll.
-    const roll = state.roll ?? dice.roll(state.turn);
-    if (!roll) throw new IllegalMove("dice");
-    return { ...base, phase: "cube", toMove: other(mover), reveals, roll };
+    return { ...base, phase: "cube", toMove: other(state.mover!) };
   }
 
   if (entry === "take" || entry === "drop") {
     if (state.phase !== "cube") throw new IllegalMove("phase");
     const mover = state.mover!;
-    if (entry === "drop") return finish(base, { winner: mover, by: "drop", cube: value, points: value });
-    return { ...base, phase: "play", toMove: mover, cube: { value: value * 2, owner: other(mover) } };
+    if (entry === "drop") return finish(base, { winner: mover, by: "drop", kind: "single", cube: value, points: value });
+    // The taker owns the cube and shows its link: the roll is known to the mover now.
+    const taker = other(mover);
+    const reveals = { ...state.reveals, [taker]: state.turn };
+    return { ...base, phase: "play", toMove: mover, reveals, cube: { value: value * 2, owner: taker }, roll: dice.roll(state.turn) };
   }
 
   if (isTurn(entry)) {
@@ -254,14 +307,18 @@ export function applyEntry(state: GameState, entry: Entry, dice: DiceSource): Ga
     const r = checkTurn(st.board, mover, roll, pairsOf(entry));
     if (!r.ok) throw new IllegalMove("move");
     const last: LastTurn = { by: mover, turn: st.turn, roll, steps: r.steps };
-    const reveals = { ...st.reveals, [mover]: st.turn + 1 };
+    const t = st.turn;
+    const end = r.board[mover][OFF] === CHECKERS || t >= MAX_TURN;
+    // Link t proves our roll; link t + 1 gives them theirs, unless they may double first.
+    const ahead = !end && !mayDouble(st.setup, st.cube, t + 1, other(mover));
+    const reveals = { ...st.reveals, [mover]: Math.max(st.reveals[mover], ahead ? t + 1 : t) };
     const after: GameState = { ...st, board: r.board, roll, last, reveals };
     if (r.board[mover][OFF] === CHECKERS) {
       const kind = winKind(r.board, mover);
-      return finish(after, { winner: mover, by: kind, cube: value, points: value * WIN_MULTIPLIER[kind] });
+      return finish(after, { winner: mover, by: kind, kind, cube: value, points: value * WIN_MULTIPLIER[kind] });
     }
-    if (st.turn >= MAX_TURN) return finish(after, { winner: null, by: "limit", cube: value, points: 0 });
-    return beginTurn(after, st.turn + 1, other(mover), dice);
+    if (t >= MAX_TURN) return finish(after, { winner: null, by: "limit", kind: null, cube: value, points: 0 });
+    return beginTurn(after, t + 1, other(mover), dice);
   }
 
   throw new IllegalMove("bad-entry");

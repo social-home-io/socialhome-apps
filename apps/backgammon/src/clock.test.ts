@@ -10,7 +10,7 @@ const HOUR = 60 * 60 * 1000;
 const T0 = Date.UTC(2026, 9, 31, 12, 0, 0);
 
 function input(log: Entry[], myColor: Color, clockFrom: { n: number; at: number } | null, days = 2, over: Partial<ClockInput> = {}): ClockInput {
-  return { state: replay({ inviter: "w", cube: true, days }, log, DICE)!.state, myColor, logLength: log.length, clockFrom, awaiting: false, ...over };
+  return { state: replay({ inviter: "w", cube: false, days }, log, DICE)!.state, myColor, logLength: log.length, clockFrom, awaiting: false, ...over };
 }
 
 /** White wins the opening 4-1; then Black rolls 3-1, White 6-5. */

@@ -98,7 +98,8 @@ export class Player {
     const st = this.state()!;
     if (st.phase === "start") return st.mover === this.color ? autoTurn(st) : "open";
     if (st.phase === "cube") return opts.take === false ? "drop" : "take";
-    if (opts.double && canDouble(st)) return "double";
+    if (st.phase === "dice") return "show";
+    if (st.phase === "ask") return opts.double && canDouble(st) ? "double" : "roll";
     return autoTurn(st);
   }
 

@@ -121,33 +121,52 @@ describe("a whole game over the wire", () => {
 
   it("with the cube: a double, a take, and later the end", () => {
     const { a, b } = startGame({ seeds: [7, 8] });
-    playOn(a, b, 1); // the opening (or the inviter's link)
-    playOn(a, b, 1);
-    // Whoever is to move now doubles; the other takes.
+    // Play until someone may double.
+    while (a.state()!.phase !== "ask") playOn(a, b, 1);
     const p = actorOf2(a, b);
     const q = opponent(p, a, b);
-    const st = p.state()!;
-    if (st.turn >= 2 && st.phase === "play") {
-      expect(q.receive(p.play("double"))).toMatchObject({ kind: "apply", added: ["double"] });
-      // The taker sees the roll with the offer.
-      expect(q.state()!.roll).toEqual(p.state()!.roll);
-      expect(p.receive(q.play("take"))).toMatchObject({ kind: "apply" });
-      expect(p.state()!.cube).toEqual({ value: 2, owner: q.color });
-    }
-    playOn(a, b, 2000);
-    expect(a.state()!.result!.points % (a.state()!.cube.value)).toBe(0);
+    expect(q.receive(p.play("double"))).toMatchObject({ kind: "apply", added: ["double"] });
+    // Neither side knows the roll while the double is open.
+    expect(q.state()!.roll).toBeNull();
+    expect(p.state()!.roll).toBeNull();
+    expect(p.receive(q.play("take"))).toMatchObject({ kind: "apply" });
+    expect(p.state()!.cube).toEqual({ value: 2, owner: q.color });
+    // The take showed the taker's link: the doubler knows its roll now, the taker still doesn't.
+    expect(p.state()!.roll).not.toBeNull();
+    expect(q.state()!.roll).toBeNull();
+    playOn(a, b, 4000);
+    expect(a.state()!.phase).toBe("over");
+    expect(a.state()!.result!.points % a.state()!.cube.value).toBe(0);
+    expect(b.state()!.result).toEqual(a.state()!.result);
   });
 
-  it("nobody learns a roll early: the waiting side doesn't know the mover's roll until the mover shows it", () => {
-    const { a, b } = startGame({ seeds: [1, 2] });
+  it("without the cube, a turn hands the next roller its roll in the same message", () => {
+    const { a, b } = startGame({ seeds: [1, 2], cube: false });
     playOn(a, b, 3);
     const mover = actorOf2(a, b);
     const waiter = opponent(mover, a, b);
+    expect(mover.state()!.phase).toBe("play");
     expect(mover.state()!.roll).not.toBeNull();
     expect(waiter.state()!.roll).toBeNull();
     // And the mover doesn't know the waiter's next roll either.
     const t = mover.state()!.turn;
     expect(mover.dice().roll(t + 1)).toBeNull();
+  });
+
+  it("with the cube: the roller asks for its roll, the other app shows it; nobody knows it before", () => {
+    const { a, b } = startGame({ seeds: [1, 2] });
+    while (a.state()!.phase !== "ask") playOn(a, b, 1);
+    const p = actorOf2(a, b);
+    const q = opponent(p, a, b);
+    expect(p.state()!.roll).toBeNull();
+    expect(p.dice().roll(p.state()!.turn)).toBeNull();
+    expect(q.dice().roll(q.state()!.turn)).toBeNull();
+    expect(q.receive(p.play("roll"))).toMatchObject({ kind: "apply", added: ["roll"] });
+    expect(q.state()!.phase).toBe("dice");
+    expect(q.state()!.toMove).toBe(q.color);
+    expect(p.receive(q.play("show"))).toMatchObject({ kind: "apply", added: ["show"] });
+    expect(p.state()!.roll).not.toBeNull();
+    expect(q.state()!.roll).toBeNull();
   });
 });
 
@@ -187,7 +206,7 @@ describe("tampering with the dice", () => {
   });
 
   it("the roller can't pick its numbers: a turn played with other dice is refused", () => {
-    const { a, b } = startGame({ seeds: [13, 14] });
+    const { a, b } = startGame({ seeds: [13, 14], cube: false });
     playOn(a, b, 3);
     const p = actorOf2(a, b);
     const q = opponent(p, a, b);
@@ -207,16 +226,48 @@ describe("tampering with the dice", () => {
     expect(refused).toBeGreaterThan(10);
   });
 
-  it("a double that doesn't show the doubler's roll is refused", () => {
+  it("a roll or a double that gives away the roller's own link is refused", () => {
     const { a, b } = startGame({ seeds: [15, 16] });
+    while (a.state()!.phase !== "ask") playOn(a, b, 1);
+    const p = actorOf2(a, b);
+    const q = opponent(p, a, b);
+    const t = p.state()!.turn;
+    for (const e of ["roll", "double"] as Entry[]) {
+      const msg = clone(p.play(e));
+      p.log = p.log.slice(0, -1);
+      expect((msg["shown"] as { n: number }).n).toBe(t - 1);
+      msg["shown"] = { n: t, link: toB64url(p.chain![t]) };
+      expect(judgeInbound(q.local(), msg)).toEqual({ kind: "refuse", reason: "dice" });
+    }
+  });
+
+  it("a show or a take that holds its link back is refused", () => {
+    const { a, b } = startGame({ seeds: [17, 18] });
+    while (a.state()!.phase !== "ask") playOn(a, b, 1);
+    const p = actorOf2(a, b);
+    const q = opponent(p, a, b);
+    const t = p.state()!.turn;
+    q.receive(p.play("roll"));
+    const show = clone(q.play("show"));
+    expect((show["shown"] as { n: number }).n).toBe(t);
+    show["shown"] = { n: t - 1, link: toB64url(q.chain![t - 1]) };
+    expect(judgeInbound(p.local(), show)).toEqual({ kind: "refuse", reason: "dice" });
+    // "take" answers only a double.
+    q.log = q.log.slice(0, -1);
+    const take = clone(q.play("take"));
+    expect(judgeInbound(p.local(), take)).toEqual({ kind: "refuse", reason: "illegal" });
+  });
+
+  it("a turn that holds back the next roller's link when it can't double is refused", () => {
+    const { a, b } = startGame({ seeds: [19, 20], cube: false });
     playOn(a, b, 3);
     const p = actorOf2(a, b);
     const q = opponent(p, a, b);
-    const msg = clone(p.play("double"));
+    const msg = clone(p.play(p.autoStep()));
     const n = (msg["shown"] as { n: number }).n;
     expect(n).toBe(p.state()!.turn);
     msg["shown"] = { n: n - 1, link: toB64url(p.chain![n - 1]) };
-    expect(judgeInbound(q.local(), msg)).toMatchObject({ kind: "refuse" });
+    expect(judgeInbound(q.local(), msg)).toEqual({ kind: "refuse", reason: "dice" });
   });
 
   it("the inviter can't play the opening the invitee won, or show its link when it won", () => {

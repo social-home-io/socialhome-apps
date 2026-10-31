@@ -178,7 +178,7 @@ export function buildMessage(own: OwnSide, extras: MessageExtras = {}): WireMess
   return msg;
 }
 
-const WORDS = new Set(["open", "double", "take", "drop", "resign-w", "resign-b", "timeout-w", "timeout-b"]);
+const WORDS = new Set(["open", "roll", "show", "double", "take", "drop", "resign-w", "resign-b", "timeout-w", "timeout-b"]);
 
 /** A clean entry from untrusted input, or `null`. */
 export function parseEntry(v: unknown): Entry | null {
