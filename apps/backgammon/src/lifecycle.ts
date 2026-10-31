@@ -20,7 +20,7 @@ import { parseSessionPayload, ShError } from "@socialhome/app-sdk";
 import type { AppMessage, Contact, LaunchContext, PickedPerson, SessionTarget } from "@socialhome/app-sdk";
 import { t } from "./i18n.js";
 import { other } from "./rules.js";
-import type { Color } from "./rules.js";
+import type { Color, WinKind } from "./rules.js";
 import { CHAIN_LENGTH, LINK_BYTES, buildChain, fromB64url, toB64url } from "./dice.js";
 import { replay } from "./game.js";
 import type { DiceSource, Entry, GameState, Setup } from "./game.js";
@@ -490,10 +490,12 @@ export function continueCopy(entry: GameEntry): ConfirmCopy {
   };
 }
 
-export function resignCopy(entry: GameEntry, points: number): ConfirmCopy {
+export function resignCopy(entry: GameEntry, cost: { kind: WinKind; points: number }): ConfirmCopy {
+  const name = personName(entry);
+  const { kind, points: n } = cost;
   return {
     title: t("resign.title"),
-    body: points === 1 ? t("resign.body1", { name: personName(entry) }) : t("resign.body", { name: personName(entry), n: points }),
+    body: kind === "single" ? (n === 1 ? t("resign.body1", { name }) : t("resign.body", { name, n })) : t(kind === "gammon" ? "resign.bodyGammon" : "resign.bodyBackgammon", { name, n }),
     confirm: t("resign.confirm"),
     cancel: t("resign.cancel"),
   };

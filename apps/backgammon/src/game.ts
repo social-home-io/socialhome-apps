@@ -223,10 +223,16 @@ function beginTurn(state: GameState, t: number, mover: Color, dice: DiceSource):
 }
 
 /** The game won by *winner* now: what the board is worth times the cube. */
-function wonNow(state: GameState, winner: Color, by: "resign" | "time"): Result {
+function wonNow(state: GameState, winner: Color, by: "resign" | "time"): Result & { winner: Color } {
   const kind = winKind(state.board, winner);
   const value = state.cube.value;
   return { winner, by, kind, cube: value, points: value * WIN_MULTIPLIER[kind] };
+}
+
+/** What resigning now would cost *loser* (for the confirm). */
+export function resignResult(state: GameState, loser: Color): { kind: WinKind; points: number } {
+  const r = wonNow(state, other(loser), "resign");
+  return { kind: r.kind, points: r.points };
 }
 
 function finish(state: GameState, result: Result): GameState {

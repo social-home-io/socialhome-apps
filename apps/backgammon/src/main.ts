@@ -22,7 +22,7 @@ import sh, { ShError } from "@socialhome/app-sdk";
 import type { AppLook, AppMessage, Contact, PickedPerson } from "@socialhome/app-sdk";
 import { BAR, MAX_CUBE, OFF, other, flatten, nextSteps, targetsFrom, turnNeed, diceToPlay, without } from "./rules.js";
 import type { Board, Color, Step } from "./rules.js";
-import { applyEntry, boardAfter, canDouble, isTimeout, mustPass, passReason, passesTurn, resignBy, timeoutOf } from "./game.js";
+import { applyEntry, boardAfter, canDouble, isTimeout, mustPass, passReason, passesTurn, resignBy, resignResult, timeoutOf } from "./game.js";
 import type { Entry, GameState, Setup } from "./game.js";
 import { newSeed, toB64url } from "./dice.js";
 import { CLOCK_DAYS, buildMessage, catchUpFromOwnCopy, isBgMessage, isClockDays, judgeInbound } from "./inbound.js";
@@ -690,12 +690,17 @@ function sidePanel(entry: GameEntry, st: GameState, name: string): { info: HTMLE
       button(t("btn.undo"), "", () => onUndo(), { "data-undo": "", ...(ui.partial.length === 0 ? { disabled: "" } : {}) }),
       button(t("btn.done"), "primary", () => void onDone(entry), { "data-done": "", ...(done ? {} : { disabled: "" }) }),
     );
-    if (canDouble(st) && ui.partial.length === 0) {
-      acts.append(button(t("btn.double", { n: Math.min(MAX_CUBE, st.cube.value * 2) }), "", () => void onDouble(entry), { "data-double": "" }));
-    }
     lower.appendChild(acts);
     const hint = ui.hint ?? (done ? t("hint.done") : ui.selected !== null ? t("hint.pickTarget") : t("hint.pickChecker"));
     lower.appendChild(make("p", { cls: "hint small", text: hint, attrs: { id: "turn-hint" } }));
+  } else if (canDouble(st) && st.toMove === me) {
+    // Before the roll: roll, or double first (nobody knows the roll yet).
+    acts.append(
+      button(t("btn.roll"), "primary", () => void onRoll(entry), { "data-roll": "" }),
+      button(t("btn.double", { n: Math.min(MAX_CUBE, st.cube.value * 2) }), "", () => void onDouble(entry), { "data-double": "" }),
+    );
+    lower.appendChild(acts);
+    lower.appendChild(make("p", { cls: "muted small", text: t("cube.askHint", { name }), attrs: { id: "turn-hint" } }));
   } else if (st.phase === "cube" && st.toMove === me) {
     acts.append(
       button(t("btn.accept", { n: st.cube.value * 2 }), "primary", () => void onAnswer(entry, "take"), { "data-take": "" }),
@@ -1252,6 +1257,7 @@ async function takeOwnStep(entry: GameEntry, e: Entry): Promise<boolean> {
     const name = personName(entry);
     if (next.phase === "over") say(resultLine(next, entry.myColor!, name) ?? "");
     else if (e === "double") say(t("say.youDoubled", { name, n: next.cube.value * 2 }));
+    else if (e === "roll") say(t("say.rolling", { name }));
     else if (Array.isArray(e)) say(t("say.sent", { name }));
     renderGame();
   }
@@ -1270,6 +1276,14 @@ async function onDone(entry: GameEntry): Promise<void> {
     await takeOwnStep(entry, flatten(steps));
   });
   if (ui.active === entry.sessionId) focusCell(ui.cursor);
+}
+
+async function onRoll(entry: GameEntry): Promise<void> {
+  await withGame(entry.sessionId, async () => {
+    const st = stateOf(entry);
+    if (!st || !canDouble(st) || st.toMove !== entry.myColor) return;
+    await takeOwnStep(entry, "roll");
+  });
 }
 
 async function onDouble(entry: GameEntry): Promise<void> {
@@ -1299,7 +1313,8 @@ async function onDecline(entry: GameEntry): Promise<void> {
 
 async function onResign(entry: GameEntry): Promise<void> {
   const st = stateOf(entry);
-  if (!(await confirmDialog(resignCopy(entry, st?.cube.value ?? 1)))) return;
+  if (!st || !entry.myColor) return;
+  if (!(await confirmDialog(resignCopy(entry, resignResult(st, entry.myColor))))) return;
   await withGame(entry.sessionId, async () => {
     const now = stateOf(entry);
     if (!now || now.phase === "over") return;
@@ -1309,14 +1324,18 @@ async function onResign(entry: GameEntry): Promise<void> {
 
 /**
  * The app's own steps, never a person's: show our link for the opening roll
- * when the other player won it, and pass a roll that can't be played (with
- * the reason said and shown).
+ * when the other player won it or for their roll when they rolled, and pass
+ * a roll that can't be played (with the reason said and shown).
  */
 async function autoAct(entry: GameEntry): Promise<void> {
   const st = stateOf(entry);
   if (!st || !entry.myColor || st.toMove !== entry.myColor) return;
   if (st.phase === "start" && st.opening && st.mover !== entry.myColor) {
     await takeOwnStep(entry, "open");
+    return;
+  }
+  if (st.phase === "dice") {
+    await takeOwnStep(entry, "show");
     return;
   }
   if (st.phase === "play" && st.mover === entry.myColor && mustPass(st)) {

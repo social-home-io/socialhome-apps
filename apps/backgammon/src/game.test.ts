@@ -40,11 +40,6 @@ function fixed(opening: { w: number; b: number }, rolls: Record<number, [number,
 const SETUP: Setup = { inviter: "w", cube: true, days: 0 };
 const NO_CUBE: Setup = { ...SETUP, cube: false };
 
-function play(setup: Setup, log: Entry[], dice: DiceSource): GameState {
-  const r = replay(setup, log, dice);
-  if (!r) throw new Error("log doesn't replay");
-  return r.state;
-}
 
 function reason(fn: () => unknown): string | null {
   try {

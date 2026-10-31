@@ -143,8 +143,12 @@ export function statusFor(entry: GameEntry): { title: string; detail: string | n
   }
   if (st.phase === "cube") {
     const v = st.cube.value * 2;
-    if (mine) return { title: t("cube.offered", { name, n: v }), detail: t("cube.offeredBody", { name, roll: rollText(st.roll!) }) };
+    if (mine) return { title: t("cube.offered", { name, n: v }), detail: t("cube.offeredBody", { name }) };
     return { title: t("cube.youOffered", { n: v }), detail: t("cube.waiting", { name }) };
+  }
+  if (st.phase === "dice") {
+    if (mine) return { title: t("status.showing", { name }), detail: null };
+    return { title: t("status.rolling"), detail: t("status.rollingBody", { name }) };
   }
   let detail: string | null = null;
   if (st.turn === 1 && st.opening) detail = openingText(st, me, name);
@@ -186,7 +190,7 @@ export function resultLine(st: GameState, me: Color, name: string): string | nul
 export function pointsBreakdown(st: GameState): string {
   const r = st.result;
   if (!r || r.winner === null) return "";
-  const mult = r.by === "gammon" ? 2 : r.by === "backgammon" ? 3 : 1;
+  const mult = r.kind === "gammon" ? 2 : r.kind === "backgammon" ? 3 : 1;
   if (r.cube === 1 && mult === 1) return "";
   return t("end.breakdown", { cube: r.cube, mult });
 }
@@ -252,7 +256,7 @@ export function announceInbound(entry: GameEntry, added: readonly Entry[], after
       const hits = after.last.steps.filter((s) => s.hit).length;
       if (hits > 0) out.push(hits === 1 ? t("say.hitYou1") : t("say.hitYou", { n: hits }));
     } else if (e === "double") {
-      out.push(t("cube.offered", { name, n: after.cube.value * 2 }), t("cube.offeredBody", { name, roll: rollText(after.roll!) }));
+      out.push(t("cube.offered", { name, n: after.cube.value * 2 }), t("cube.offeredBody", { name }));
     } else if (e === "take") {
       out.push(t("say.took", { name, n: after.cube.value }));
     } else if (e === "drop") {
@@ -271,6 +275,8 @@ export function announceInbound(entry: GameEntry, added: readonly Entry[], after
     if (line) out.push(line);
   } else if (after.toMove === me && after.phase === "play" && after.roll) {
     out.push(t("say.yourRoll", { roll: rollText(after.roll) }));
+  } else if (after.toMove === me && after.phase === "ask") {
+    out.push(t("say.yourAsk"));
   }
   return out;
 }
