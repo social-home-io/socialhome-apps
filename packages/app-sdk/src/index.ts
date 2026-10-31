@@ -525,7 +525,7 @@ export type Unsubscribe = () => void;
  * | `group.list` | — | `GroupSession[]` |
  * | `group.get` | `{id}` | `GroupSession` |
  * | `group.start` | `{id}` | `GroupSession` |
- * | `group.send` | `{id, data, to?: number[], turn?: number}` | `{seq: number \| null}` |
+ * | `group.send` | `{id, data, to?: number[], turn?: number, final?: true}` | `{seq: number \| null}` |
  * | `group.leave` | `{id}` | `{ok: true}` |
  * | `group.remove` | `{id, seat}` | `GroupSession` |
  * | `group.close` | `{id}` | `{ok: true}` |
@@ -676,6 +676,16 @@ export interface GroupSendOptions {
   /** This message hands that seat the turn: while their app is closed Social
    *  Home shows them "Your turn". */
   turn?: number;
+  /**
+   * The game's last message (a win, a draw, a resignation, a claimed
+   * timeout): Social Home ends the table right after this message — as
+   * `ended` with `endReason: "finished"`, shown under Finished in the space —
+   * and still delivers it to everyone, also to a closed app's mailbox. Only
+   * while the table is being played; at a table of more than two only the
+   * host may (`"group_not_host"`). A Social Home without it (before group
+   * play shipped `final`) sends it as an ordinary message: the table stays open.
+   */
+  final?: boolean;
 }
 
 const GROUP_ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -1254,7 +1264,11 @@ export class SocialHomeClient {
      *
      * `turn` names the seat this message hands the turn to: while their app
      * is closed Social Home shows them "Your turn". `to` / `turn` seats must
-     * be seated now (`"group_seat"`).
+     * be seated now (`"group_seat"`). `final: true` on the game's last
+     * message ends the table (`endReason: "finished"`) once it is delivered.
+     * An `ended` event can reach the other player before that last message:
+     * take `group.held` and later messages before you call a game
+     * unfinished when its table ended `"finished"`.
      */
     send: (id: string, data: unknown, options: GroupSendOptions = {}): Promise<number | null> => {
       const params: Record<string, unknown> = { id, data };
@@ -1276,6 +1290,12 @@ export class SocialHomeClient {
           return Promise.reject(new ShError("invalid", "turn must be a seat number."));
         }
         params["turn"] = options.turn;
+      }
+      if (options.final !== undefined) {
+        if (typeof options.final !== "boolean") {
+          return Promise.reject(new ShError("invalid", "final must be true or false."));
+        }
+        if (options.final) params["final"] = true;
       }
       return this._groupCall(GROUP_BRIDGE.send, params).then((r) => {
         const seq = isRecord(r) ? r["seq"] : undefined;
