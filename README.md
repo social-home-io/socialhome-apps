@@ -47,6 +47,9 @@ Every app lives under `apps/<app_id>/` and must contain a `manifest.json`
 | `i18n` | no | `name` + `description` per locale (`de`, `nl`, `fr`, `es`, …; ≤ 12 locales, same length limits). English stays in `name`/`description`. Words follow the [shared glossary](https://github.com/social-home-io/translations): "Apps" stays untranslated; du / je / vous / tú. |
 | `homepage` | no | `https://` link to the app's source or page (text only; Social Home doesn't fetch it). |
 | `min_core_version` | no | Oldest Social Home (CalVer) the app works with. |
+| `players` | no | Group games: `{ "min": 3, "max": 8 }` — how many players a game takes, `2 ≤ min ≤ max ≤ 30` (default `{2, 2}`). Anything but `{2, 2}` needs `tables: true`. A table opened by picking people seats at most 10, whatever `max` says. |
+| `tables` | no | `true`: the app can be played as a **table** — a group game ([below](#group-games-socialhomeapp-sdk-19)). Without it the app keeps 1:1 invites only. |
+| `late_join` | no | `true`: a game being played still takes people while it has a free seat (default `false`). Needs `tables: true`. |
 
 An app can't set `publisher`: the catalog sets it (`"Social Home"` for every app in this repo).
 
@@ -245,6 +248,134 @@ try {
 
 Without `pullHeld`, Social Home posts held messages as ordinary live events right after `context()` answers — that is how apps on SDK ≤ 1.2 get them, through the `onMessage` / `onSession` handlers already subscribed by then. A message for a game Social Home doesn't know for this person, or from anyone but the other side of that game, is never kept. When the person you invited declines while your app is closed, you also get a notification in Social Home.
 
+### Group games (`@socialhome/app-sdk` 1.9)
+
+A **table** is a game for 2–30 players. The household of the person who
+opened it (the *host household*) keeps the seats and passes every message on
+to the others, numbered (`seq`), so every player sees the same order. Opt in
+in `manifest.json`:
+
+```json
+{ "players": { "min": 3, "max": 8 }, "tables": true, "late_join": false }
+```
+
+- **People are seats.** A player is `{ seat, name, household, isLocal, state }`
+  — never a username. Show names as plain text.
+- **Social Home asks, the app never opens anything itself.** `sh.group.open()`
+  shows Social Home's sheet; the person picks who to play with (up to 10
+  players, them included) and taps Send. Invitees get "Anna invited you and 3
+  others" in Needs you; **Join** opens your app with `launch.group`.
+- **The host person starts** (`sh.group.start`) once `min` are seated; a table
+  of two starts by itself when the second seat fills.
+- **Send to everyone, or to chosen seats.** `sh.group.send(id, data)` reaches
+  every player; `{ to: [seats] }` reaches only those seats, sealed so nobody
+  else — not even the host's household — can read it (hidden hands, a
+  whisper, an answer). Your own message is not echoed back: apply it yourself.
+- **A closed app gets each player's latest message** (≤ 16 KiB each; up to
+  64 KiB goes out live only). Send state, not steps.
+- **Answers to the host.** When many players answer at once (a quiz), send
+  answers `{ to: [session.host] }` and let the host send one result to
+  everyone. Each table has a send budget; a flood is refused `"group_busy"`.
+- **Never trust the other players.** As for 1:1 games: check every message
+  against your own copy, by the sender's seat (`from`), and work out results
+  yourself.
+
+```ts
+import { sh, ShError, type GroupSession } from '@socialhome/app-sdk';
+
+const ctx = await sh.context({ pullHeld: true });
+if (!ctx.groups) {
+  // An older Social Home: offer 1:1 games only.
+  // Every sh.group call is refused "groups_not_supported".
+}
+
+// Join / Play opened the app for a table: show its lobby or the game.
+if (ctx.launch?.group) show(ctx.launch.group);
+
+// The tables the person has a place at, then what waited while the app was closed.
+for (const table of await sh.group.list()) remember(table);
+for (const msg of await sh.group.held()) apply(msg);   // each player's latest, oldest seq first
+
+// "New game": Social Home's sheet asks who to play with.
+const table = await sh.group.open();                   // null when they cancel ("unavailable" before
+                                                       // Social Home's group sheet ships)
+if (!table) return;
+
+// Everything that happens at your tables.
+sh.group.onEvent((e) => {
+  switch (e.type) {
+    case 'message':      apply(e); break;              // { id, seq, from, data, direct, turn? }
+    case 'joined':       /* e.seat sat down */ break;
+    case 'left':
+    case 'removed':      // e.seat is gone — your own seat (e.session.me): forget the table
+      break;
+    case 'started':      /* the game began: no more joins unless lateJoin */ break;
+    case 'host-changed': /* e.session.host is the new host */ break;
+    case 'ended':        /* e.session.endReason */ break;
+  }
+  if ('session' in e) remember(e.session);             // the table after the change
+});
+
+// The host starts once enough players are seated.
+if (table.isHost) await sh.group.start(table.id);     // "group_too_few" before
+
+// To everyone, and hand seat 2 the turn ("Your turn" while their app is closed).
+// Resolves with the seq when your household is the host's, else null.
+await sh.group.send(table.id, { board, next: 2 }, { turn: 2 });
+// Only to the host's seat (an answer), sealed.
+await sh.group.send(table.id, { answer: 'b' }, { to: [table.host ?? 1] });
+
+await sh.group.remove(table.id, 3);                    // host only; they can't come back
+await sh.group.leave(table.id);
+await sh.group.close(table.id);                        // host only: ends it for everyone
+```
+
+| Call | What it does |
+|---|---|
+| `group.open({ suggest? })` | Social Home's sheet asks who to play with; resolves with the new table (`lobby`) or `null`. `suggest`: up to 9 people to show ticked (a rematch). `unavailable` until Social Home ships the group sheet. |
+| `group.list()` / `group.get(id)` | The tables the person has a place at / one of them. |
+| `group.start(id)` | Host only, once `min` are seated. Unanswered invites are withdrawn unless `late_join`. |
+| `group.send(id, data, { to?, turn? })` | To everyone, or only to the seats in `to` (sealed; seated seats, never your own). `turn`: the seat this hands the turn to. Resolves with the `seq` when your household is the host's, else `null`. |
+| `group.leave(id)` | Before Start the seat is free again; after Start the host passes to the player seated longest. |
+| `group.remove(id, seat)` | Host only. |
+| `group.close(id)` | Host only: ends the table for everyone (`cancelled`). |
+| `group.held()` | Messages that waited while the app was closed: each player's latest per table, oldest `seq` first, minus what already came live. |
+| `group.onEvent(cb)` | `message`, `joined`, `left`, `removed`, `started`, `host-changed`, `ended`. |
+
+A `GroupSession` carries `id`, `appId`, `state` (`lobby` / `playing` /
+`ended`), `endReason`, `spaceId`, `host` (the host's seat), `isHost`, `me`
+(your seat, `null` until seated), `myState` (`invited`, `joining`, `seated`,
+`left`, `removed`), `min`, `max`, `lateJoin`, `seq`, `note` (the host's
+words) and `players`. Every event but `message` carries `session`, the table
+after the change. A `left` / `removed` for **your own** seat means your place
+is over (you were removed, the game started without you, or your household
+keeps you apart from someone who sat down): forget the table. The SDK drops
+a message whose `seq` it already handed over, so each `message` is seen once.
+
+Refusals are typed `ShError` codes: `groups_not_supported` (an older Social
+Home), `group_not_found`, `group_not_host`, `group_closed` (ended, or you
+aren't seated), `group_full`, `group_too_few`, `group_seat` (a `to` / `turn`
+seat isn't seated, or is your own), `group_busy` (+ `retryAfterMs`),
+`too_large` (over 64 KiB), `cant_join` (the person's household keeps them
+out — no reason is given), `permission_denied`, and `invalid` for a bad
+argument (checked before anything is sent).
+
+**Two-player games** (Chess, Go, Battleships) can opt in with
+`"tables": true` and keep `players` at `{2, 2}`: a later Social Home lets
+people open them as an **open table in a space** ("Anna wants to play Chess ·
+Take the seat"); the game starts when someone takes the seat, and
+`launch.group` tells both sides who opened it (e.g. for colours). Their 1:1
+invites keep working as before.
+
+Set `min_core_version` to the first Social Home release with group games for
+apps (the release that ships the `sh.group` bridge): an older Social Home
+ignores `players` / `tables` / `late_join` and runs the app 1:1 only
+(`ctx.groups` is `undefined`).
+
+The bridge messages behind these calls are listed in one place,
+`GROUP_BRIDGE` in `packages/app-sdk/src/index.ts`; Social Home's side is
+`docs/protocol/app-groups.md` ("HTTP, WebSocket and the app bridge").
+
 ### Language, light/dark and colours (`@socialhome/app-sdk` 1.6)
 
 Social Home tells your app how to look, and an app in the catalog must follow the person's **language** and **light/dark** (the colours are a recommendation). `context()` carries:
@@ -372,6 +503,7 @@ requires `app_id`, `name`, `latest_version`, `description`, `bundle_url` and
 | `min_age`, `languages`, `i18n`, `homepage`, `min_core_version` | from `manifest.json` (`min_age` defaults to `0`, `languages` to `["en"]`) |
 | `publisher` | always `"Social Home"`, shown as "From Social Home". The catalog isn't signed yet; the trust is the HTTPS release plus the sha256 pin. |
 | `changelog` | newest 5 entries of `CHANGELOG.json` (`[]` without one) |
+| `players` | `{min, max}` from `manifest.json`, only when the app sets it (group games, "2–8 players") |
 
 `scripts/build-catalog.mjs` fails the build (and CI) on a manifest or changelog
 that breaks these rules, and on limits Social Home enforces when reading the

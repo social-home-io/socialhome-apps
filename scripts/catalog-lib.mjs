@@ -28,6 +28,13 @@ export const MAX_ICON_DATA_URI_BYTES = 16 * 1024;
 export const MAX_CATALOG_BYTES = 256 * 1024;
 export const MAX_URL_CHARS = 500;
 
+/** Group games (Social Home v_76, SDK 1.9): a table seats 2–30 players
+ * (Social Home cuts a larger `max` to 30; this repo refuses it instead). A
+ * table opened by picking people seats at most 10 — Social Home enforces that
+ * when the table is opened, not in the manifest. */
+export const MIN_PLAYERS = 2;
+export const MAX_PLAYERS = 30;
+
 /** Age ratings Social Home accepts (`installed_apps.min_age`). */
 export const VALID_MIN_AGES = Object.freeze([0, 13, 16, 18]);
 
@@ -175,6 +182,32 @@ export function validateManifest(manifest, where = "manifest.json") {
   if ("publisher" in m) {
     fail(where, `publisher is set by the catalog ("${PUBLISHER}"), not by the app`);
   }
+  validateGroupFields(where, m);
+}
+
+/** `players {min, max}`, `tables` and `late_join` (group games, SDK 1.9). */
+function validateGroupFields(where, m) {
+  for (const f of ["tables", "late_join"]) {
+    if (f in m && typeof m[f] !== "boolean") fail(where, `${f} must be true or false`);
+  }
+  if ("players" in m) {
+    const p = m.players;
+    if (!isPlainObject(p)) fail(where, "players must be an object {min, max}");
+    const extra = Object.keys(p).filter((k) => k !== "min" && k !== "max");
+    if (extra.length) fail(where, `players has unknown field(s): ${extra.join(", ")}`);
+    if (!Number.isInteger(p.min) || !Number.isInteger(p.max)) {
+      fail(where, "players.min and players.max must be whole numbers");
+    }
+    if (p.min < MIN_PLAYERS) fail(where, `players.min is ${p.min}, at least ${MIN_PLAYERS}`);
+    if (p.max > MAX_PLAYERS) fail(where, `players.max is ${p.max}, at most ${MAX_PLAYERS}`);
+    if (p.min > p.max) fail(where, `players.min (${p.min}) is more than players.max (${p.max})`);
+    if ((p.min !== 2 || p.max !== 2) && m.tables !== true) {
+      fail(where, "players other than {min: 2, max: 2} needs tables: true (without it an app plays 1:1 only)");
+    }
+  }
+  if (m.late_join === true && m.tables !== true) {
+    fail(where, "late_join needs tables: true");
+  }
 }
 
 /**
@@ -257,6 +290,8 @@ export function buildEntry({ manifest, changelog, bundleUrl, bundleSha256, bundl
   if (m.i18n) entry.i18n = m.i18n;
   if (m.homepage) entry.homepage = m.homepage;
   if (m.min_core_version) entry.min_core_version = m.min_core_version;
+  // Group games: "2–8 players" on the Apps page. Additive (schema stays 2).
+  if (m.players) entry.players = { min: m.players.min, max: m.players.max };
   entry.changelog = (changelog ?? []).slice(0, MAX_CHANGELOG_ENTRIES);
   return entry;
 }

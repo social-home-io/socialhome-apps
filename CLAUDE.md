@@ -89,6 +89,12 @@ other sessions may share the machine.
   for a refused message; never crash. (Chess: `src/inbound.ts`.)
 - Ask only for the capabilities you need (`storage`, `people`,
   `federation`); Social Home enforces them.
+- **Group games** (SDK ≥ 1.9, `players` / `tables` / `late_join` in the
+  manifest; README "Group games"): players are seats, never usernames; open
+  tables only with `sh.group.open()`; route by the table id and the sender's
+  seat; send state (a closed app gets each player's latest message); have
+  many-player answers go to the host's seat, not to everyone; check
+  `ctx.groups` and fall back to 1:1 on `groups_not_supported`.
 
 **People**
 - Every screen works with a **keyboard and a screen reader**: grids as ARIA
