@@ -140,8 +140,8 @@ describe("counting", () => {
     expect(done.phase).toBe("over");
     expect(done.result).toMatchObject({ winner: "b", by: "score", margin: 1.5, dead: [at(0, 0)] });
     if (done.result?.by === "score") {
-      expect(done.result.score.b).toEqual({ stones: 9, territory: 36, komi: 0, total: 45 });
-      expect(done.result.score.w).toEqual({ stones: 10 - 1, territory: 27, komi: 7.5, total: 43.5 });
+      expect(done.result.score.b).toEqual({ stones: 9, territory: 36, komi: 0, handicap: 0, total: 45 });
+      expect(done.result.score.w).toEqual({ stones: 10 - 1, territory: 27, komi: 7.5, handicap: 0, total: 43.5 });
     }
     expect(reason(() => applyEntry(done, "pass"))).toBe("over");
   });
@@ -236,5 +236,69 @@ describe("helpers", () => {
     expect(passesTurn(s, "w")).toBe(false);
     expect(passesTurn(applyEntry(s, "resign-w"), "w")).toBe(false);
     expect(s.board[at(4, 4)]).toBe(BLACK);
+  });
+});
+
+describe("handicap games", () => {
+  it("start with Black's stones on the board and White to move", () => {
+    const st = initialState(9, { handicap: 4, days: 0 });
+    expect(st.toMove).toBe("w");
+    expect(st.handicap).toBe(4);
+    expect(st.board.filter((v) => v === BLACK)).toHaveLength(4);
+    expect(st.board[at(2, 2)]).toBe(BLACK);
+    expect(st.board[at(6, 6)]).toBe(BLACK);
+    // The starting position counts for superko too.
+    expect(st.seen.has(positionKey(st.board))).toBe(true);
+  });
+
+  it("let White play first and Black answer; a stone on a handicap point is refused", () => {
+    const rules = { handicap: 2, days: 0 };
+    const r = replay(9, [at(4, 4), at(3, 3)], rules)!;
+    expect(r.actors).toEqual(["w", "b"]);
+    expect(r.state.board[at(4, 4)]).toBe(WHITE);
+    expect(replay(9, [at(2, 6)], rules)).toBeNull(); // G7 holds a handicap stone
+    // The same log without the handicap means Black moved first.
+    expect(replay(9, [at(4, 4)])!.actors).toEqual(["b"]);
+  });
+
+  it("score with komi 0.5 and White's handicap points", () => {
+    const rules = { handicap: 2, days: 0 };
+    // White first, then a race to wall off: White builds column 5, Black column 4 (2 stones already on C3/G7).
+    const log: Entry[] = [];
+    for (let r = 0; r < 9; r++) log.push(at(r, 5), at(r, 4));
+    log.push("pass", "pass");
+    const r = replay(9, log, rules)!;
+    expect(r.state.phase).toBe("counting");
+    // White to move after two passes (White passed first) marks G7 dead, Black agrees.
+    const done = replay(9, [...log, [at(2, 6)], [at(2, 6)]], rules)!.state;
+    expect(done.result?.by).toBe("score");
+    if (done.result?.by === "score") {
+      expect(done.result.score.w).toMatchObject({ komi: 0.5, handicap: 1 });
+      expect(done.result.score.b.handicap).toBe(0);
+    }
+  });
+});
+
+describe("running out of time", () => {
+  const clock = { handicap: 0, days: 3 };
+
+  it("the player to move may confirm their own time ran out; the other one wins on time", () => {
+    const st = applyEntry(initialState(9, clock), "timeout-b");
+    expect(st.phase).toBe("over");
+    expect(st.result).toEqual({ winner: "w", by: "time" });
+    expect(actorOf(initialState(9, clock), "timeout-w")).toBe("w");
+  });
+
+  it("never for the other player, never without a clock, never after the end", () => {
+    expect(() => applyEntry(initialState(9, clock), "timeout-w")).toThrow(IllegalMove);
+    expect(() => applyEntry(initialState(9), "timeout-b")).toThrow(IllegalMove);
+    const over = applyEntry(initialState(9, clock), "resign-w");
+    expect(() => applyEntry(over, "timeout-b")).toThrow(IllegalMove);
+  });
+
+  it("also while counting (it is a turn like any other)", () => {
+    const counting = replay(9, ["pass", "pass"], clock)!.state;
+    expect(counting.phase).toBe("counting");
+    expect(applyEntry(counting, "timeout-b").result).toEqual({ winner: "w", by: "time" });
   });
 });

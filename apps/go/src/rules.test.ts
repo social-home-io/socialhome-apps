@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   BLACK,
   EMPTY,
+  HANDICAP_KOMI,
   KOMI,
+  SIZES,
+  handicapPoints,
+  handicapsFor,
+  isHandicap,
   WHITE,
   chainAt,
   emptyBoard,
@@ -13,7 +18,7 @@ import {
   scoreArea,
   starPoints,
 } from "./rules.js";
-import type { Board } from "./rules.js";
+import type { Board, Size } from "./rules.js";
 
 /** A board from rows of `.`, `B`, `W` (row 0 at the top). */
 function board(rows: string[]): Board {
@@ -102,8 +107,8 @@ describe("area scoring", () => {
 
   it("counts stones plus surrounded points, komi for White", () => {
     const s = scoreArea(walls, 9, []);
-    expect(s.b).toEqual({ stones: 9, territory: 36, komi: 0, total: 45 });
-    expect(s.w).toEqual({ stones: 9, territory: 27, komi: KOMI, total: 43.5 });
+    expect(s.b).toEqual({ stones: 9, territory: 36, komi: 0, handicap: 0, total: 45 });
+    expect(s.w).toEqual({ stones: 9, territory: 27, komi: KOMI, handicap: 0, total: 43.5 });
     expect(s.winner).toBe("b");
     expect(s.margin).toBe(1.5);
   });
@@ -131,5 +136,74 @@ describe("area scoring", () => {
     const s = scoreArea(b, 9, []);
     expect(s.owner[1]).toBe(EMPTY);
     expect(s.owner[10]).toBe(EMPTY);
+  });
+});
+
+describe("handicap", () => {
+  const names = (size: Size, n: number) => handicapPoints(size, n).map((p) => pointName(size, p)).sort();
+  const sorted = (a: string[]) => [...a].sort();
+
+  it("allows none or 2 … 9 stones on 13 × 13 and 19 × 19, 2 … 5 on 9 × 9", () => {
+    expect(handicapsFor(19)).toEqual([0, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(handicapsFor(13)).toEqual([0, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(handicapsFor(9)).toEqual([0, 2, 3, 4, 5]);
+    for (const bad of [1, 6, 10, -1, 2.5, "2", null]) expect(isHandicap(9, bad), String(bad)).toBe(false);
+    for (const bad of [1, 10, 19]) expect(isHandicap(19, bad)).toBe(false);
+    expect(handicapPoints(9, 6)).toEqual([]);
+    expect(handicapPoints(19, 1)).toEqual([]);
+  });
+
+  it("puts 19 × 19 stones on the usual star points, tengen for 5, 7 and 9", () => {
+    expect(names(19, 2)).toEqual(sorted(["D4", "Q16"]));
+    expect(names(19, 3)).toEqual(sorted(["D4", "Q16", "Q4"]));
+    expect(names(19, 4)).toEqual(sorted(["D4", "Q16", "Q4", "D16"]));
+    expect(names(19, 5)).toEqual(sorted(["D4", "Q16", "Q4", "D16", "K10"]));
+    expect(names(19, 6)).toEqual(sorted(["D4", "Q16", "Q4", "D16", "D10", "Q10"]));
+    expect(names(19, 7)).toEqual(sorted(["D4", "Q16", "Q4", "D16", "D10", "Q10", "K10"]));
+    expect(names(19, 8)).toEqual(sorted(["D4", "Q16", "Q4", "D16", "D10", "Q10", "K4", "K16"]));
+    expect(names(19, 9)).toEqual(sorted(["D4", "Q16", "Q4", "D16", "D10", "Q10", "K4", "K16", "K10"]));
+  });
+
+  it("uses 13 × 13's star points the same way", () => {
+    expect(names(13, 2)).toEqual(sorted(["D4", "K10"]));
+    expect(names(13, 4)).toEqual(sorted(["D4", "K10", "K4", "D10"]));
+    expect(names(13, 5)).toEqual(sorted(["D4", "K10", "K4", "D10", "G7"]));
+    expect(names(13, 9)).toEqual(sorted(["D4", "K10", "K4", "D10", "D7", "K7", "G4", "G10", "G7"]));
+  });
+
+  it("uses 9 × 9's 3-3 points, tengen for 5", () => {
+    expect(names(9, 2)).toEqual(sorted(["C3", "G7"]));
+    expect(names(9, 3)).toEqual(sorted(["C3", "G7", "G3"]));
+    expect(names(9, 4)).toEqual(sorted(["C3", "G7", "G3", "C7"]));
+    expect(names(9, 5)).toEqual(sorted(["C3", "G7", "G3", "C7", "E5"]));
+  });
+
+  it("places exactly n distinct stones, all on star points", () => {
+    for (const size of SIZES) {
+      for (const n of handicapsFor(size)) {
+        const pts = handicapPoints(size, n);
+        expect(pts.length).toBe(n);
+        expect(new Set(pts).size).toBe(n);
+        for (const p of pts) expect(starPoints(size)).toContain(p);
+      }
+    }
+  });
+
+  it("scores a handicap game with komi 0.5 and one point per stone after the first for White", () => {
+    const walls = emptyBoard(9);
+    for (let r = 0; r < 9; r++) {
+      walls[r * 9 + 4] = BLACK;
+      walls[r * 9 + 5] = WHITE;
+    }
+    // Black: 9 stones + 36; White: 9 stones + 27 + 0.5 komi + 3 for a 4-stone handicap.
+    const s = scoreArea(walls, 9, [], 4);
+    expect(s.b).toEqual({ stones: 9, territory: 36, komi: 0, handicap: 0, total: 45 });
+    expect(s.w).toEqual({ stones: 9, territory: 27, komi: HANDICAP_KOMI, handicap: 3, total: 39.5 });
+    expect(s.winner).toBe("b");
+    expect(s.margin).toBe(5.5);
+    // 2 stones: White gets 1 point for the handicap.
+    expect(scoreArea(walls, 9, [], 2).w.total).toBe(9 + 27 + 0.5 + 1);
+    // No handicap: the usual komi.
+    expect(scoreArea(walls, 9, [], 0).w).toMatchObject({ komi: KOMI, handicap: 0 });
   });
 });

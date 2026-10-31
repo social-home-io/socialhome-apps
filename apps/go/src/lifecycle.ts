@@ -18,11 +18,13 @@
 import { parseSessionPayload, ShError } from "@socialhome/app-sdk";
 import type { AppMessage, Contact, LaunchContext, PickedPerson, SessionTarget } from "@socialhome/app-sdk";
 import { t } from "./i18n.js";
-import { isSize, other } from "./rules.js";
+import { isHandicap, isSize, other } from "./rules.js";
 import type { Color, Size } from "./rules.js";
-import { replay } from "./game.js";
-import type { Entry, GameState } from "./game.js";
-import { parseLog } from "./inbound.js";
+import { NO_RULES, replay } from "./game.js";
+import type { Entry, GameState, Rules } from "./game.js";
+import { isClockDays, parseLog } from "./inbound.js";
+import { turnClock } from "./clock.js";
+import type { ClockMark, TurnClock } from "./clock.js";
 
 export type Role = "inviter" | "invitee";
 
@@ -37,6 +39,9 @@ export interface GameEntry {
   /** `null` for the invitee until the inviter's first message says. */
   size: Size | null;
   myColor: Color | null;
+  /** Handicap stones for Black (0 = none) and days per move (0 = no clock). */
+  handicap: number;
+  days: number;
   log: Entry[];
   /** A message from the opponent was taken (their invite is answered). */
   heard: boolean;
@@ -45,6 +50,19 @@ export interface GameEntry {
   unsent?: boolean;
   /** Messages refused in a row (shown as a calm notice from 1 on). */
   outOfStep?: number;
+  /** Clock: when this side started counting the current turn (own clock only). */
+  clockFrom?: ClockMark;
+  /** Clock: we claimed the win at this log length (their Go has to confirm). */
+  claimedAt?: number;
+  /** Clock: their Go refused our claim and counts until `at` (our clock) for log length `n`. */
+  theirHint?: ClockMark;
+  /** Clock: "Keep playing" hid the claim offer at this log length. */
+  claimHiddenAt?: number;
+}
+
+/** The handicap and clock of a game. */
+export function rulesOf(entry: Pick<GameEntry, "handicap" | "days">): Rules {
+  return { handicap: entry.handicap, days: entry.days };
 }
 
 const cache = new WeakMap<readonly Entry[], GameState | null>();
@@ -53,7 +71,7 @@ const cache = new WeakMap<readonly Entry[], GameState | null>();
 export function stateOf(entry: GameEntry): GameState | null {
   if (entry.size === null) return null;
   if (cache.has(entry.log)) return cache.get(entry.log)!;
-  const r = replay(entry.size, entry.log);
+  const r = replay(entry.size, entry.log, rulesOf(entry));
   const st = r ? r.state : null;
   cache.set(entry.log, st);
   return st;
@@ -79,6 +97,11 @@ export function parseEntry(v: unknown): GameEntry | null {
   const size = e["size"] === null ? null : isSize(e["size"]) ? e["size"] : undefined;
   const myColor = e["myColor"] === null ? null : e["myColor"] === "b" || e["myColor"] === "w" ? e["myColor"] : undefined;
   if (size === undefined || myColor === undefined || (size === null) !== (myColor === null)) return null;
+  // Saved before handicap and clock existed: none of either.
+  const handicap = e["handicap"] === undefined ? 0 : e["handicap"];
+  const days = e["days"] === undefined ? 0 : e["days"];
+  if (size !== null ? !isHandicap(size, handicap) : handicap !== 0) return null;
+  if (!isClockDays(days)) return null;
   const log = size === null ? (Array.isArray(e["log"]) && e["log"].length === 0 ? [] : null) : parseLog(e["log"], size);
   if (!log) return null;
   const entry: GameEntry = {
@@ -90,13 +113,64 @@ export function parseEntry(v: unknown): GameEntry | null {
     role: e["role"],
     size,
     myColor,
+    handicap: handicap as number,
+    days: days as number,
     log,
     heard: e["heard"] === true,
     updatedAt: typeof e["updatedAt"] === "number" ? e["updatedAt"] : 0,
     ...(e["unsent"] === true ? { unsent: true } : {}),
   };
+  const clockFrom = parseMark(e["clockFrom"]);
+  if (clockFrom) entry.clockFrom = clockFrom;
+  const theirHint = parseMark(e["theirHint"]);
+  if (theirHint) entry.theirHint = theirHint;
+  if (isCount(e["claimedAt"])) entry.claimedAt = e["claimedAt"];
+  if (isCount(e["claimHiddenAt"])) entry.claimHiddenAt = e["claimHiddenAt"];
   if (size !== null && !stateOf(entry)) return null;
   return entry;
+}
+
+function isCount(v: unknown): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v >= 0;
+}
+
+function parseMark(v: unknown): ClockMark | null {
+  if (typeof v !== "object" || v === null) return null;
+  const m = v as Record<string, unknown>;
+  return isCount(m["n"]) && typeof m["at"] === "number" && Number.isFinite(m["at"]) ? { n: m["n"], at: m["at"] } : null;
+}
+
+/** The running turn's clock as this side sees it (`null`: no clock, over, not answered yet). */
+export function clockOf(entry: GameEntry, now = Date.now()): TurnClock | null {
+  const st = stateOf(entry);
+  if (!st || entry.myColor === null) return null;
+  return turnClock(
+    {
+      state: st,
+      myColor: entry.myColor,
+      logLength: entry.log.length,
+      clockFrom: entry.clockFrom,
+      awaiting: isAwaitingOpponent(entry),
+      theirHint: entry.theirHint,
+    },
+    now,
+  );
+}
+
+/** We claimed the win for the game as it stands and wait for their Go to confirm. */
+export function hasPendingClaim(entry: GameEntry): boolean {
+  return entry.claimedAt === entry.log.length && !isOver(entry);
+}
+
+/** "Ben's time ran out": offer Claim the win (not after Keep playing, not twice). */
+export function canClaim(entry: GameEntry, now = Date.now()): boolean {
+  const c = clockOf(entry, now);
+  return !!c && !c.mine && c.expired && !hasPendingClaim(entry) && !entry.unsent;
+}
+
+/** Show the "time ran out" banner with its two buttons. */
+export function showClaimOffer(entry: GameEntry, now = Date.now()): boolean {
+  return canClaim(entry, now) && entry.claimHiddenAt !== entry.log.length;
 }
 
 /** What gets saved: the entry without anything rebuilt. */
@@ -130,7 +204,7 @@ export function isAwaitingOpponent(entry: GameEntry): boolean {
 /** A received invite we haven't played in yet (no step of ours). */
 export function isUnansweredInvite(entry: GameEntry): boolean {
   if (entry.role !== "invitee" || isOver(entry)) return false;
-  const st = entry.size === null ? null : replay(entry.size, entry.log);
+  const st = entry.size === null ? null : replay(entry.size, entry.log, rulesOf(entry));
   return !st || !st.actors.includes(entry.myColor!);
 }
 
@@ -229,7 +303,7 @@ export function routeInbound(msg: AppMessage, games: ReadonlyMap<string, GameEnt
 }
 
 /** The entry for a person picked in Social Home's invite sheet (we invited them). */
-export function entryForPicked(p: PickedPerson, size: Size, myColor: Color, now = Date.now()): GameEntry {
+export function entryForPicked(p: PickedPerson, size: Size, myColor: Color, rules: Rules = NO_RULES, now = Date.now()): GameEntry {
   return {
     sessionId: p.sessionId,
     opponentInstanceId: p.instance_id,
@@ -239,9 +313,12 @@ export function entryForPicked(p: PickedPerson, size: Size, myColor: Color, now 
     role: "inviter",
     size,
     myColor,
+    handicap: rules.handicap,
+    days: rules.days,
     log: [],
     heard: false,
     updatedAt: now,
+    clockFrom: { n: 0, at: now },
   };
 }
 
@@ -258,6 +335,8 @@ export function entryForInvite(msg: AppMessage, contacts: readonly Contact[], no
     role: "invitee",
     size: null,
     myColor: null,
+    handicap: 0,
+    days: 0,
     log: [],
     heard: false,
     updatedAt: now,
@@ -280,10 +359,15 @@ export function resolveColor(choice: ColorChoice, rand: number = Math.random()):
   return choice;
 }
 
-/** A rematch swaps colours and keeps the board. */
-export function rematchOf(entry: GameEntry): { size: Size; color: Color } | null {
+/**
+ * A rematch keeps the board, the handicap and the clock. It swaps colours —
+ * except with a handicap: the stones were for the player who took Black,
+ * so they keep Black.
+ */
+export function rematchOf(entry: GameEntry): { size: Size; color: Color; rules: Rules } | null {
   if (entry.size === null || entry.myColor === null) return null;
-  return { size: entry.size, color: other(entry.myColor) };
+  const color = entry.handicap > 0 ? entry.myColor : other(entry.myColor);
+  return { size: entry.size, color, rules: rulesOf(entry) };
 }
 
 /** What "New game" does when the invite sheet can't open. */

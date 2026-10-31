@@ -55,6 +55,23 @@ describe("string catalogs", () => {
       expect(CATALOGS[l]["score.komi"]).toBe("Komi");
       expect(CATALOGS[l]["illegal.ko"]).toMatch(/\bko\b/i);
     }
+    // Handicap and clock (glossary: translations#16).
+    expect([CATALOGS.de["newGame.handicap"], CATALOGS.nl["newGame.handicap"], CATALOGS.fr["newGame.handicap"], CATALOGS.es["newGame.handicap"]]).toEqual([
+      "Vorgabe",
+      "Voorgift",
+      "Handicap",
+      "Hándicap",
+    ]);
+    expect([CATALOGS.de["btn.claim"], CATALOGS.nl["btn.claim"], CATALOGS.fr["btn.claim"], CATALOGS.es["btn.claim"]]).toEqual([
+      "Sieg einfordern",
+      "Winst opeisen",
+      "Réclamer la victoire",
+      "Reclamar la victoria",
+    ]);
+    expect(CATALOGS.de["clock.days"]).toBe("{n} Tage pro Zug");
+    expect(CATALOGS.nl["clock.days"]).toBe("{n} dagen per zet");
+    expect(CATALOGS.fr["clock.days"]).toBe("{n} jours par coup");
+    expect(CATALOGS.es["clock.days"]).toBe("{n} días por jugada");
     // Resume play is never the Resign dialog's "keep playing".
     for (const l of LOCALES) expect(CATALOGS[l]["btn.resume"]).not.toBe(CATALOGS[l]["resign.cancel"]);
   });
