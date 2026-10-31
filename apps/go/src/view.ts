@@ -66,12 +66,12 @@ export function metaFor(entry: GameEntry): string {
   return n === 0 ? t("meta.new", { color, size }) : t("meta.line", { color, size, n });
 }
 
-/** "2 days 5 h left", "3 h 20 min left", "12 min left", "Time ran out". */
+/** "2 days 5 h left", "1 day left", "3 h 20 min left", "12 min left", "Time ran out". */
 export function timeLeftText(ms: number): string {
   if (ms <= 0) return t("clock.out");
   const { d, h, m } = splitLeft(ms);
-  if (d >= 2) return t("clock.leftDays", { d, h });
-  if (d === 1) return t("clock.leftDay1", { h });
+  if (d >= 2) return h === 0 ? t("clock.leftDaysOnly", { d }) : t("clock.leftDays", { d, h });
+  if (d === 1) return h === 0 ? t("clock.leftDay1Only") : t("clock.leftDay1", { h });
   if (h >= 1) return t("clock.leftHours", { h, m });
   return t("clock.leftMinutes", { m: Math.max(1, m) });
 }

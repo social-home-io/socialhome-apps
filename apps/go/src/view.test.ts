@@ -144,6 +144,8 @@ describe("handicap and clock words", () => {
   it("time left, plainly", () => {
     expect(timeLeftText(2 * DAY + 5 * HOUR)).toBe("2 days 5 h left");
     expect(timeLeftText(DAY + 3 * HOUR)).toBe("1 day 3 h left");
+    expect(timeLeftText(DAY + 30 * 60_000)).toBe("1 day left");
+    expect(timeLeftText(3 * DAY)).toBe("3 days left");
     expect(timeLeftText(3 * HOUR + 20 * 60_000)).toBe("3 h 20 min left");
     expect(timeLeftText(12 * 60_000)).toBe("12 min left");
     expect(timeLeftText(10_000)).toBe("1 min left");
