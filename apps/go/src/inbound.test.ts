@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  DAY_MS,
   MAX_NEW,
   PROTOCOL_VERSION,
+  PROTOCOL_VERSION_SETUP,
   RULES,
   buildMessage,
   catchUpFromOwnCopy,
@@ -107,9 +109,11 @@ describe("judgeInbound: one legal step of the opponent", () => {
     // Black (us) has C7; White claims to have captured it and plays there.
     const ours: Entry[] = [at(2, 2), at(2, 3), at(4, 4)];
     expect(judgeInbound(local(ours), msg([...ours, at(2, 2)]))).toEqual({ kind: "refuse", reason: "illegal" });
-    // A board or capture count in the message is never read.
+    // A board or capture count in the message is never read: a key Go doesn't know is never played.
     const v = judgeInbound(local(ours), msg([...ours, at(1, 2)], "w", 9, { captures: { w: 5 }, board: new Array(81).fill(2) }));
-    expect(v.kind === "apply" && v.state.captures).toEqual({ b: 0, w: 0 });
+    expect(v).toEqual({ kind: "unsupported" });
+    const clean = judgeInbound(local(ours), msg([...ours, at(1, 2)]));
+    expect(clean.kind === "apply" && clean.state.captures).toEqual({ b: 0, w: 0 });
   });
 
   it("refuses an illegal ko retake", () => {
@@ -134,7 +138,10 @@ describe("judgeInbound: one legal step of the opponent", () => {
     const log = wallsGame();
     const ours = [...log, [at(0, 0)]]; // we (Black) marked White's invader dead
     // White agrees (the same marking back) and claims to have won by 100.
-    const v = judgeInbound(local(ours), msg([...ours, [at(0, 0)]], "w", 9, { result: { winner: "w", margin: 100 }, score: { w: 999 } }));
+    expect(judgeInbound(local(ours), msg([...ours, [at(0, 0)]], "w", 9, { result: { winner: "w", margin: 100 } }))).toEqual({
+      kind: "unsupported",
+    });
+    const v = judgeInbound(local(ours), msg([...ours, [at(0, 0)]]));
     expect(v.kind).toBe("apply");
     if (v.kind === "apply") expect(v.state.result).toMatchObject({ winner: "b", by: "score", margin: 1.5 });
     // A marking that isn't whole chains / stones is refused.
@@ -186,7 +193,7 @@ describe("judgeInbound: setup", () => {
     expect(judgeInbound(local([]), { ...msg([]), log: [{ p: 1 }] })).toEqual({ kind: "refuse", reason: "malformed" });
     expect(judgeInbound(local([]), "nope")).toEqual({ kind: "refuse", reason: "malformed" });
     expect(judgeInbound(local([]), { t: "chess" })).toEqual({ kind: "refuse", reason: "malformed" });
-    expect(judgeInbound(local([]), { ...msg([]), v: 2 })).toEqual({ kind: "unsupported" });
+    expect(judgeInbound(local([]), { ...msg([]), v: 3 })).toEqual({ kind: "unsupported" });
     expect(judgeInbound(local([]), { ...msg([]), rules: "japanese" })).toEqual({ kind: "unsupported" });
   });
 });
@@ -228,5 +235,141 @@ describe("catchUpFromOwnCopy", () => {
     expect(catchUpFromOwnCopy(9, [at(4, 4)], [at(4, 4)])).toBeNull();
     expect(catchUpFromOwnCopy(9, [at(4, 4)], [at(4, 4), at(4, 4)])).toBeNull();
     expect(catchUpFromOwnCopy(9, [], "x")).toBeNull();
+  });
+});
+
+describe("handicap and clock in the setup", () => {
+  const H4 = { handicap: 4, days: 0 };
+  const CLOCK = { handicap: 0, days: 2 };
+  const setupMsg = (log: Entry[], rules: { handicap: number; days: number }, them: Color = "b", size: Size = 9) =>
+    buildMessage(size, them, log, rules) as unknown as Record<string, unknown>;
+
+  it("a game without either goes out exactly as before (v 1); any other as v 2", () => {
+    expect(buildMessage(9, "b", [], { handicap: 0, days: 0 })).toEqual({ t: "go", v: 1, rules: RULES, size: 9, youPlay: "w", log: [] });
+    expect(buildMessage(9, "b", [], H4)).toEqual({ t: "go", v: PROTOCOL_VERSION_SETUP, rules: RULES, size: 9, youPlay: "w", handicap: 4, days: 0, log: [] });
+    expect(buildMessage(9, "w", [3], CLOCK, { claim: true })).toMatchObject({ v: 2, days: 2, claim: true });
+    // No claim field without a clock.
+    expect(buildMessage(9, "w", [3], H4, { claim: true })).not.toHaveProperty("claim");
+  });
+
+  it("the invitee takes handicap and clock from the first message; White moves first", () => {
+    const v = judgeInbound({ size: null, myColor: null, log: [] }, setupMsg([], H4, "b"));
+    expect(v.kind).toBe("apply");
+    if (v.kind === "apply") {
+      expect(v.rules).toEqual(H4);
+      expect(v.myColor).toBe("w");
+      expect(v.state.toMove).toBe("w");
+      expect(v.state.board.filter((x) => x === 1)).toHaveLength(4);
+    }
+  });
+
+  it("the stones come from the setup, never from a board in the message", () => {
+    const forged = { ...setupMsg([], H4, "b"), board: new Array(81).fill(1) };
+    expect(judgeInbound({ size: null, myColor: null, log: [] }, forged)).toEqual({ kind: "unsupported" });
+  });
+
+  it("refuses handicaps the board doesn't allow and clocks that aren't offered", () => {
+    const fresh: LocalGame = { size: null, myColor: null, log: [] };
+    for (const handicap of [1, 6, 10, -2, 2.5, "3", null]) {
+      expect(judgeInbound(fresh, { ...setupMsg([], H4), handicap }), String(handicap)).toEqual({ kind: "refuse", reason: "malformed" });
+    }
+    expect(judgeInbound(fresh, { ...setupMsg([], H4, "b", 19), handicap: 9 }).kind).toBe("apply");
+    for (const days of [4, 14, -1, 0.5, "2", null]) {
+      expect(judgeInbound(fresh, { ...setupMsg([], CLOCK), days }), String(days)).toEqual({ kind: "refuse", reason: "malformed" });
+    }
+    // v 2 must say both.
+    const { handicap: _h, ...noHandicap } = setupMsg([], H4);
+    expect(judgeInbound(fresh, noHandicap)).toEqual({ kind: "refuse", reason: "malformed" });
+  });
+
+  it("refuses a later message that changes the handicap or the clock", () => {
+    const known: LocalGame = { size: 9, myColor: "w", rules: H4, log: [] };
+    expect(judgeInbound(known, setupMsg([at(4, 4)], { handicap: 3, days: 0 }, "b"))).toEqual({ kind: "refuse", reason: "setup" });
+    expect(judgeInbound(known, setupMsg([at(4, 4)], { handicap: 4, days: 1 }, "b"))).toEqual({ kind: "refuse", reason: "setup" });
+    // A v 1 message (no handicap) for a handicap game is a changed setup too.
+    expect(judgeInbound(known, buildMessage(9, "b", [at(4, 4)]))).toEqual({ kind: "refuse", reason: "setup" });
+  });
+
+  it("refuses any key it doesn't know (a later Go's setup is never played wrongly)", () => {
+    const fresh: LocalGame = { size: null, myColor: null, log: [] };
+    expect(judgeInbound(fresh, { ...buildMessage(9, "b", []), handicap: 4 })).toEqual({ kind: "unsupported" });
+    expect(judgeInbound(fresh, { ...setupMsg([], H4), byoyomi: 5 })).toEqual({ kind: "unsupported" });
+    expect(judgeInbound(fresh, { ...setupMsg([], H4), v: 3 })).toEqual({ kind: "unsupported" });
+  });
+
+  it("catches up from our own copy with the handicap applied", () => {
+    expect(catchUpFromOwnCopy(9, [], [at(4, 4), at(3, 3)], H4)).toEqual([at(4, 4), at(3, 3)]);
+    expect(catchUpFromOwnCopy(9, [], [at(2, 2)], H4)).toBeNull(); // a handicap point
+  });
+});
+
+describe("time claims", () => {
+  const CLOCK = { handicap: 0, days: 2 };
+  const DAY = DAY_MS;
+  // We play Black; Black moved, White moved: our turn (log length 2).
+  const ours: Entry[] = [at(4, 4), at(2, 2)];
+  const me = (log: Entry[] = ours): LocalGame => ({ size: 9, myColor: "b", rules: CLOCK, log });
+  const fromWhite = (log: Entry[], extras: { claim?: boolean; refusedMs?: number } = {}) =>
+    buildMessage(9, "w", log, CLOCK, extras) as unknown as Record<string, unknown>;
+
+  it("a claim on our turn for the game we have is for our own records to decide", () => {
+    expect(judgeInbound(me(), fromWhite(ours, { claim: true }))).toEqual({ kind: "claim" });
+  });
+
+  it("refuses a claim on their own turn, without a clock, or with a step of theirs", () => {
+    const theirTurn: Entry[] = [at(4, 4)];
+    expect(judgeInbound(me(theirTurn), fromWhite(theirTurn, { claim: true }))).toEqual({ kind: "refuse", reason: "claim" });
+    const noClock: LocalGame = { size: 9, myColor: "b", log: ours };
+    expect(judgeInbound(noClock, { ...buildMessage(9, "w", ours), claim: true })).toEqual({ kind: "unsupported" });
+    expect(judgeInbound(me(theirTurn), fromWhite([...theirTurn, at(2, 2)], { claim: true }))).toEqual({ kind: "refuse", reason: "claim" });
+    expect(judgeInbound(me(), { ...fromWhite(ours), claim: false })).toEqual({ kind: "refuse", reason: "malformed" });
+  });
+
+  it("a claim older than our last step is stale: our move answered it", () => {
+    const moved: Entry[] = [...ours, at(6, 6)];
+    expect(judgeInbound(me(moved), fromWhite(ours, { claim: true }))).toEqual({ kind: "stale" });
+  });
+
+  it("no claim after the end", () => {
+    const over: Entry[] = [...ours, "resign-b"];
+    expect(judgeInbound(me(over), fromWhite(over, { claim: true }))).toEqual({ kind: "stale" });
+  });
+
+  it("never reads a time from the claimer: a claim with its own clock is not played", () => {
+    for (const forged of [{ at: 0 }, { sentAt: Date.now() - 10 * DAY }, { deadline: 1 }, { now: Date.now() + DAY }]) {
+      expect(judgeInbound(me(), { ...fromWhite(ours, { claim: true }), ...forged })).toEqual({ kind: "unsupported" });
+    }
+  });
+
+  it("a refusal of our claim is bounded to the allowance and taken only on their turn", () => {
+    const theirTurn: Entry[] = [at(4, 4)];
+    expect(judgeInbound(me(theirTurn), fromWhite(theirTurn, { refusedMs: 3_600_000 }))).toEqual({ kind: "claim-refused", leftMs: 3_600_000 });
+    expect(judgeInbound(me(theirTurn), { ...fromWhite(theirTurn), refused: 1e15 })).toEqual({ kind: "claim-refused", leftMs: 2 * DAY });
+    expect(judgeInbound(me(theirTurn), { ...fromWhite(theirTurn), refused: -5 })).toEqual({ kind: "claim-refused", leftMs: 0 });
+    expect(judgeInbound(me(theirTurn), { ...fromWhite(theirTurn), refused: "soon" })).toEqual({ kind: "refuse", reason: "malformed" });
+    expect(judgeInbound(me(theirTurn), { ...fromWhite(theirTurn), refused: Infinity })).toEqual({ kind: "refuse", reason: "malformed" });
+    expect(judgeInbound(me(), fromWhite(ours, { refusedMs: 1000 }))).toEqual({ kind: "refuse", reason: "claim" });
+    expect(judgeInbound(me(theirTurn), { ...fromWhite(theirTurn), refused: 5, claim: true })).toEqual({ kind: "refuse", reason: "malformed" });
+  });
+
+  it("their own timeout entry ends the game on time for us", () => {
+    const theirTurn: Entry[] = [at(4, 4)];
+    const v = judgeInbound(me(theirTurn), fromWhite([...theirTurn, "timeout-w"]));
+    expect(v.kind).toBe("apply");
+    if (v.kind === "apply") expect(v.state.result).toEqual({ winner: "b", by: "time" });
+    // They can't time us out.
+    expect(judgeInbound(me(ours), fromWhite([...ours, "timeout-b"]))).toEqual({ kind: "refuse", reason: "wrong-player" });
+    // Nor without a clock.
+    const plain: LocalGame = { size: 9, myColor: "b", log: theirTurn };
+    expect(judgeInbound(plain, buildMessage(9, "w", [...theirTurn, "timeout-w"]))).toEqual({ kind: "refuse", reason: "illegal" });
+  });
+
+  it("our resignation crossing their timeout: both end with their timeout", () => {
+    const theirTurn: Entry[] = [at(4, 4)];
+    const v = judgeInbound(me([...theirTurn, "resign-b"]), fromWhite([...theirTurn, "timeout-w"]));
+    expect(v.kind === "apply" && v.log).toEqual([...theirTurn, "timeout-w"]);
+    // On their side: our resignation after their timeout is stale.
+    const them: LocalGame = { size: 9, myColor: "w", rules: CLOCK, log: [...theirTurn, "timeout-w"] };
+    expect(judgeInbound(them, buildMessage(9, "b", [...theirTurn, "resign-b"], CLOCK))).toEqual({ kind: "stale" });
   });
 });

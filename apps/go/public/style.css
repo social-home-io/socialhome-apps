@@ -136,6 +136,16 @@ dialog .btn.danger { background: var(--bad); color: var(--bg); border-color: tra
 }
 .choice input:checked + label { border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg)); }
 .choice input:checked + label::after { content: "✓"; color: var(--accent); }
+/* Handicap and clock: native selects (keyboard and screen readers for free). */
+.setup-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.field { display: grid; gap: 6px; align-content: start; min-width: 0; }
+.field label { font-weight: 600; }
+.field select {
+  min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); font: inherit; font-weight: 600; max-width: 100%;
+}
+.field select:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.field .explain { margin: 0; }
 .empty { padding: 8px 0; }
 .game-list, .people { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .game { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; }
@@ -171,6 +181,11 @@ dialog .btn.danger { background: var(--bad); color: var(--bg); border-color: tra
 .player .pname { font-weight: 700; overflow-wrap: anywhere; }
 .player .caps { color: var(--muted); font-size: 13px; }
 .player.to-move { border: 2px solid var(--accent); }
+.player .clock { grid-column: 2; font-size: 13px; font-weight: 600; }
+.player .clock.out { color: var(--bad); }
+.setup-line { margin: 0; }
+.claim-offer { display: grid; gap: 8px; }
+.claim-offer p { margin: 0; }
 .status p { margin: 2px 0 0; }
 .preview-score { font-weight: 600; margin: 0; }
 .notice { border-color: var(--accent); }
@@ -250,6 +265,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
   .player { padding: 6px 8px; gap: 0 8px; }
   .player .pname { font-size: 14px; }
   .player .caps { font-size: 12px; }
+  .player .clock { font-size: 12px; }
   .status-card .big, .status .big { font-size: 16px; }
   .game { grid-template-columns: 1fr; }
   .game .acts { grid-column: 1; grid-row: auto; justify-content: stretch; }

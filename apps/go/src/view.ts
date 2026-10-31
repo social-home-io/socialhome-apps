@@ -4,11 +4,13 @@
 
 import { BLACK, WHITE, pointName } from "./rules.js";
 import type { Color } from "./rules.js";
-import { isMark, isResign } from "./game.js";
-import type { Entry, GameState } from "./game.js";
+import { KOMI } from "./rules.js";
+import { isMark, isResign, isTimeout } from "./game.js";
+import type { Entry, GameState, Rules } from "./game.js";
 import { num, t } from "./i18n.js";
-import { isAwaitingOpponent, isMyTurn, personName, stateOf } from "./lifecycle.js";
+import { canClaim, hasPendingClaim, isAwaitingOpponent, isMyTurn, personName, stateOf } from "./lifecycle.js";
 import type { GameEntry } from "./lifecycle.js";
+import { splitLeft } from "./clock.js";
 import { stonesPlayed } from "./game.js";
 
 export function colorName(c: Color): string {
@@ -22,7 +24,7 @@ export function sizeName(n: number): string {
 export type Tone = "turn" | "wait" | "good" | "bad" | "info";
 
 /** The lobby chip of a game. */
-export function chipFor(entry: GameEntry): { text: string; tone: Tone } {
+export function chipFor(entry: GameEntry, now = Date.now()): { text: string; tone: Tone } {
   const st = stateOf(entry);
   const name = personName(entry);
   if (!st) return { text: t("chip.waitSetup", { name }), tone: "wait" };
@@ -31,16 +33,47 @@ export function chipFor(entry: GameEntry): { text: string; tone: Tone } {
   }
   if (isMyTurn(entry)) return { text: st.phase === "counting" ? t("chip.counting") : t("chip.yourTurn"), tone: "turn" };
   if (isAwaitingOpponent(entry)) return { text: t("chip.inviteSent"), tone: "wait" };
+  if (hasPendingClaim(entry)) return { text: t("chip.claimed"), tone: "wait" };
+  if (canClaim(entry, now)) return { text: t("chip.timeUp", { name }), tone: "turn" };
   return { text: t("chip.theirTurn", { name }), tone: "wait" };
 }
 
-/** "Black · 9 × 9 · move 23" for a lobby row. */
+/** "1 day per move" / "3 days per move". */
+export function clockName(days: number): string {
+  return days === 1 ? t("clock.day1") : t("clock.days", { n: days });
+}
+
+/** "Handicap 3 · 2 days per move" — empty for an even game without a clock. */
+export function rulesLine(rules: Rules): string {
+  const parts: string[] = [];
+  if (rules.handicap > 0) parts.push(t("meta.handicap", { n: rules.handicap }));
+  if (rules.days > 0) parts.push(clockName(rules.days));
+  return parts.join(" · ");
+}
+
+/** What a handicap choice means, in one line: "Black gets 4 stones, White moves first." */
+export function handicapExplain(handicap: number): string {
+  return handicap > 0 ? t("handicap.explain", { n: handicap }) : t("handicap.even", { komi: num(KOMI) });
+}
+
+/** "Black · 13 × 13 · Handicap 3 · 2 days per move · move 23" for a lobby row. */
 export function metaFor(entry: GameEntry): string {
   if (entry.size === null || entry.myColor === null) return t("meta.unknown", { name: personName(entry) });
   const color = colorName(entry.myColor);
-  const size = sizeName(entry.size);
+  const extra = rulesLine(entry);
+  const size = extra ? `${sizeName(entry.size)} · ${extra}` : sizeName(entry.size);
   const n = stonesPlayed(entry.log);
   return n === 0 ? t("meta.new", { color, size }) : t("meta.line", { color, size, n });
+}
+
+/** "2 days 5 h left", "3 h 20 min left", "12 min left", "Time ran out". */
+export function timeLeftText(ms: number): string {
+  if (ms <= 0) return t("clock.out");
+  const { d, h, m } = splitLeft(ms);
+  if (d >= 2) return t("clock.leftDays", { d, h });
+  if (d === 1) return t("clock.leftDay1", { h });
+  if (h >= 1) return t("clock.leftHours", { h, m });
+  return t("clock.leftMinutes", { m: Math.max(1, m) });
 }
 
 /** The status line above the board: a title and an optional detail. */
@@ -60,6 +93,7 @@ export function statusFor(entry: GameEntry): { title: string; detail: string | n
   if (last === "pass") detail = mine ? t("status.theyPassed", { name }) : t("status.youPassed");
   else if (last === "resume") detail = t("status.resumed");
   else if (isAwaitingOpponent(entry)) detail = t("status.inviteSent", { name });
+  else if (entry.log.length === 0 && st.handicap > 0) detail = t("status.handicapStart", { n: st.handicap });
   return { title, detail };
 }
 
@@ -92,7 +126,9 @@ export function resultLine(st: GameState): string | null {
   const r = st.result;
   if (!r) return null;
   const winner = colorName(r.winner);
-  return r.by === "resign" ? t("end.byResign", { winner }) : t("end.byScore", { winner, margin: num(r.margin) });
+  if (r.by === "resign") return t("end.byResign", { winner });
+  if (r.by === "time") return t("end.byTime", { winner });
+  return t("end.byScore", { winner, margin: num(r.margin) });
 }
 
 /** What to say about the opponent's new entries (polite live region). */
@@ -111,6 +147,8 @@ export function announceInbound(entry: GameEntry, added: readonly Entry[], befor
       out.push(t("say.resumed", { name }));
     } else if (isResign(e)) {
       out.push(t("say.resigned", { name }));
+    } else if (isTimeout(e)) {
+      out.push(t("say.theyTimedOut", { name }));
     } else if (isMark(e) && !(after.phase === "over" && after.result?.by === "score")) {
       out.push(t("say.marked", { name, n: e.length }));
     }

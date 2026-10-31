@@ -5,11 +5,24 @@
  * Home's one-slot mailbox keeps is enough to catch up:
  *
  *   { t: "go", v: 1, rules: "area-7.5-psk", size, youPlay, log }
+ *   { t: "go", v: 2, rules: "area-7.5-psk", size, youPlay, handicap, days, log,
+ *     claim?: true, refused?: <ms> }
  *
  * `youPlay` is the receiver's colour as the sender sees it, `log` every
- * entry so far (game.ts). The inviter chooses size and colours; the invitee
- * takes them from the first message and from then on every message must say
- * the same.
+ * entry so far (game.ts). The inviter chooses size, colours, handicap and
+ * clock; the invitee takes them from the first message and from then on
+ * every message must say the same. A game without handicap or clock goes
+ * out as v 1 (exactly as the first Go did); any other game as v 2, which
+ * the first Go refuses as "unsupported" rather than play it wrong. Both
+ * versions take only the keys listed: a message with any other key is
+ * "unsupported" too, so a later Go that adds to the setup must not be
+ * played wrongly by this one.
+ *
+ * The clock never travels as a time. `claim: true` (the same log, on the
+ * receiver's turn) says "your time ran out"; the receiver decides from its
+ * own records (clock.ts) and either adds its own `timeout-*` entry or
+ * answers with `refused`: how long it says it still has, which the claimer
+ * uses only to know when to ask again.
  *
  * `judgeInbound` is like Chess's: a message may only add ONE step of the
  * opponent's on top of the log we already have (a move, a pass, a marking,
@@ -23,12 +36,25 @@
  * with the step first and the resignation last.
  */
 
-import { isPoint, isSize, other } from "./rules.js";
+import { isHandicap, isPoint, isSize, other } from "./rules.js";
 import type { Color, Size } from "./rules.js";
-import { MAX_LOG, actorOf, applyEntry, isResign, replay, sameEntry } from "./game.js";
-import type { Entry, GameState } from "./game.js";
+import { MAX_LOG, NO_RULES, actorOf, applyEntry, isResign, isTimeout, replay, sameEntry } from "./game.js";
+import type { Entry, GameState, Rules } from "./game.js";
+
+/** The clock choices: days per move (0 = no clock). */
+export const CLOCK_DAYS: readonly number[] = [0, 1, 2, 3, 5, 7];
+export const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function isClockDays(v: unknown): v is number {
+  return typeof v === "number" && CLOCK_DAYS.includes(v);
+}
+
+const KEYS_V1 = new Set(["t", "v", "rules", "size", "youPlay", "log"]);
+const KEYS_V2 = new Set([...KEYS_V1, "handicap", "days", "claim", "refused"]);
 
 export const PROTOCOL_VERSION = 1;
+/** Games with a handicap or a clock. */
+export const PROTOCOL_VERSION_SETUP = 2;
 export const RULES = "area-7.5-psk";
 /** Social Home keeps one held message of ≤ 64 KiB; stay well under it. */
 export const MAX_MESSAGE_BYTES = 60 * 1024;
@@ -39,7 +65,11 @@ export interface WireMessage {
   rules: string;
   size: Size;
   youPlay: Color;
+  handicap?: number;
+  days?: number;
   log: Entry[];
+  claim?: true;
+  refused?: number;
 }
 
 /** What we know of a game when a message comes in. */
@@ -47,6 +77,8 @@ export interface LocalGame {
   /** `null` until the inviter's first message (the invitee only). */
   size: Size | null;
   myColor: Color | null;
+  /** The agreed handicap and clock (ignored while `size` is `null`). */
+  rules?: Rules;
   log: readonly Entry[];
 }
 
@@ -62,11 +94,17 @@ export type RefuseReason =
   /** A new entry is ours: the opponent can't play for us. */
   | "wrong-player"
   /** It adds more than one step of the opponent's. */
-  | "too-many";
+  | "too-many"
+  /** A time claim that doesn't fit: no clock, not our turn, the game is over, or with a step of theirs. */
+  | "claim";
 
 export type InboundVerdict =
-  | { kind: "apply"; size: Size; myColor: Color; log: Entry[]; state: GameState; added: Entry[] }
+  | { kind: "apply"; size: Size; myColor: Color; rules: Rules; log: Entry[]; state: GameState; added: Entry[] }
   | { kind: "stale" }
+  /** The same game, and they say our time ran out: our own records decide (clock.ts). */
+  | { kind: "claim" }
+  /** The same game, and their Go says their time hadn't run out: ask again after *leftMs*. */
+  | { kind: "claim-refused"; leftMs: number }
   | { kind: "unsupported" }
   | { kind: "refuse"; reason: RefuseReason };
 
@@ -75,9 +113,30 @@ export function isGoMessage(payload: unknown): boolean {
   return typeof payload === "object" && payload !== null && (payload as Record<string, unknown>)["t"] === "go";
 }
 
+export interface MessageExtras {
+  /** We claim the opponent's time ran out. */
+  claim?: boolean;
+  /** We refuse their claim: our clock says we still have this long. */
+  refusedMs?: number;
+}
+
 /** Our message with the whole game. */
-export function buildMessage(size: Size, myColor: Color, log: readonly Entry[]): WireMessage {
-  const msg: WireMessage = { t: "go", v: PROTOCOL_VERSION, rules: RULES, size, youPlay: other(myColor), log: [...log] };
+export function buildMessage(
+  size: Size,
+  myColor: Color,
+  log: readonly Entry[],
+  rules: Rules = NO_RULES,
+  extras: MessageExtras = {},
+): WireMessage {
+  const plain = rules.handicap === 0 && rules.days === 0;
+  const base = { t: "go" as const, rules: RULES, size, youPlay: other(myColor) };
+  const msg: WireMessage = plain
+    ? { ...base, v: PROTOCOL_VERSION, log: [...log] }
+    : { ...base, v: PROTOCOL_VERSION_SETUP, handicap: rules.handicap, days: rules.days, log: [...log] };
+  if (!plain && rules.days > 0) {
+    if (extras.claim) msg.claim = true;
+    else if (extras.refusedMs !== undefined) msg.refused = Math.max(0, Math.round(extras.refusedMs));
+  }
   if (JSON.stringify(msg).length > MAX_MESSAGE_BYTES) throw new Error("message too large");
   return msg;
 }
@@ -85,7 +144,7 @@ export function buildMessage(size: Size, myColor: Color, log: readonly Entry[]):
 /** A clean entry from untrusted input for a *size* board, or `null`. */
 export function parseEntry(v: unknown, size: number): Entry | null {
   if (typeof v === "number") return isPoint(size, v) ? v : null;
-  if (v === "pass" || v === "resume" || v === "resign-b" || v === "resign-w") return v;
+  if (v === "pass" || v === "resume" || v === "resign-b" || v === "resign-w" || v === "timeout-b" || v === "timeout-w") return v;
   if (Array.isArray(v)) {
     if (v.length > size * size) return null;
     for (let i = 0; i < v.length; i++) {
@@ -120,11 +179,33 @@ export function judgeInbound(local: LocalGame, payload: unknown): InboundVerdict
   if (typeof payload !== "object" || payload === null) return { kind: "refuse", reason: "malformed" };
   const p = payload as Record<string, unknown>;
   if (p["t"] !== "go") return { kind: "refuse", reason: "malformed" };
-  if (p["v"] !== PROTOCOL_VERSION || p["rules"] !== RULES) return { kind: "unsupported" };
+  const version = p["v"];
+  if ((version !== PROTOCOL_VERSION && version !== PROTOCOL_VERSION_SETUP) || p["rules"] !== RULES) return { kind: "unsupported" };
+  const known = version === PROTOCOL_VERSION ? KEYS_V1 : KEYS_V2;
+  // A key we don't know may change the game: never play it as if it weren't there.
+  if (Object.keys(p).some((k) => !known.has(k))) return { kind: "unsupported" };
   const size = p["size"];
   const youPlay = p["youPlay"];
   if (!isSize(size) || (youPlay !== "b" && youPlay !== "w")) return { kind: "refuse", reason: "malformed" };
-  if (local.size !== null && (size !== local.size || youPlay !== local.myColor)) {
+  let rules: Rules = NO_RULES;
+  if (version === PROTOCOL_VERSION_SETUP) {
+    const handicap = p["handicap"];
+    const days = p["days"];
+    if (!isHandicap(size, handicap) || !isClockDays(days)) return { kind: "refuse", reason: "malformed" };
+    rules = { handicap, days };
+  }
+  const claim = p["claim"];
+  const refused = p["refused"];
+  if (claim !== undefined && claim !== true) return { kind: "refuse", reason: "malformed" };
+  if (refused !== undefined && (typeof refused !== "number" || !Number.isFinite(refused))) {
+    return { kind: "refuse", reason: "malformed" };
+  }
+  if (claim !== undefined && refused !== undefined) return { kind: "refuse", reason: "malformed" };
+  const agreed = local.rules ?? NO_RULES;
+  if (
+    local.size !== null &&
+    (size !== local.size || youPlay !== local.myColor || rules.handicap !== agreed.handicap || rules.days !== agreed.days)
+  ) {
     return { kind: "refuse", reason: "setup" };
   }
   const history = parseLog(p["log"], size);
@@ -138,18 +219,36 @@ export function judgeInbound(local: LocalGame, payload: unknown): InboundVerdict
   let shared = 0;
   while (shared < ours.length && shared < history.length && sameEntry(ours[shared], history[shared])) shared++;
 
+  // A claim or its answer is about exactly the game we have now.
+  if (claim === true || refused !== undefined) {
+    if (fresh || rules.days === 0) return { kind: "refuse", reason: "claim" };
+    if (shared < history.length) return { kind: "refuse", reason: "claim" };
+    // Older than ours: our step since has answered it.
+    if (history.length < ours.length) return { kind: "stale" };
+    const st = replay(size, ours, rules)?.state;
+    if (!st || st.phase === "over") return { kind: "stale" };
+    if (claim === true) {
+      // Only the player waiting may claim: on our turn.
+      if (st.toMove !== me) return { kind: "refuse", reason: "claim" };
+      return { kind: "claim" };
+    }
+    // They answer our claim: on their turn, never more than a whole allowance.
+    if (st.toMove !== them) return { kind: "refuse", reason: "claim" };
+    return { kind: "claim-refused", leftMs: Math.min(Math.max(0, refused as number), rules.days * DAY_MS) };
+  }
+
   if (shared === history.length && !fresh) return { kind: "stale" };
-  if (shared < ours.length) return judgeResignRace(size, me, ours, history, shared);
+  if (shared < ours.length) return judgeResignRace(size, rules, me, ours, history, shared);
 
   const added = history.slice(ours.length);
   // Checked before any replay, so a huge forged list costs nothing.
   if (added.length > MAX_NEW) return { kind: "refuse", reason: "too-many" };
-  const r = replay(size, history);
+  const r = replay(size, history, rules);
   if (!r) return { kind: "refuse", reason: "illegal" };
   if (r.actors.slice(ours.length).some((c) => c !== them)) return { kind: "refuse", reason: "wrong-player" };
-  // Two entries only as "a step, then they resigned".
-  if (added.length === 2 && !isResign(added[1])) return { kind: "refuse", reason: "too-many" };
-  return { kind: "apply", size, myColor: me, log: history, state: r.state, added };
+  // Two entries only as "a step, then they resigned". Running out of time is a step of its own.
+  if (added.length === 2 && (!isResign(added[1]) || isTimeout(added[0]))) return { kind: "refuse", reason: "too-many" };
+  return { kind: "apply", size, myColor: me, rules, log: history, state: r.state, added };
 }
 
 /**
@@ -160,6 +259,7 @@ export function judgeInbound(local: LocalGame, payload: unknown): InboundVerdict
  */
 function judgeResignRace(
   size: Size,
+  rules: Rules,
   me: Color,
   ours: readonly Entry[],
   theirs: readonly Entry[],
@@ -169,7 +269,7 @@ function judgeResignRace(
   const ourTail = ours.slice(shared);
   const theirTail = theirs.slice(shared);
   if (theirTail.length > MAX_NEW || ourTail.length > MAX_NEW) return { kind: "refuse", reason: "rewrite" };
-  const base = replay(size, ours.slice(0, shared));
+  const base = replay(size, ours.slice(0, shared), rules);
   if (!base) return { kind: "refuse", reason: "rewrite" };
 
   const byOnly = (tail: readonly Entry[], who: Color): GameState | null => {
@@ -189,10 +289,10 @@ function judgeResignRace(
   // They resigned while we made our step: ours first, then theirs.
   if (theirTail.length === 1 && theirTail[0] === resignOf(them) && byOnly(ourTail, me)) {
     const merged = [...ours, theirTail[0]];
-    const r = replay(size, merged);
+    const r = replay(size, merged, rules);
     // Our own step ended the game already (the agreement): keep it.
     if (!r) return { kind: "stale" };
-    return { kind: "apply", size, myColor: me, log: merged, state: r.state, added: [theirTail[0]] };
+    return { kind: "apply", size, myColor: me, rules, log: merged, state: r.state, added: [theirTail[0]] };
   }
 
   // We resigned while they made their step: theirs first, then our resignation.
@@ -200,9 +300,9 @@ function judgeResignRace(
     const moved = byOnly(theirTail, them);
     if (!moved) return { kind: "refuse", reason: "illegal" };
     const merged = moved.phase === "over" ? [...theirs] : [...theirs, ourTail[0]];
-    const r = replay(size, merged);
+    const r = replay(size, merged, rules);
     if (!r) return { kind: "refuse", reason: "illegal" };
-    return { kind: "apply", size, myColor: me, log: merged, state: r.state, added: theirTail };
+    return { kind: "apply", size, myColor: me, rules, log: merged, state: r.state, added: theirTail };
   }
   return { kind: "refuse", reason: "rewrite" };
 }
@@ -212,9 +312,14 @@ function judgeResignRace(
  * the copy on this screen — the same person played on another screen.
  * `null` unless it is legal and extends this screen's log.
  */
-export function catchUpFromOwnCopy(size: Size, local: readonly Entry[], stored: unknown): Entry[] | null {
+export function catchUpFromOwnCopy(
+  size: Size,
+  local: readonly Entry[],
+  stored: unknown,
+  rules: Rules = NO_RULES,
+): Entry[] | null {
   const log = parseLog(stored, size);
   if (!log || log.length <= local.length) return null;
   if (!local.every((e, i) => sameEntry(e, log[i]))) return null;
-  return replay(size, log) ? log : null;
+  return replay(size, log, rules) ? log : null;
 }

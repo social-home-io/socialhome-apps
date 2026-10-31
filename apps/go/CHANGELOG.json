@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.31.1",
+    "date": "2026-10-31",
+    "notes": {
+      "en": "Handicap and an optional clock. Give Black 2 to 9 stones (2 to 5 on 9 × 9): they go on the star points and White moves first. Or choose 1 to 7 days per move: when someone's time runs out, the other player can claim the win, and their Go checks it against its own clock first. Nobody loses automatically.",
+      "de": "Vorgabe und eine Uhr, wenn du willst. Gib Schwarz 2 bis 9 Steine (2 bis 5 auf 9 × 9): Sie liegen auf den Sternpunkten und Weiß zieht zuerst. Oder wähl 1 bis 7 Tage pro Zug: Ist die Zeit von jemandem abgelaufen, kann die andere Person den Sieg einfordern, und deren Go prüft das zuerst mit der eigenen Uhr. Niemand verliert automatisch.",
+      "nl": "Voorgift en een klok als je wilt. Geef Zwart 2 tot 9 stenen (2 tot 5 op 9 × 9): ze liggen op de sterpunten en Wit zet eerst. Of kies 1 tot 7 dagen per zet: is iemands tijd op, dan kan de ander de winst opeisen, en hun Go controleert dat eerst met de eigen klok. Niemand verliest vanzelf.",
+      "fr": "Handicap et pendule si vous le souhaitez. Donnez à Noir 2 à 9 pierres (2 à 5 sur 9 × 9) : elles vont sur les hoshi et Blanc joue en premier. Ou choisissez 1 à 7 jours par coup : quand le temps d’un joueur est écoulé, l’autre peut réclamer la victoire, et son Go la vérifie d’abord avec sa propre pendule. Personne ne perd automatiquement.",
+      "es": "Hándicap y reloj si quieres. Da a Negro de 2 a 9 piedras (de 2 a 5 en 9 × 9): van en los hoshi y Blanco juega primero. O elige de 1 a 7 días por jugada: cuando a alguien se le acaba el tiempo, la otra persona puede reclamar la victoria, y su Go lo comprueba antes con su propio reloj. Nadie pierde automáticamente."
+    }
+  },
+  {
     "version": "2026.10.31",
     "date": "2026-10-31",
     "notes": {

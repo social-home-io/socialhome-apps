@@ -1,5 +1,17 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { announceInbound, announceOwn, cellLabel, chipFor, metaFor, resultLine, statusFor } from "./view.js";
+import {
+  announceInbound,
+  announceOwn,
+  cellLabel,
+  chipFor,
+  clockName,
+  handicapExplain,
+  metaFor,
+  resultLine,
+  rulesLine,
+  statusFor,
+  timeLeftText,
+} from "./view.js";
 import { groupGames } from "./lobby.js";
 import { replay } from "./game.js";
 import type { Entry } from "./game.js";
@@ -11,7 +23,7 @@ const at = (r: number, c: number): number => r * 9 + c;
 function entry(over: Partial<GameEntry> = {}): GameEntry {
   return {
     sessionId: "s1", opponentInstanceId: "inst-b", opponentRef: "ben", opponentIsLocal: false,
-    opponentName: "Ben · Lakeside", role: "inviter", size: 9, myColor: "b", log: [], heard: true, updatedAt: 1, ...over,
+    opponentName: "Ben · Lakeside", role: "inviter", size: 9, myColor: "b", handicap: 0, days: 0, log: [], heard: true, updatedAt: 1, ...over,
   };
 }
 
@@ -121,5 +133,57 @@ describe("announcements", () => {
     expect(resultLine(state([40]))).toBeNull();
     setLocale("de");
     expect(resultLine(state([...wallsGame(), [at(0, 0)], [at(0, 0)]]))).toBe("Schwarz gewinnt mit 1,5 Punkten");
+  });
+});
+
+describe("handicap and clock words", () => {
+  const T0 = Date.UTC(2026, 9, 31, 12);
+  const DAY = 24 * 60 * 60 * 1000;
+  const HOUR = 60 * 60 * 1000;
+
+  it("time left, plainly", () => {
+    expect(timeLeftText(2 * DAY + 5 * HOUR)).toBe("2 days 5 h left");
+    expect(timeLeftText(DAY + 3 * HOUR)).toBe("1 day 3 h left");
+    expect(timeLeftText(3 * HOUR + 20 * 60_000)).toBe("3 h 20 min left");
+    expect(timeLeftText(12 * 60_000)).toBe("12 min left");
+    expect(timeLeftText(10_000)).toBe("1 min left");
+    expect(timeLeftText(0)).toBe("Time ran out");
+    setLocale("de");
+    expect(timeLeftText(2 * DAY + 5 * HOUR)).toBe("noch 2 Tage 5 Std.");
+  });
+
+  it("the lobby row and the setup line mention handicap and clock when set", () => {
+    expect(metaFor(entry({ size: 13, handicap: 3, days: 2, log: [] }))).toBe("Black · 13 × 13 · Handicap 3 · 2 days per move · no stones yet");
+    expect(metaFor(entry({ days: 1, log: [40] }))).toBe("Black · 9 × 9 · 1 day per move · move 1");
+    expect(metaFor(entry({ log: [40] }))).toBe("Black · 9 × 9 · move 1");
+    expect(rulesLine({ handicap: 0, days: 0 })).toBe("");
+    expect(clockName(7)).toBe("7 days per move");
+  });
+
+  it("says plainly what a handicap means", () => {
+    expect(handicapExplain(4)).toBe("Black gets 4 stones, White moves first.");
+    expect(handicapExplain(0)).toBe("Even game: Black moves first, White gets komi 7.5.");
+    setLocale("de");
+    expect(handicapExplain(0)).toBe("Ohne Vorgabe: Schwarz zieht zuerst, Weiß bekommt 7,5 Komi.");
+  });
+
+  it("the chip shows a claimable or claimed win", () => {
+    const waiting = entry({ days: 1, log: [40], clockFrom: { n: 1, at: T0 } });
+    expect(chipFor(waiting, T0 + HOUR)).toEqual({ text: "Ben's turn", tone: "wait" });
+    expect(chipFor(waiting, T0 + 2 * DAY)).toEqual({ text: "Ben's time ran out", tone: "turn" });
+    expect(chipFor({ ...waiting, claimedAt: 1 }, T0 + 2 * DAY)).toEqual({ text: "Win claimed", tone: "wait" });
+  });
+
+  it("a handicap game opens with White to move and says why", () => {
+    const w = entry({ myColor: "w", handicap: 3, log: [] });
+    expect(statusFor(w)).toEqual({ title: "Your turn", detail: "Black starts with 3 handicap stones, so White moves first." });
+  });
+
+  it("a win on time", () => {
+    const st = replay(9, [40, "timeout-w"], { handicap: 0, days: 2 })!.state;
+    expect(resultLine(st)).toBe("Black wins on time");
+    const e = entry({ days: 2 });
+    const before = replay(9, [40], { handicap: 0, days: 2 })!.state;
+    expect(announceInbound(e, ["timeout-w"], before, st)).toEqual(["Ben's time ran out. You win."]);
   });
 });

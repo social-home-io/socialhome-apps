@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ShError } from "@socialhome/app-sdk";
 import type { AppMessage, Contact, PickedPerson } from "@socialhome/app-sdk";
 import {
+  canClaim,
   classifySessionEvent,
+  clockOf,
+  hasPendingClaim,
+  showClaimOffer,
   continueCopy,
   entryForInvite,
   entryForPicked,
@@ -40,6 +44,8 @@ function entry(over: Partial<GameEntry> = {}): GameEntry {
     role: "inviter",
     size: 9,
     myColor: "b",
+    handicap: 0,
+    days: 0,
     log: [],
     heard: false,
     updatedAt: 1,
@@ -165,7 +171,7 @@ describe("entries", () => {
 
   it("the inviter fixes size and colour; the invitee learns them later", () => {
     const p: PickedPerson = { instance_id: "inst-b", user_ref: "bob", is_local: false, display_name: "Bob", sessionId: "s5" };
-    expect(entryForPicked(p, 13, "w", 7)).toMatchObject({ sessionId: "s5", role: "inviter", size: 13, myColor: "w", log: [], updatedAt: 7 });
+    expect(entryForPicked(p, 13, "w", undefined, 7)).toMatchObject({ sessionId: "s5", role: "inviter", size: 13, myColor: "w", log: [], updatedAt: 7 });
     const e = entryForInvite({ sessionId: "s6", fromInstance: "inst-b", fromUser: "bob", payload: {} }, contacts, 8);
     expect(e).toMatchObject({ role: "invitee", size: null, myColor: null, opponentName: "Bob · Lakeside", opponentIsLocal: false });
     expect(targetFor(e)).toEqual({ instance_id: "inst-b", user_ref: "bob", is_local: false });
@@ -176,7 +182,7 @@ describe("entries", () => {
     expect(resolveColor("b")).toBe("b");
     expect(resolveColor("random", 0.2)).toBe("b");
     expect(resolveColor("random", 0.7)).toBe("w");
-    expect(rematchOf(entry({ size: 19, myColor: "b" }))).toEqual({ size: 19, color: "w" });
+    expect(rematchOf(entry({ size: 19, myColor: "b" }))).toEqual({ size: 19, color: "w", rules: { handicap: 0, days: 0 } });
     expect(rematchOf(entry({ size: null, myColor: null }))).toBeNull();
   });
 });
@@ -197,5 +203,83 @@ describe("failures and confirms", () => {
     expect(continueCopy(e)).toMatchObject({ confirm: "Continue game with Bob", primary: true });
     setLocale("de");
     expect(resignCopy(e).confirm).toBe("Aufgeben");
+  });
+});
+
+describe("handicap and clock entries", () => {
+  const T0 = Date.UTC(2026, 9, 31, 12);
+  const DAY = 24 * 60 * 60 * 1000;
+  const p: PickedPerson = { instance_id: "inst-b", user_ref: "bob", is_local: false, display_name: "Bob", sessionId: "s9" };
+
+  it("the inviter's entry carries the setup and starts its clock mark", () => {
+    expect(entryForPicked(p, 13, "b", { handicap: 3, days: 2 }, T0)).toMatchObject({
+      size: 13,
+      handicap: 3,
+      days: 2,
+      clockFrom: { n: 0, at: T0 },
+    });
+  });
+
+  it("reads games saved before handicap and clock as neither", () => {
+    const old = { ...toStored(entry({ log: [40] })) } as Record<string, unknown>;
+    delete old["handicap"];
+    delete old["days"];
+    expect(parseEntry(old)).toMatchObject({ handicap: 0, days: 0, log: [40] });
+  });
+
+  it("refuses a saved game with a handicap or clock Go doesn't offer, and drops a broken clock mark", () => {
+    expect(parseEntry({ ...entry(), handicap: 7 })).toBeNull(); // 9 × 9 takes at most 5
+    expect(parseEntry({ ...entry(), days: 4 })).toBeNull();
+    expect(parseEntry({ ...entry({ size: null, myColor: null }), handicap: 2 })).toBeNull();
+    const e = parseEntry({ ...entry({ days: 2 }), clockFrom: { n: "x", at: 1 }, claimedAt: -1 })!;
+    expect(e.clockFrom).toBeUndefined();
+    expect(e.claimedAt).toBeUndefined();
+    const ok = parseEntry({ ...entry({ days: 2 }), clockFrom: { n: 0, at: T0 }, claimedAt: 0, theirHint: { n: 0, at: T0 } })!;
+    expect(ok).toMatchObject({ clockFrom: { n: 0, at: T0 }, claimedAt: 0, theirHint: { n: 0, at: T0 } });
+  });
+
+  it("replays a handicap game from its stones (White first)", () => {
+    const e = entry({ handicap: 2, myColor: "w", heard: true, log: [40] });
+    expect(stateOf(e)?.toMove).toBe("b");
+    expect(parseEntry(toStored(e))).not.toBeNull();
+    expect(parseEntry({ ...toStored(e), handicap: 0, log: [40, 41, 20] })).not.toBeNull();
+  });
+
+  it("a rematch keeps Black with the handicap; without one it swaps colours", () => {
+    expect(rematchOf(entry({ handicap: 4, myColor: "b" }))).toEqual({ size: 9, color: "b", rules: { handicap: 4, days: 0 } });
+    expect(rematchOf(entry({ days: 3, myColor: "b" }))).toEqual({ size: 9, color: "w", rules: { handicap: 0, days: 3 } });
+  });
+
+  describe("claiming the win", () => {
+    // We (Black) moved at T0: White's turn, 1 day per move.
+    const waiting = (over: Partial<GameEntry> = {}) =>
+      entry({ days: 1, heard: true, log: [40], clockFrom: { n: 1, at: T0 }, ...over });
+
+    it("is offered once their time (plus a grace) has run out", () => {
+      expect(canClaim(waiting(), T0 + DAY)).toBe(false);
+      expect(canClaim(waiting(), T0 + DAY + 11 * 60 * 1000)).toBe(true);
+      expect(clockOf(waiting(), T0 + DAY / 2)).toMatchObject({ who: "w", mine: false, leftMs: DAY / 2 + 10 * 60 * 1000 });
+    });
+
+    it("not for an unanswered invite, an unsent move, our own turn or a game without a clock", () => {
+      const late = T0 + 10 * DAY;
+      expect(canClaim(waiting({ heard: false }), late)).toBe(false);
+      expect(canClaim(waiting({ unsent: true }), late)).toBe(false);
+      expect(canClaim(waiting({ log: [40, 41], clockFrom: { n: 2, at: T0 } }), late)).toBe(false);
+      expect(canClaim(waiting({ days: 0 }), late)).toBe(false);
+    });
+
+    it("waits for their Go after a claim; Keep playing hides the offer for this position only", () => {
+      const late = T0 + 10 * DAY;
+      const claimed = waiting({ claimedAt: 1 });
+      expect(hasPendingClaim(claimed)).toBe(true);
+      expect(canClaim(claimed, late)).toBe(false);
+      // A claim for an older position is no claim now.
+      expect(hasPendingClaim(waiting({ claimedAt: 0 }))).toBe(false);
+      const hidden = waiting({ claimHiddenAt: 1 });
+      expect(canClaim(hidden, late)).toBe(true);
+      expect(showClaimOffer(hidden, late)).toBe(false);
+      expect(showClaimOffer(waiting({ claimHiddenAt: 0 }), late)).toBe(true);
+    });
   });
 });

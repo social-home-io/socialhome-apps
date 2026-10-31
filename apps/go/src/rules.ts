@@ -18,6 +18,8 @@ export const BLACK = 1;
 export const WHITE = 2;
 /** Points for White under area scoring (no ties). */
 export const KOMI = 7.5;
+/** Komi in a handicap game: half a point, so there is still no tie. */
+export const HANDICAP_KOMI = 0.5;
 
 export type Board = number[];
 
@@ -108,6 +110,8 @@ export interface SideScore {
   stones: number;
   territory: number;
   komi: number;
+  /** White's points for Black's handicap stones (one per stone after the first). */
+  handicap: number;
   total: number;
 }
 
@@ -124,9 +128,10 @@ export interface AreaScore {
 /**
  * Area scoring with *dead* stones taken off first: each side counts its
  * stones left on the board plus the empty points only its stones surround;
- * White adds komi.
+ * White adds komi. In a handicap game (*handicap* ≥ 2 stones) komi is 0.5
+ * and White also gets one point per handicap stone after the first.
  */
-export function scoreArea(board: Board, size: number, dead: Iterable<number>): AreaScore {
+export function scoreArea(board: Board, size: number, dead: Iterable<number>, handicap = 0): AreaScore {
   const b = board.slice();
   for (const p of dead) b[p] = EMPTY;
   const owner = b.slice();
@@ -154,17 +159,18 @@ export function scoreArea(board: Board, size: number, dead: Iterable<number>): A
     const who = touchesB && !touchesW ? BLACK : touchesW && !touchesB ? WHITE : EMPTY;
     for (const q of region) owner[q] = who;
   }
-  const side = (stone: number, komi: number): SideScore => {
+  const side = (stone: number, komi: number, extra: number): SideScore => {
     let stones = 0;
     let territory = 0;
     for (let p = 0; p < b.length; p++) {
       if (b[p] === stone) stones++;
       else if (owner[p] === stone) territory++;
     }
-    return { stones, territory, komi, total: stones + territory + komi };
+    return { stones, territory, komi, handicap: extra, total: stones + territory + komi + extra };
   };
-  const sb = side(BLACK, 0);
-  const sw = side(WHITE, KOMI);
+  const hasHandicap = handicap >= 2;
+  const sb = side(BLACK, 0, 0);
+  const sw = side(WHITE, hasHandicap ? HANDICAP_KOMI : KOMI, hasHandicap ? handicap - 1 : 0);
   const winner: Color = sb.total > sw.total ? "b" : "w";
   return { b: sb, w: sw, owner, winner, margin: Math.abs(sb.total - sw.total) };
 }
@@ -181,6 +187,47 @@ export function starPoints(size: Size): number[] {
     }
   }
   return out;
+}
+
+/** The most handicap stones a board takes: 5 on 9 × 9, 9 on 13 × 13 and 19 × 19. */
+export function maxHandicap(size: Size): number {
+  return size === 9 ? 5 : 9;
+}
+
+/** The handicaps a board allows: 0 (none) or 2 … max. */
+export function handicapsFor(size: Size): number[] {
+  const out = [0];
+  for (let n = 2; n <= maxHandicap(size); n++) out.push(n);
+  return out;
+}
+
+export function isHandicap(size: Size, v: unknown): v is number {
+  return typeof v === "number" && handicapsFor(size).includes(v);
+}
+
+/**
+ * Where Black's *n* handicap stones go — the fixed star points, as in
+ * Japanese and Chinese practice: 2 on the upper-right and lower-left
+ * corners, 3 adds lower-right, 4 upper-left, 5 = 4 + centre, 6 = 4 + the
+ * left and right sides, 7 = 6 + centre, 8 = 6 + top and bottom, 9 = 8 +
+ * centre. On 9 × 9 the corners are the 3-3 points (2 … 5).
+ */
+export function handicapPoints(size: Size, n: number): number[] {
+  if (!isHandicap(size, n) || n === 0) return [];
+  const [lo, mid, hi] = size === 9 ? [2, 4, 6] : size === 13 ? [3, 6, 9] : [3, 9, 15];
+  const at = (r: number, c: number) => r * size + c;
+  const corners = [at(lo, hi), at(hi, lo), at(hi, hi), at(lo, lo)];
+  const centre = at(mid, mid);
+  const sides = [at(mid, lo), at(mid, hi)];
+  const ends = [at(lo, mid), at(hi, mid)];
+  let pts: number[];
+  if (n <= 4) pts = corners.slice(0, n);
+  else if (n === 5) pts = [...corners, centre];
+  else if (n === 6) pts = [...corners, ...sides];
+  else if (n === 7) pts = [...corners, ...sides, centre];
+  else if (n === 8) pts = [...corners, ...sides, ...ends];
+  else pts = [...corners, ...sides, ...ends, centre];
+  return pts.sort((a, b) => a - b);
 }
 
 /** Column letters: A–T without I. */

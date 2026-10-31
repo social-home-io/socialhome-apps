@@ -10,18 +10,34 @@
  *   - `"resume"`: while counting, the player to move goes back to play; the
  *     other player moves next
  *   - `"resign-b"` / `"resign-w"`: that player resigns (on either turn)
+ *   - `"timeout-b"` / `"timeout-w"`: in a game with a clock, the player to
+ *     move confirms their own time ran out (their Go adds it when the other
+ *     player claims the win and its own records agree) — they lose on time
  *
- * Black moves first. After two passes the player to move (the first to
+ * Black moves first; with a handicap Black's stones start on the board
+ * (rules.ts `handicapPoints`) and White moves first. After two passes the player to move (the first to
  * pass) marks first; marks then alternate until one side sends back exactly
  * the other's marking. Captures, ko, positional superko (no stone may
  * recreate any earlier whole-board position), suicide and the score are all
  * worked out here from the log — nothing else.
  */
 
-import { EMPTY, chainAt, emptyBoard, isPoint, other, place, positionKey, scoreArea, stoneOf } from "./rules.js";
+import { BLACK, EMPTY, chainAt, emptyBoard, handicapPoints, isPoint, other, place, positionKey, scoreArea, stoneOf } from "./rules.js";
 import type { AreaScore, Board, Color, PlaceError, Size } from "./rules.js";
 
-export type Entry = number | "pass" | "resume" | "resign-b" | "resign-w" | number[];
+export type Entry = number | "pass" | "resume" | "resign-b" | "resign-w" | "timeout-b" | "timeout-w" | number[];
+
+/**
+ * The fixed setup beyond the board size, chosen by the inviter: handicap
+ * stones for Black (0 = none, else 2 … 9) and the clock in days per move
+ * (0 = no clock).
+ */
+export interface Rules {
+  handicap: number;
+  days: number;
+}
+
+export const NO_RULES: Rules = { handicap: 0, days: 0 };
 
 /** The longest log a game may have (moves, passes, marks, resumes). */
 export const MAX_LOG = 1000;
@@ -32,10 +48,14 @@ export type Phase = "play" | "counting" | "over";
 
 export type Result =
   | { winner: Color; by: "resign" }
+  | { winner: Color; by: "time" }
   | { winner: Color; by: "score"; margin: number; score: AreaScore; dead: number[] };
 
 export interface GameState {
   size: Size;
+  handicap: number;
+  /** Days per move; 0 = no clock. */
+  days: number;
   board: Board;
   toMove: Color;
   phase: Phase;
@@ -64,12 +84,16 @@ export class IllegalMove extends Error {
   }
 }
 
-export function initialState(size: Size): GameState {
+export function initialState(size: Size, rules: Rules = NO_RULES): GameState {
   const board = emptyBoard(size);
+  const stones = handicapPoints(size, rules.handicap);
+  for (const p of stones) board[p] = BLACK;
   return {
     size,
+    handicap: stones.length,
+    days: rules.days,
     board,
-    toMove: "b",
+    toMove: stones.length > 0 ? "w" : "b",
     phase: "play",
     passes: 0,
     captures: { b: 0, w: 0 },
@@ -85,15 +109,20 @@ export function initialState(size: Size): GameState {
 
 export const isResign = (e: Entry): e is "resign-b" | "resign-w" => e === "resign-b" || e === "resign-w";
 export const isMark = (e: Entry): e is number[] => Array.isArray(e);
+export const isTimeout = (e: Entry): e is "timeout-b" | "timeout-w" => e === "timeout-b" || e === "timeout-w";
+
+export function timeoutOf(c: Color): Entry {
+  return c === "b" ? "timeout-b" : "timeout-w";
+}
 
 export function resignBy(c: Color): Entry {
   return c === "b" ? "resign-b" : "resign-w";
 }
 
-/** Who made *entry* in *state*: the resigning player, else the player to move. */
+/** Who made *entry* in *state*: the resigning (or timed-out) player, else the player to move. */
 export function actorOf(state: GameState, entry: Entry): Color {
-  if (entry === "resign-b") return "b";
-  if (entry === "resign-w") return "w";
+  if (entry === "resign-b" || entry === "timeout-b") return "b";
+  if (entry === "resign-w" || entry === "timeout-w") return "w";
   return state.toMove;
 }
 
@@ -142,7 +171,14 @@ export function applyEntry(state: GameState, entry: Entry): GameState {
     const by: Color = entry === "resign-b" ? "b" : "w";
     return { ...base, phase: "over", result: { winner: other(by), by: "resign" } };
   }
-  // The last log slot is kept for a resignation.
+  if (isTimeout(entry)) {
+    // Only in a game with a clock, and only on your own turn.
+    if (state.days <= 0) throw new IllegalMove("bad-entry");
+    const by: Color = entry === "timeout-b" ? "b" : "w";
+    if (by !== state.toMove) throw new IllegalMove("turn");
+    return { ...base, phase: "over", result: { winner: other(by), by: "time" } };
+  }
+  // The last log slot is kept for a resignation (or running out of time).
   if (state.n >= MAX_LOG - 1) throw new IllegalMove("too-long");
 
   if (typeof entry === "number") {
@@ -195,7 +231,7 @@ export function applyEntry(state: GameState, entry: Entry): GameState {
     const dead = [...entry];
     const marks = state.marks + 1;
     if (state.proposal && state.proposal.by !== by && sameEntry(state.proposal.dead, dead)) {
-      const score = scoreArea(state.board, state.size, dead);
+      const score = scoreArea(state.board, state.size, dead, state.handicap);
       return {
         ...base,
         marks,
@@ -215,9 +251,9 @@ export interface Replay {
   actors: Color[];
 }
 
-/** Play *log* from an empty board; `null` if any entry isn't allowed. */
-export function replay(size: Size, log: readonly Entry[]): Replay | null {
-  let state = initialState(size);
+/** Play *log* from the start (handicap stones placed); `null` if any entry isn't allowed. */
+export function replay(size: Size, log: readonly Entry[], rules: Rules = NO_RULES): Replay | null {
+  let state = initialState(size, rules);
   const actors: Color[] = [];
   for (const e of log) {
     try {
