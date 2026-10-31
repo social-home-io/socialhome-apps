@@ -220,6 +220,19 @@ const en = {
   "say.clockTheirs": "{name}'s clock: {left}",
   "say.claimSent": "Win claimed. {name}'s Go confirms it.",
   "game.keysClock": "Keys: arrows move, Enter places a stone, T tells the time left.",
+
+  // Open games in a space (tables)
+  "table.openGame": "Open game",
+  "chip.openGame": "Waiting for a player",
+  "btn.closeTable": "Close game",
+  "btn.closeTableLabel": "Close your open game",
+  "table.waiting": "Your game is open in the space: 9 × 9, no handicap, no clock. It starts as soon as someone takes the seat — they play Black and move first.",
+  "status.waitingForPlayer": "Waiting for someone to take the seat",
+  "table.joined": "{name} took the seat: they play Black and move first.",
+  "table.left": "{name} left the game, so it ended.",
+  "table.ended": "This game in the space has ended.",
+  "table.joining": "Taking your seat…",
+  "table.closeFailed": "Couldn't close the game. Try again.",
 };
 
 export type MessageKey = keyof typeof en;
@@ -414,6 +427,19 @@ const de: Catalog = {
   "say.clockTheirs": "Uhr von {name}: {left}",
   "say.claimSent": "Sieg eingefordert. Das Go von {name} bestätigt ihn.",
   "game.keysClock": "Tasten: Pfeile bewegen, Enter setzt einen Stein, T sagt die restliche Zeit.",
+
+  // Open games in a space (tables)
+  "table.openGame": "Offene Partie",
+  "chip.openGame": "Wartet auf jemanden",
+  "btn.closeTable": "Partie schließen",
+  "btn.closeTableLabel": "Deine offene Partie schließen",
+  "table.waiting": "Deine Partie ist im Space offen: 9 × 9, ohne Vorgabe, ohne Uhr. Los geht’s, sobald jemand den Platz einnimmt – diese Person spielt Schwarz und zieht zuerst.",
+  "status.waitingForPlayer": "Wartet, bis jemand den Platz einnimmt",
+  "table.joined": "{name} hat den Platz eingenommen: spielt Schwarz und zieht zuerst.",
+  "table.left": "{name} hat die Partie verlassen, darum ist sie zu Ende.",
+  "table.ended": "Diese Partie im Space ist zu Ende.",
+  "table.joining": "Du nimmst deinen Platz ein…",
+  "table.closeFailed": "Die Partie konnte nicht geschlossen werden. Versuch es noch einmal.",
 };
 
 const nl: Catalog = {
@@ -605,6 +631,19 @@ const nl: Catalog = {
   "say.clockTheirs": "Klok van {name}: {left}",
   "say.claimSent": "Winst opgeëist. De Go van {name} bevestigt het.",
   "game.keysClock": "Toetsen: pijlen bewegen, Enter zet een steen, T zegt de resterende tijd.",
+
+  // Open games in a space (tables)
+  "table.openGame": "Open partij",
+  "chip.openGame": "Wacht op een speler",
+  "btn.closeTable": "Partij sluiten",
+  "btn.closeTableLabel": "Je open partij sluiten",
+  "table.waiting": "Je partij staat open in de space: 9 × 9, zonder voorgift, zonder klok. Hij begint zodra iemand de plek inneemt — die speelt Zwart en zet als eerste.",
+  "status.waitingForPlayer": "Wacht tot iemand de plek inneemt",
+  "table.joined": "{name} heeft de plek ingenomen: speelt Zwart en zet als eerste.",
+  "table.left": "{name} heeft de partij verlaten, dus hij is afgelopen.",
+  "table.ended": "Deze partij in de space is afgelopen.",
+  "table.joining": "Je neemt je plek in…",
+  "table.closeFailed": "De partij kon niet worden gesloten. Probeer het opnieuw.",
 };
 
 const fr: Catalog = {
@@ -796,6 +835,19 @@ const fr: Catalog = {
   "say.clockTheirs": "Pendule de {name}\u00a0: {left}",
   "say.claimSent": "Victoire réclamée. Le Go de {name} la confirme.",
   "game.keysClock": "Touches\u00a0: les flèches déplacent, Entrée pose une pierre, T donne le temps restant.",
+
+  // Open games in a space (tables)
+  "table.openGame": "Partie ouverte",
+  "chip.openGame": "En attente d’un joueur",
+  "btn.closeTable": "Fermer la partie",
+  "btn.closeTableLabel": "Fermer votre partie ouverte",
+  "table.waiting": "Votre partie est ouverte dans l’espace" + NB + ": 9 × 9, sans handicap, sans pendule. Elle commence dès que quelqu’un prend la place — cette personne joue Noir et commence.",
+  "status.waitingForPlayer": "En attente de quelqu’un pour prendre la place",
+  "table.joined": "{name} a pris la place" + NB + ": joue Noir et commence.",
+  "table.left": "{name} a quitté la partie, elle est donc terminée.",
+  "table.ended": "Cette partie de l’espace est terminée.",
+  "table.joining": "Vous prenez votre place…",
+  "table.closeFailed": "Impossible de fermer la partie. Réessayez.",
 };
 
 const es: Catalog = {
@@ -987,6 +1039,19 @@ const es: Catalog = {
   "say.clockTheirs": "Reloj de {name}: {left}",
   "say.claimSent": "Victoria reclamada. El Go de {name} la confirma.",
   "game.keysClock": "Teclas: las flechas mueven, Intro pone una piedra, T dice el tiempo restante.",
+
+  // Open games in a space (tables)
+  "table.openGame": "Partida abierta",
+  "chip.openGame": "Esperando a alguien",
+  "btn.closeTable": "Cerrar partida",
+  "btn.closeTableLabel": "Cerrar tu partida abierta",
+  "table.waiting": "Tu partida está abierta en el espacio: 9 × 9, sin hándicap, sin reloj. Empieza en cuanto alguien ocupe la plaza: esa persona juega con Negro y mueve primero.",
+  "status.waitingForPlayer": "Esperando a que alguien ocupe la plaza",
+  "table.joined": "{name} ocupó la plaza: juega con Negro y mueve primero.",
+  "table.left": "{name} dejó la partida, así que terminó.",
+  "table.ended": "Esta partida del espacio terminó.",
+  "table.joining": "Ocupando tu plaza…",
+  "table.closeFailed": "No se pudo cerrar la partida. Inténtalo de nuevo.",
 };
 
 export const CATALOGS: Record<Locale, Catalog> = { en, de, nl, fr, es };

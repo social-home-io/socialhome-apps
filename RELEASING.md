@@ -38,6 +38,15 @@ pointless update. Never bump an app that didn't change.
 Tests and docs (`*.test.*`, `*.md`) don't count as a change; the guard
 ignores them.
 
+**What counts is the bundle households download.** Besides the files under
+`apps/<id>/`, the guard builds the PR's merge base in a throwaway worktree
+and compares every app's `dist/` with the PR's build
+([`scripts/bundle-hash.mjs`](scripts/bundle-hash.mjs)). An SDK change, a
+bundler bump or a lockfile change that alters an app's bundle needs that
+app's version and CHANGELOG entry too, even though no file of the app
+changed; an SDK change that leaves every bundle as it was needs only the SDK
+bump. Locally: `pnpm build && node scripts/check-versions.mjs origin/main`.
+
 `CHANGELOG.json` rules (the catalog build enforces them): newest first, one
 entry per version, `notes.en` required plus every language the app ships,
 ≤ 500 characters per note, words from the
@@ -135,7 +144,7 @@ out of the release notes.
   `package.json`, so a bump there passes the version guard. A change that
   alters what an app ships (an app's own dependency, or a compiler/bundler
   bump that changes `apps/*/dist/index.html`) does need the app's version
-  and CHANGELOG entry: compare the built bundles before and after.
+  and CHANGELOG entry: the guard compares the built bundles and says which.
 
 Bumped by hand instead: pnpm itself (`packageManager` in `package.json`,
 which CI reads) and the Node major in the workflows. pnpm stays on the 11

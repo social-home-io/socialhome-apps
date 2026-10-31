@@ -199,6 +199,20 @@ const en = {
 
   // Toasts
   "toast.couldntReach": "Couldn't reach {name} — please try again.",
+
+  // Open games in a space (tables)
+  "table.openGame": "Open game",
+  "chip.openGame": "Waiting for a player",
+  "btn.closeTable": "Close game",
+  "status.waitingForPlayer": "Waiting for someone to take the seat",
+  "progress.openPlace": "Open in the space. Whoever takes the seat fires first. You can place your fleet already.",
+  "progress.openLocked": "Open in the space. Your fleet is locked in. Whoever takes the seat fires first.",
+  "progress.placeTable": "Place your fleet to play {name}.",
+  "table.joined": "{name} took the seat and fires first once both fleets are locked in.",
+  "table.left": "{name} left the game, so it ended.",
+  "table.ended": "This game in the space has ended.",
+  "table.joining": "Taking your seat…",
+  "table.closeFailed": "Couldn't close the game. Try again.",
   "toast.askedContinue": "Asked {name} to continue the game.",
   "toast.inviteCancelled": "Invite to {name} cancelled.",
   "toast.inviteMayShow": "Couldn't reach {name} — the invite may still show for them.",
@@ -398,6 +412,20 @@ const de: Catalog = {
   "void.them": "Schiffe versenken bei {name} hat die Partie beendet: Es hat eine Antwort gefunden, die nicht passte. Deine Antworten passten alle zu deiner festgelegten Flotte.",
 
   "toast.couldntReach": "{name} war nicht erreichbar – bitte versuch es noch einmal.",
+
+  // Open games in a space (tables)
+  "table.openGame": "Offene Partie",
+  "chip.openGame": "Wartet auf jemanden",
+  "btn.closeTable": "Partie schließen",
+  "status.waitingForPlayer": "Wartet, bis jemand den Platz einnimmt",
+  "progress.openPlace": "Offen im Space. Wer den Platz einnimmt, schießt zuerst. Du kannst deine Flotte schon aufstellen.",
+  "progress.openLocked": "Offen im Space. Deine Flotte ist festgelegt. Wer den Platz einnimmt, schießt zuerst.",
+  "progress.placeTable": "Stell deine Flotte auf, um gegen {name} zu spielen.",
+  "table.joined": "{name} hat den Platz eingenommen und schießt zuerst, sobald beide Flotten festgelegt sind.",
+  "table.left": "{name} hat die Partie verlassen, darum ist sie zu Ende.",
+  "table.ended": "Diese Partie im Space ist zu Ende.",
+  "table.joining": "Du nimmst deinen Platz ein…",
+  "table.closeFailed": "Die Partie konnte nicht geschlossen werden. Versuch es noch einmal.",
   "toast.askedContinue": "{name} wurde gefragt, ob ihr die Partie fortsetzt.",
   "toast.inviteCancelled": "Einladung an {name} zurückgezogen.",
   "toast.inviteMayShow": "{name} war nicht erreichbar – die Einladung wird dort vielleicht noch angezeigt.",
@@ -593,6 +621,20 @@ const nl: Catalog = {
   "void.them": "Zeeslag bij {name} heeft de partij beëindigd: het vond een antwoord dat niet klopte. Jouw antwoorden klopten allemaal met de vloot die je vastlegde.",
 
   "toast.couldntReach": "{name} was niet bereikbaar. Probeer het nog eens.",
+
+  // Open games in a space (tables)
+  "table.openGame": "Open partij",
+  "chip.openGame": "Wacht op een speler",
+  "btn.closeTable": "Partij sluiten",
+  "status.waitingForPlayer": "Wacht tot iemand de plek inneemt",
+  "progress.openPlace": "Open in de space. Wie de plek inneemt, schiet als eerste. Je kunt je vloot al opzetten.",
+  "progress.openLocked": "Open in de space. Je vloot staat vast. Wie de plek inneemt, schiet als eerste.",
+  "progress.placeTable": "Zet je vloot op om tegen {name} te spelen.",
+  "table.joined": "{name} heeft de plek ingenomen en schiet als eerste zodra beide vloten vaststaan.",
+  "table.left": "{name} heeft de partij verlaten, dus die is afgelopen.",
+  "table.ended": "Deze partij in de space is afgelopen.",
+  "table.joining": "Je neemt je plek in…",
+  "table.closeFailed": "De partij kon niet worden gesloten. Probeer het opnieuw.",
   "toast.askedContinue": "{name} gevraagd om de partij voort te zetten.",
   "toast.inviteCancelled": "Uitnodiging aan {name} ingetrokken.",
   "toast.inviteMayShow": "{name} was niet bereikbaar. De uitnodiging is daar misschien nog te zien.",
@@ -788,6 +830,20 @@ const fr: Catalog = {
   "void.them": "Bataille navale chez {name} a terminé la partie" + NB + ": elle a trouvé une réponse qui ne correspondait pas. Toutes vos réponses correspondaient à votre flotte validée.",
 
   "toast.couldntReach": "Impossible de joindre {name}. Veuillez réessayer.",
+
+  // Open games in a space (tables)
+  "table.openGame": "Partie ouverte",
+  "chip.openGame": "En attente d’un joueur",
+  "btn.closeTable": "Fermer la partie",
+  "status.waitingForPlayer": "En attente de quelqu’un pour prendre la place",
+  "progress.openPlace": "Ouverte dans l’espace. La personne qui prend la place tire en premier. Vous pouvez déjà placer votre flotte.",
+  "progress.openLocked": "Ouverte dans l’espace. Votre flotte est validée. La personne qui prend la place tire en premier.",
+  "progress.placeTable": "Placez votre flotte pour jouer contre {name}.",
+  "table.joined": "{name} a pris la place et tire en premier dès que les deux flottes sont validées.",
+  "table.left": "{name} a quitté la partie, elle est donc terminée.",
+  "table.ended": "Cette partie de l’espace est terminée.",
+  "table.joining": "Vous prenez votre place…",
+  "table.closeFailed": "Impossible de fermer la partie. Réessayez.",
   "toast.askedContinue": "{name} a été invité à reprendre la partie.",
   "toast.inviteCancelled": "Invitation à {name} retirée.",
   "toast.inviteMayShow": "Impossible de joindre {name}. L’invitation peut encore s’afficher de son côté.",
@@ -983,6 +1039,20 @@ const es: Catalog = {
   "void.them": "Hundir la flota de {name} terminó la partida: encontró una respuesta que no coincidía. Todas tus respuestas coincidían con la flota que fijaste.",
 
   "toast.couldntReach": "No se pudo contactar con {name}. Inténtalo de nuevo.",
+
+  // Open games in a space (tables)
+  "table.openGame": "Partida abierta",
+  "chip.openGame": "Esperando a alguien",
+  "btn.closeTable": "Cerrar partida",
+  "status.waitingForPlayer": "Esperando a que alguien ocupe la plaza",
+  "progress.openPlace": "Abierta en el espacio. Quien ocupe la plaza dispara primero. Ya puedes colocar tu flota.",
+  "progress.openLocked": "Abierta en el espacio. Tu flota está fijada. Quien ocupe la plaza dispara primero.",
+  "progress.placeTable": "Coloca tu flota para jugar con {name}.",
+  "table.joined": "{name} ocupó la plaza y dispara primero en cuanto ambas flotas estén fijadas.",
+  "table.left": "{name} dejó la partida, así que terminó.",
+  "table.ended": "Esta partida del espacio terminó.",
+  "table.joining": "Ocupando tu plaza…",
+  "table.closeFailed": "No se pudo cerrar la partida. Inténtalo de nuevo.",
   "toast.askedContinue": "Le preguntaste a {name} si seguís la partida.",
   "toast.inviteCancelled": "Invitación a {name} retirada.",
   "toast.inviteMayShow": "No se pudo contactar con {name}. Puede que la invitación aún se vea allí.",

@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.31",
+    "date": "2026-10-31",
+    "notes": {
+      "en": "Play Chess as an open game in a space: start it from the space's Games and whoever takes the seat plays White and moves first. Moves and \"Your turn\" work as in any game, and every move is still checked on both sides. Your open game waits in your list until someone joins, and you can close it there. Invites work as before.",
+      "de": "Spiel Schach als offene Partie in einem Space: Starte sie unter „Spiele“ im Space, und wer den Platz einnimmt, spielt Weiß und zieht zuerst. Züge und „Du bist dran“ funktionieren wie in jeder Partie, und jeder Zug wird weiter auf beiden Seiten geprüft. Deine offene Partie wartet in deiner Liste, bis jemand mitmacht, und du kannst sie dort schließen. Einladungen funktionieren wie bisher.",
+      "nl": "Speel schaken als open partij in een space: start hem bij Spellen in de space, en wie de plek inneemt speelt met wit en zet als eerste. Zetten en „Jij bent aan de beurt” werken zoals in elke partij, en elke zet wordt nog steeds aan beide kanten gecontroleerd. Je open partij wacht in je lijst tot iemand meedoet, en je kunt hem daar sluiten. Uitnodigingen werken zoals voorheen.",
+      "fr": "Jouez aux échecs en partie ouverte dans un espace : lancez-la depuis Jeux dans l’espace, et la personne qui prend la place joue les Blancs et commence. Les coups et « À vous de jouer » fonctionnent comme dans toute partie, et chaque coup reste vérifié des deux côtés. Votre partie ouverte attend dans votre liste jusqu’à ce que quelqu’un participe, et vous pouvez l’y fermer. Les invitations fonctionnent comme avant.",
+      "es": "Juega al ajedrez como partida abierta en un espacio: empiézala desde Juegos en el espacio, y quien ocupe la plaza juega con blancas y mueve primero. Las jugadas y «Te toca» funcionan como en cualquier partida, y cada jugada se sigue comprobando en los dos lados. Tu partida abierta espera en tu lista hasta que alguien participe, y puedes cerrarla ahí. Las invitaciones funcionan como antes."
+    }
+  },
+  {
     "version": "2026.10.30.3",
     "date": "2026-10-30",
     "notes": {

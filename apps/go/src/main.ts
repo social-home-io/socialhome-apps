@@ -16,7 +16,7 @@
  */
 
 import sh, { ShError } from "@socialhome/app-sdk";
-import type { AppLook, AppMessage, Contact, PickedPerson } from "@socialhome/app-sdk";
+import type { AppLook, AppMessage, Contact, GroupEvent, GroupMessage, GroupSession, PickedPerson } from "@socialhome/app-sdk";
 import { BLACK, COLUMNS, EMPTY, handicapsFor, isHandicap, isSize, maxHandicap, pointName, scoreArea, starPoints } from "./rules.js";
 import type { Color, Size } from "./rules.js";
 import { MAX_LOG, applyEntry, isTimeout, passesTurn, resignBy, sameEntry, timeoutOf, toggleChain, whyNot } from "./game.js";
@@ -63,6 +63,7 @@ import {
   colorName,
   handicapExplain,
   metaFor,
+  opponentLabel,
   resultLine,
   rulesLine,
   sizeName,
@@ -76,6 +77,17 @@ import type { Announcer } from "./announcer.js";
 import { num, t } from "./i18n.js";
 import type { MessageKey } from "./i18n.js";
 import { applyLook } from "./look.js";
+import {
+  canCloseTable,
+  classifyTableEvent,
+  entryForTable,
+  isPlayableTable,
+  isWaitingForPlayer,
+  parseSavedGame,
+  routeTableMessage,
+  updateFromTable,
+} from "./table.js";
+import type { TableAction } from "./table.js";
 
 const client = sh as NonNullable<typeof sh>;
 /** Lobby choices: saved in order per key, the last change wins (prefs.ts). */
@@ -106,6 +118,10 @@ interface UI {
   liveInvites: boolean;
   reducedMotion: boolean;
   unsupportedShown: Set<string>;
+  /** This Social Home has open games in spaces (`sh.group`, SDK 1.9). */
+  groups: boolean;
+  /** Join opened Go for this table before our seat was confirmed: open it once seated. */
+  launchTable: string | null;
 }
 
 const ui: UI = {
@@ -126,6 +142,8 @@ const ui: UI = {
   liveInvites: false,
   reducedMotion: false,
   unsupportedShown: new Set(),
+  groups: false,
+  launchTable: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -176,7 +194,7 @@ async function loadAll(): Promise<void> {
   let handicap: unknown = 0;
   for (const [key, value] of Object.entries(all)) {
     if (key.startsWith(PREFIX)) {
-      const entry = parseEntry(value);
+      const entry = parseSavedGame(value);
       if (!entry) continue;
       ui.games.set(entry.sessionId, entry);
       // A clock without a mark for this position starts counting now (never earlier).
@@ -493,7 +511,7 @@ function miniStone(c: Color | null): HTMLElement {
 }
 
 function gameCard(entry: GameEntry): HTMLElement {
-  const name = entry.opponentName;
+  const name = opponentLabel(entry);
   const li = make("li", { cls: "card game" });
   const top = make("div", { cls: "game-top" });
   top.append(miniStone(entry.myColor), make("span", { cls: "who", text: name }));
@@ -506,12 +524,20 @@ function gameCard(entry: GameEntry): HTMLElement {
   const attrs = { "aria-label": t("btn.openWith", { name }), "data-open": entry.sessionId };
   acts.append(isMyTurn(entry) ? button(t("btn.play"), "primary", open, attrs) : button(t("btn.open"), "", open, attrs));
   if (isAwaitingOpponent(entry)) acts.append(button(t("btn.cancelInvite"), "ghost", () => void cancelInvite(entry)));
+  // Our open game in a space: nobody took the seat yet. Close it there.
+  if (canCloseTable(entry)) acts.append(closeTableButton(entry));
   if (stateOf(entry)?.phase === "over") {
-    acts.append(button(t("btn.rematch"), "", () => void rematch(entry), { "aria-label": t("btn.rematchWho", { name }) }));
+    // A rematch goes through the invite sheet: not for an open game in a
+    // space (Social Home gives an app seats there, never people).
+    if (!entry.table) acts.append(button(t("btn.rematch"), "", () => void rematch(entry), { "aria-label": t("btn.rematchWho", { name }) }));
     acts.append(button(t("btn.remove"), "ghost", () => void removeGame(entry), { "aria-label": t("btn.removeWith", { name }) }));
   }
   li.appendChild(acts);
   return li;
+}
+
+function closeTableButton(entry: GameEntry): HTMLButtonElement {
+  return button(t("btn.closeTable"), "ghost", () => void closeTable(entry), { "aria-label": t("btn.closeTableLabel") });
 }
 
 function contactFor(entry: GameEntry): Contact {
@@ -591,7 +617,7 @@ function renderGame(): void {
     return renderLobby();
   }
   const st = stateOf(entry);
-  const name = personName(entry);
+  const name = personName(entry) || opponentLabel(entry);
   const hadBoardFocus = document.activeElement?.closest("#board-grid") != null;
   const r = root();
   r.replaceChildren();
@@ -602,7 +628,7 @@ function renderGame(): void {
   const back = make("button", { cls: "btn ghost back", attrs: { type: "button", "aria-label": t("game.backLabel") } });
   back.append(make("span", { cls: "flip-rtl", text: "←", attrs: { "aria-hidden": "true" } }), ` ${t("game.back")}`);
   back.addEventListener("click", toLobby);
-  top.append(back, make("h2", { cls: "title", text: entry.opponentName }));
+  top.append(back, make("h2", { cls: "title", text: opponentLabel(entry) }));
   r.appendChild(top);
 
   if (!st) {
@@ -653,7 +679,8 @@ function sidePanel(entry: GameEntry, st: GameState, name: string): { info: HTMLE
   if (st.phase === "over") {
     side.appendChild(resultCard(entry, st));
     const row = make("div", { cls: "row acts" });
-    row.append(button(t("btn.rematch"), "primary", () => void rematch(entry)), button(t("btn.backToGames"), "", toLobby));
+    if (!entry.table) row.append(button(t("btn.rematch"), "primary", () => void rematch(entry)));
+    row.append(button(t("btn.backToGames"), entry.table ? "primary" : "", toLobby));
     lower.appendChild(row);
     return { info: side, lower };
   }
@@ -730,9 +757,15 @@ function sidePanel(entry: GameEntry, st: GameState, name: string): { info: HTMLE
     acts.append(button(t("btn.claim"), "", () => void onClaim(entry), { "data-claim": "" }));
     lower.appendChild(acts);
   }
-  lower.appendChild(
-    button(t("btn.resign"), "ghost danger resign", () => void onResign(entry)),
-  );
+  if (isWaitingForPlayer(entry)) {
+    // Nobody to resign to yet at our open game: Close it instead.
+    if (canCloseTable(entry)) {
+      acts.append(closeTableButton(entry));
+      lower.appendChild(acts);
+    }
+  } else {
+    lower.appendChild(button(t("btn.resign"), "ghost danger resign", () => void onResign(entry)));
+  }
   lower.appendChild(make("p", { cls: "muted small keys", text: t(entry.days > 0 ? "game.keysClock" : "game.keys") }));
   if (st.n >= MAX_LOG - 1) lower.appendChild(make("p", { cls: "muted small", text: t("illegal.long") }));
   return { info: side, lower };
@@ -947,6 +980,10 @@ const ILLEGAL_TEXT: Partial<Record<string, MessageKey>> = {
 function onPoint(entry: GameEntry, p: number, fromKey: boolean): void {
   const st = stateOf(entry);
   if (!st || st.phase === "over") return;
+  if (isWaitingForPlayer(entry)) {
+    setHint(t("status.waitingForPlayer"));
+    return;
+  }
   if (!isMyTurn(entry)) {
     setHint(t("illegal.turn", { name: personName(entry) }));
     return;
@@ -986,6 +1023,19 @@ function setHint(text: string): void {
 // Actions
 // ---------------------------------------------------------------------------
 
+/**
+ * Send a game's message to the other player: over its table for an open game
+ * in a space (handing their seat the turn), else over the 1:1 session.
+ */
+function sendGame(entry: GameEntry, msg: unknown, turn: boolean): Promise<unknown> {
+  const table = entry.table;
+  if (table) {
+    if (table.them === null) return Promise.reject(new Error("nobody has taken the seat yet"));
+    return client.group.send(entry.sessionId, msg, turn ? { turn: table.them } : {});
+  }
+  return client.federation.send(entry.sessionId, targetFor(entry), msg, { turn });
+}
+
 /** Send our whole game to the opponent (with our time claim while it waits for an answer). */
 async function sendState(entry: GameEntry): Promise<void> {
   if (entry.size === null || entry.myColor === null) return;
@@ -996,14 +1046,14 @@ async function sendState(entry: GameEntry): Promise<void> {
   const turn = entry.log.length > 0 && passesTurn(st, entry.myColor) && !claim;
   try {
     const msg = buildMessage(entry.size, entry.myColor, entry.log, rulesOf(entry), claim ? { claim: true } : {});
-    await client.federation.send(entry.sessionId, targetFor(entry), msg, { turn });
+    await sendGame(entry, msg, turn);
     if (entry.unsent) {
       entry.unsent = false;
       void persist(entry);
       if (ui.active === entry.sessionId) render();
     }
   } catch (err) {
-    if (isUnknownGame(err)) {
+    if (isUnknownGame(err) && !entry.table) {
       void offerContinue(entry);
       return;
     }
@@ -1020,7 +1070,7 @@ async function sendExtra(entry: GameEntry, extras: MessageExtras): Promise<void>
   if (entry.size === null || entry.myColor === null) return;
   try {
     const msg = buildMessage(entry.size, entry.myColor, entry.log, rulesOf(entry), extras);
-    await client.federation.send(entry.sessionId, targetFor(entry), msg, { turn: false });
+    await sendGame(entry, msg, false);
   } catch {
     console.warn("go.send_failed", { session_id: entry.sessionId, kind: "claim-answer" });
   }
@@ -1151,6 +1201,8 @@ async function rematch(entry: GameEntry): Promise<void> {
 
 async function removeGame(entry: GameEntry): Promise<void> {
   if (!(await confirmDialog(removeCopy(entry)))) return;
+  // A finished game at a table: our seat there isn't needed any more.
+  if (entry.table && ui.groups) void client.group.leave(entry.sessionId).catch(() => {});
   await dropGame(entry.sessionId);
   document.querySelector<HTMLElement>("[data-new-game]")?.focus();
 }
@@ -1173,6 +1225,26 @@ async function cancelInvite(entry: GameEntry): Promise<void> {
     toast(t("toast.inviteMayShow", { name: personName(entry) }));
   }
   await dropGame(entry.sessionId);
+}
+
+/**
+ * Close our open game in a space before anyone took the seat: it goes from
+ * the space's games (Social Home ends the table for everyone) and from here.
+ */
+async function closeTable(entry: GameEntry): Promise<void> {
+  if (!entry.table) return;
+  try {
+    await client.group.close(entry.sessionId);
+  } catch (err) {
+    // Already over there (closed on another screen, expired): just forget it.
+    const code = err instanceof ShError ? err.code : undefined;
+    if (code !== "group_closed" && code !== "group_not_found") {
+      toast(t("table.closeFailed"));
+      return;
+    }
+  }
+  await dropGame(entry.sessionId);
+  document.querySelector<HTMLElement>("[data-new-game]")?.focus();
 }
 
 /** "Continue game with Ben": Social Home's sheet re-registers the game, then our state goes out again. */
@@ -1350,6 +1422,157 @@ async function applyHeld(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Open games in a space (tables, SDK 1.9) — table.ts decides, this applies
+// ---------------------------------------------------------------------------
+
+/** Table events that came in before our saved games were loaded. */
+let tableEventsBeforeBoot: GroupEvent[] | null = [];
+
+function onGroupEvent(event: GroupEvent): void {
+  if (tableEventsBeforeBoot) {
+    tableEventsBeforeBoot.push(event);
+    return;
+  }
+  if (event.type === "message") {
+    void takeTableMessage(event).catch((err) => console.error("go.table_message_failed", err));
+    return;
+  }
+  handleTableAction(classifyTableEvent(event, ui.games));
+}
+
+/**
+ * A message at a table: routed by the table Social Home delivered it for and
+ * the sender's seat (never an id in the payload), then judged like any
+ * 1:1 message (moves, passes, markings, resignations, claims).
+ */
+async function takeTableMessage(msg: GroupMessage): Promise<void> {
+  if (!isGoMessage(msg.data)) return;
+  let route = routeTableMessage(msg, ui.games);
+  if (route.kind === "drop" && route.reason === "no-opponent-yet") {
+    // A move before the roster said who sat down: ask Social Home for the table once.
+    const session = await client.group.get(msg.id).catch(() => null);
+    if (session) seatTable(session);
+    route = routeTableMessage(msg, ui.games);
+  }
+  if (route.kind === "drop") {
+    console.warn("go.table_dropped", { session_id: msg.id, reason: route.reason });
+    return;
+  }
+  const entry = route.entry;
+  await withGame(entry.sessionId, () => takeMessage(entry, msg.data));
+}
+
+function handleTableAction(action: TableAction): void {
+  switch (action.kind) {
+    case "seat": {
+      const entry = seatTable(action.session);
+      if (entry && ui.launchTable === entry.sessionId) {
+        ui.launchTable = null;
+        openGame(entry.sessionId);
+      } else {
+        render();
+      }
+      return;
+    }
+    case "joined":
+      onSeatTaken(action.entry);
+      return;
+    case "update":
+      void persist(action.entry);
+      render();
+      return;
+    case "gone":
+      toast(action.reason === "left" ? t("table.left", { name: opponentLabel(action.entry) }) : t("table.ended"));
+      void dropGame(action.entry.sessionId);
+      return;
+    case "mine-over":
+      // We left on another screen, or Social Home took us out: forget it.
+      void dropGame(action.entry.sessionId);
+      return;
+    case "ignore":
+      return;
+  }
+}
+
+/** Someone took the seat at our open game: they play Black and move first. */
+function onSeatTaken(entry: GameEntry): void {
+  entry.updatedAt = Date.now();
+  void persist(entry);
+  const text = t("table.joined", { name: opponentLabel(entry) });
+  if (ui.view === "game" && ui.active === entry.sessionId) say(text);
+  else toast(text);
+  render();
+}
+
+/** Our game for a table we sit at: the one we have (names refreshed), or a new one. */
+function seatTable(session: GroupSession): GameEntry | null {
+  const known = ui.games.get(session.id);
+  if (known) {
+    if (!known.table) return null; // a 1:1 game's id never becomes a table
+    const { changed, joined } = updateFromTable(known, session);
+    if (joined) onSeatTaken(known);
+    else if (changed) void persist(known);
+    return known;
+  }
+  const entry = entryForTable(session, Date.now());
+  if (!entry) return null;
+  ui.games.set(entry.sessionId, entry);
+  void persist(entry);
+  return entry;
+}
+
+/**
+ * On open: what happened at our tables while Go was closed — someone took
+ * the seat, the table ended, we left on another screen — and tables we sit
+ * at but have no game for yet (opened on another screen).
+ */
+async function syncTables(): Promise<void> {
+  let tables: GroupSession[];
+  try {
+    tables = await client.group.list();
+  } catch (err) {
+    console.info("go.no_tables", err);
+    return;
+  }
+  for (const session of tables) {
+    const known = ui.games.get(session.id);
+    if (!known) {
+      if (isPlayableTable(session)) seatTable(session);
+      continue;
+    }
+    if (!known.table) continue;
+    if (session.myState === "left" || session.myState === "removed") {
+      handleTableAction({ kind: "mine-over", entry: known });
+    } else if (session.state === "ended") {
+      handleTableAction(classifyTableEvent({ type: "ended", id: session.id, session }, ui.games));
+    } else {
+      seatTable(session);
+    }
+  }
+}
+
+/** Messages at our tables that waited while Go was closed (each player's latest). */
+async function applyGroupHeld(): Promise<void> {
+  let held: GroupMessage[];
+  try {
+    held = await client.group.held();
+  } catch (err) {
+    console.info("go.no_held_table_messages", err);
+    return;
+  }
+  for (const msg of held) {
+    await takeTableMessage(msg).catch((err) => console.error("go.held_table_message_failed", err));
+  }
+}
+
+/** Boot is done: take the table events that came in meanwhile. */
+function flushEarlyTableEvents(): void {
+  const early = tableEventsBeforeBoot ?? [];
+  tableEventsBeforeBoot = null;
+  for (const event of early) onGroupEvent(event);
+}
+
+// ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 
@@ -1368,6 +1591,7 @@ async function main(): Promise<void> {
   if (!booted) {
     client.onMessage(onInboundMessage);
     client.onSession(onInboundSession);
+    client.group.onEvent(onGroupEvent);
   }
   root().replaceChildren(make("p", { cls: "muted", text: t("app.loading") }));
   try {
@@ -1381,7 +1605,10 @@ async function main(): Promise<void> {
       booted = true;
     }
     ui.selfUserId = ctx.selfUserId;
+    // Open games in spaces (an older Social Home has none: 1:1 only).
+    ui.groups = ctx.groups === true;
     ui.contacts = await client.contacts().catch(() => []);
+    if (ui.groups) await syncTables();
     render();
 
     if (ctx.launch === undefined) {
@@ -1391,7 +1618,15 @@ async function main(): Promise<void> {
       render();
     } else {
       const launch = launchAction(ctx.launch, ui.games);
-      if (launch.kind === "start") {
+      if (launch.kind === "table") {
+        const entry = seatTable(launch.session);
+        if (entry) openGame(entry.sessionId);
+        else if (launch.session.state !== "ended" && launch.session.myState === "joining") {
+          // Join was pressed; the table's household hasn't seated us yet.
+          ui.launchTable = launch.session.id;
+          toast(t("table.joining"));
+        } else toast(t("table.ended"));
+      } else if (launch.kind === "start") {
         const entry = seatInvite(launch.invite);
         if (entry) openGame(entry.sessionId);
       } else if (launch.kind === "open") openGame(launch.sessionId);
@@ -1399,11 +1634,14 @@ async function main(): Promise<void> {
       else if (launch.kind === "mismatch") toast(t("invite.mismatch"));
     }
     await applyHeld();
+    if (ui.groups) await applyGroupHeld();
+    flushEarlyTableEvents();
     // A step that didn't go out (offline when it was made): send it now.
     for (const entry of ui.games.values()) {
       if (entry.unsent) void withGame(entry.sessionId, () => sendState(entry));
     }
   } catch (err) {
+    flushEarlyTableEvents();
     console.error("go.init_failed", err);
     const box = make("div", { cls: "card error", attrs: { role: "alert" } });
     box.append(make("p", { text: t("app.loadFailed") }), button(t("btn.retry"), "primary", () => void main()));

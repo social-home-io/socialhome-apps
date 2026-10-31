@@ -250,6 +250,21 @@ const en = {
   "status.showing": "Adding your half of {name}'s roll…",
   "resign.bodyGammon": "None of your checkers is borne off yet, so this counts as a gammon: {name} wins {n} points.",
   "resign.bodyBackgammon": "A checker of yours is still on the bar or in {name}'s home board, so this counts as a backgammon: {name} wins {n} points.",
+
+  // Open games in a space (tables)
+  "table.openGame": "Open game",
+  "chip.openGame": "Waiting for a player",
+  "btn.closeTable": "Close game",
+  "btn.closeTableLabel": "Close your open game",
+  "table.waiting": "Your game is open in the space: you play White, with the doubling cube and no clock. It starts as soon as someone takes the seat; the opening roll decides who starts.",
+  "status.waitingForPlayer": "Waiting for someone to take the seat",
+  "table.joined": "{name} took the seat. The opening roll decides who starts.",
+  "table.waitAnswer": "It's {name}'s turn now, and they get a notice. The opening roll comes as soon as {name}'s Backgammon answers.",
+  "table.started": "Your game with {name} has started. The opening roll is in.",
+  "table.left": "{name} left the game, so it ended.",
+  "table.ended": "This game in the space has ended.",
+  "table.joining": "Taking your seat…",
+  "table.closeFailed": "Couldn't close the game. Try again.",
 };
 
 export type MessageKey = keyof typeof en;
@@ -486,6 +501,21 @@ const de: Catalog = {
   "status.showing": "Deine Hälfte für den Wurf von {name} wird geschickt …",
   "resign.bodyGammon": "Du hast noch keinen Stein abgetragen, darum zählt das als Gammon: {name} gewinnt {n} Punkte.",
   "resign.bodyBackgammon": "Ein Stein von dir steht noch auf der Bar oder im Heimfeld von {name}, darum zählt das als Backgammon: {name} gewinnt {n} Punkte.",
+
+  // Open games in a space (tables)
+  "table.openGame": "Offene Partie",
+  "chip.openGame": "Wartet auf jemanden",
+  "btn.closeTable": "Partie schließen",
+  "btn.closeTableLabel": "Deine offene Partie schließen",
+  "table.waiting": "Deine Partie ist im Space offen: Du spielst Weiß, mit Dopplerwürfel und ohne Uhr. Los geht’s, sobald jemand den Platz einnimmt; der Eröffnungswurf entscheidet, wer beginnt.",
+  "status.waitingForPlayer": "Wartet, bis jemand den Platz einnimmt",
+  "table.joined": "{name} hat den Platz eingenommen. Der Eröffnungswurf entscheidet, wer beginnt.",
+  "table.waitAnswer": "{name} ist jetzt dran und bekommt Bescheid. Der Eröffnungswurf kommt, sobald das Backgammon von {name} antwortet.",
+  "table.started": "Deine Partie mit {name} hat begonnen. Der Eröffnungswurf ist da.",
+  "table.left": "{name} hat die Partie verlassen, darum ist sie zu Ende.",
+  "table.ended": "Diese Partie im Space ist zu Ende.",
+  "table.joining": "Du nimmst deinen Platz ein…",
+  "table.closeFailed": "Die Partie konnte nicht geschlossen werden. Versuch es noch einmal.",
 };
 
 const nl: Catalog = {
@@ -719,6 +749,21 @@ const nl: Catalog = {
   "status.showing": "Jouw helft van de worp van {name} wordt gestuurd…",
   "resign.bodyGammon": "Je hebt nog geen steen uitgespeeld, dus dit telt als gammon: {name} wint {n} punten.",
   "resign.bodyBackgammon": "Er staat nog een steen van je op de bar of in het thuisbord van {name}, dus dit telt als backgammon: {name} wint {n} punten.",
+
+  // Open games in a space (tables)
+  "table.openGame": "Open partij",
+  "chip.openGame": "Wacht op een speler",
+  "btn.closeTable": "Partij sluiten",
+  "btn.closeTableLabel": "Je open partij sluiten",
+  "table.waiting": "Je partij staat open in de space: je speelt Wit, met de verdubbelingskubus en zonder klok. Ze begint zodra iemand de plek inneemt; de openingsworp beslist wie begint.",
+  "status.waitingForPlayer": "Wacht tot iemand de plek inneemt",
+  "table.joined": "{name} heeft de plek ingenomen. De openingsworp beslist wie begint.",
+  "table.waitAnswer": "{name} is nu aan de beurt en krijgt een seintje. De openingsworp komt zodra Backgammon van {name} antwoordt.",
+  "table.started": "Je partij met {name} is begonnen. De openingsworp is binnen.",
+  "table.left": "{name} heeft de partij verlaten, dus ze is afgelopen.",
+  "table.ended": "Deze partij in de space is afgelopen.",
+  "table.joining": "Je neemt je plek in…",
+  "table.closeFailed": "De partij kon niet worden gesloten. Probeer het opnieuw.",
 };
 
 const fr: Catalog = {
@@ -952,6 +997,21 @@ const fr: Catalog = {
   "status.showing": "Envoi de votre moitié du lancer de {name}…",
   "resign.bodyGammon": "Vous n’avez encore sorti aucune dame, cela compte donc comme un gammon\u00a0: {name} gagne {n} points.",
   "resign.bodyBackgammon": "Une de vos dames est encore sur la barre ou dans le jan intérieur de {name}, cela compte donc comme un backgammon\u00a0: {name} gagne {n} points.",
+
+  // Open games in a space (tables)
+  "table.openGame": "Partie ouverte",
+  "chip.openGame": "En attente d’un joueur",
+  "btn.closeTable": "Fermer la partie",
+  "btn.closeTableLabel": "Fermer votre partie ouverte",
+  "table.waiting": "Votre partie est ouverte dans l’espace\u00a0: vous jouez Blanc, avec le videau et sans pendule. Elle commence dès que quelqu’un prend la place\u00a0; le premier lancer décide qui commence.",
+  "status.waitingForPlayer": "En attente de quelqu’un pour prendre la place",
+  "table.joined": "{name} a pris la place. Le premier lancer décide qui commence.",
+  "table.waitAnswer": "C’est à {name} de jouer, et un avis lui est envoyé. Le premier lancer arrive dès que le Backgammon de {name} répond.",
+  "table.started": "Votre partie avec {name} a commencé. Le premier lancer est arrivé.",
+  "table.left": "{name} a quitté la partie, elle est donc terminée.",
+  "table.ended": "Cette partie de l’espace est terminée.",
+  "table.joining": "Vous prenez votre place…",
+  "table.closeFailed": "Impossible de fermer la partie. Réessayez.",
 };
 
 const es: Catalog = {
@@ -1185,6 +1245,21 @@ const es: Catalog = {
   "status.showing": "Enviando tu mitad de la tirada de {name}…",
   "resign.bodyGammon": "Aún no has sacado ninguna ficha, así que cuenta como gammon: {name} gana {n} puntos.",
   "resign.bodyBackgammon": "Aún tienes una ficha en la barra o en el cuadrante interior de {name}, así que cuenta como backgammon: {name} gana {n} puntos.",
+
+  // Open games in a space (tables)
+  "table.openGame": "Partida abierta",
+  "chip.openGame": "Esperando a alguien",
+  "btn.closeTable": "Cerrar partida",
+  "btn.closeTableLabel": "Cerrar tu partida abierta",
+  "table.waiting": "Tu partida está abierta en el espacio: juegas con Blanco, con cubo de doblaje y sin reloj. Empieza en cuanto alguien ocupe la plaza; la tirada inicial decide quién empieza.",
+  "status.waitingForPlayer": "Esperando a que alguien ocupe la plaza",
+  "table.joined": "{name} ocupó la plaza. La tirada inicial decide quién empieza.",
+  "table.waitAnswer": "Ahora le toca a {name}, que recibe un aviso. La tirada inicial llega en cuanto el Backgammon de {name} responda.",
+  "table.started": "Tu partida con {name} ha empezado. La tirada inicial ya está.",
+  "table.left": "{name} dejó la partida, así que terminó.",
+  "table.ended": "Esta partida del espacio terminó.",
+  "table.joining": "Ocupando tu plaza…",
+  "table.closeFailed": "No se pudo cerrar la partida. Inténtalo de nuevo.",
 };
 
 export const CATALOGS: Record<Locale, Catalog> = { en, de, nl, fr, es };

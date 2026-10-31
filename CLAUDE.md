@@ -19,7 +19,7 @@ and the catalog tooling.
 | `apps/<app_id>/` | one app: `manifest.json`, `CHANGELOG.json`, `src/`, `public/`, `build.mjs`, tests |
 | `scripts/build-catalog.mjs` | packs each `apps/*/dist/` into a tarball and writes `catalog.json` |
 | `scripts/catalog-lib.mjs` | manifest / changelog validation and catalog shape (schema 2) |
-| `scripts/check-versions.mjs` | CI guard: a change to an app or the SDK must bump its version |
+| `scripts/check-versions.mjs` | CI guard: a change to an app or the SDK must bump its version — also when only its built bundle changed (SDK, tools; `bundle-hash.mjs`) |
 | `.github/workflows/` | `ci.yml` (every PR), `release-draft.yml` (every merge), `release.yml` (on publish), `dependabot-automerge.yml` |
 | `.github/dependabot.yml` | weekly dependency PRs (npm workspace + Actions) |
 | `RELEASING.md` | versions, labels, when and how to release |
@@ -35,7 +35,7 @@ pnpm test                            # vitest: SDK, scripts, every app
 pnpm lint                            # ESLint
 pnpm -r exec tsc --noEmit            # types (after pnpm build — apps import the SDK's built types)
 RELEASE_TAG=ci-dry-run pnpm catalog  # packaging dry-run: tarballs + catalog.json
-node scripts/check-versions.mjs origin/main   # the PR version guard, locally
+node scripts/check-versions.mjs origin/main   # the PR version guard, locally (after pnpm build)
 ```
 
 CI runs all of these on every pull request. Run the relevant ones before you
@@ -89,6 +89,12 @@ other sessions may share the machine.
   for a refused message; never crash. (Chess: `src/inbound.ts`.)
 - Ask only for the capabilities you need (`storage`, `people`,
   `federation`); Social Home enforces them.
+- **Group games** (SDK ≥ 1.9, `players` / `tables` / `late_join` in the
+  manifest; README "Group games"): players are seats, never usernames; open
+  tables only with `sh.group.open()`; route by the table id and the sender's
+  seat; send state (a closed app gets each player's latest message); have
+  many-player answers go to the host's seat, not to everyone; check
+  `ctx.groups` and fall back to 1:1 on `groups_not_supported`.
 
 **People**
 - Every screen works with a **keyboard and a screen reader**: grids as ARIA
@@ -108,7 +114,8 @@ other sessions may share the machine.
 Read `RELEASING.md`. The short version:
 - A PR that changes what an app ships bumps that app's `version` (CalVer,
   `YYYY.M.D[.N]`) and adds the matching `CHANGELOG.json` entry in all shipped
-  languages. A PR that changes the SDK bumps its semver. CI enforces both.
+  languages. A PR that changes the SDK bumps its semver, and bumps every app
+  whose built bundle changes with it. CI enforces all of it.
 - Every PR has one label (`enhancement`, `bug`, `security`, `breaking`,
   `documentation`, `chore`, `skip-changelog`) and a title written for people.
 - Merges refresh a draft release; a maintainer publishes it. Agents never

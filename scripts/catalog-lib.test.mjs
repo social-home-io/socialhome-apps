@@ -11,6 +11,8 @@ import {
   MAX_I18N_LOCALES,
   MAX_ICON_DATA_URI_BYTES,
   MAX_NAME_CHARS,
+  MAX_PLAYERS,
+  MIN_PLAYERS,
   buildEntry,
   compareCalver,
   parseCalver,
@@ -160,6 +162,38 @@ describe("validateManifest", () => {
   });
 });
 
+describe("validateManifest: group games (players / tables / late_join)", () => {
+  const group = (over = {}) => manifest({ players: { min: 3, max: 8 }, tables: true, ...over });
+
+  it("accepts a group game, a two-player game open as a table, and the bounds", () => {
+    expect(() => validateManifest(group())).not.toThrow();
+    expect(() => validateManifest(group({ late_join: true }))).not.toThrow();
+    expect(() => validateManifest(manifest({ players: { min: 2, max: 2 }, tables: true }))).not.toThrow();
+    expect(() => validateManifest(manifest({ tables: true }))).not.toThrow();
+    expect(() => validateManifest(manifest({ players: { min: 2, max: 2 } }))).not.toThrow();
+    expect(() => validateManifest(group({ players: { min: MIN_PLAYERS, max: MAX_PLAYERS } }))).not.toThrow();
+    expect(() => validateManifest(manifest({ tables: false, late_join: false }))).not.toThrow();
+  });
+
+  it("bounds players: 2 ≤ min ≤ max ≤ 30, whole numbers, nothing else", () => {
+    bad(() => validateManifest(group({ players: { min: 1, max: 8 } })), "players.min is 1, at least 2");
+    bad(() => validateManifest(group({ players: { min: 3, max: 31 } })), "players.max is 31, at most 30");
+    bad(() => validateManifest(group({ players: { min: 5, max: 4 } })), /players.min \(5\) is more than players.max \(4\)/);
+    bad(() => validateManifest(group({ players: { min: 2.5, max: 4 } })), "whole numbers");
+    bad(() => validateManifest(group({ players: { min: "2", max: 4 } })), "whole numbers");
+    bad(() => validateManifest(group({ players: { min: 2 } })), "whole numbers");
+    bad(() => validateManifest(group({ players: [2, 4] })), "players must be an object");
+    bad(() => validateManifest(group({ players: { min: 2, max: 4, ideal: 3 } })), "unknown field\\(s\\): ideal");
+  });
+
+  it("tables and late_join are booleans; more than two players and late_join need tables", () => {
+    bad(() => validateManifest(group({ tables: "yes" })), "tables must be true or false");
+    bad(() => validateManifest(group({ late_join: 1 })), "late_join must be true or false");
+    bad(() => validateManifest(manifest({ players: { min: 3, max: 8 } })), "needs tables: true");
+    bad(() => validateManifest(manifest({ late_join: true })), "late_join needs tables: true");
+  });
+});
+
 describe("validateChangelog", () => {
   it("accepts newest-first entries up to the manifest version", () => {
     const cl = [entry(), entry({ version: "2026.10.28", date: "2026-10-28", notes: { en: "a", de: "b" } })];
@@ -233,6 +267,27 @@ describe("buildEntry", () => {
     expect(e).not.toHaveProperty("i18n");
     expect(e).not.toHaveProperty("homepage");
     expect(e).not.toHaveProperty("min_core_version");
+    expect(e).not.toHaveProperty("players");
+    expect(e).not.toHaveProperty("tables");
+  });
+
+  it("carries players and tables (schema stays 2), not late_join", () => {
+    const m = manifest({ players: { min: 3, max: 8 }, tables: true, late_join: true });
+    const e = buildEntry({ manifest: m, changelog: null, ...base });
+    expect(e.players).toEqual({ min: 3, max: 8 });
+    expect(e.tables).toBe(true);
+    expect(e).not.toHaveProperty("late_join");
+  });
+
+  it("carries tables for a two-player game that opts in (open games in a space)", () => {
+    const e = buildEntry({ manifest: manifest({ players: { min: 2, max: 2 }, tables: true }), changelog: null, ...base });
+    expect(e.players).toEqual({ min: 2, max: 2 });
+    expect(e.tables).toBe(true);
+  });
+
+  it("leaves tables out unless the manifest says true", () => {
+    const e = buildEntry({ manifest: manifest({ tables: false }), changelog: null, ...base });
+    expect(e).not.toHaveProperty("tables");
   });
 
   it("copies v2 manifest fields and keeps only the newest changelog entries", () => {

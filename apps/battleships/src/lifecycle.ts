@@ -16,9 +16,10 @@
  */
 
 import { parseSessionPayload, ShError } from "@socialhome/app-sdk";
-import type { AppMessage, Contact, LaunchContext, PickedPerson, SessionTarget } from "@socialhome/app-sdk";
+import type { AppMessage, Contact, GroupSession, LaunchContext, PickedPerson, SessionTarget } from "@socialhome/app-sdk";
 import { t } from "./i18n.js";
 import type { Game } from "./game.js";
+import type { TableInfo } from "./table.js";
 
 export interface GameEntry {
   sessionId: string;
@@ -28,6 +29,8 @@ export interface GameEntry {
   opponentIsLocal: boolean;
   opponentName: string;
   game: Game;
+  /** An open game in a space: played over that table (table.ts), not a 1:1 session. */
+  table?: TableInfo;
 }
 
 /**
@@ -39,6 +42,11 @@ export function personName(entry: GameEntry): string {
   return entry.opponentName.split(" · ")[0].trim() || entry.opponentName;
 }
 
+/** Who the game is with, for headers — "Open game" while nobody has taken the seat at our table. */
+export function opponentLabel(entry: GameEntry): string {
+  return entry.opponentName || t("table.openGame");
+}
+
 /** The target that addresses the opponent of *entry*. */
 export function targetFor(entry: GameEntry): SessionTarget {
   return { instance_id: entry.opponentInstanceId, user_ref: entry.opponentRef, is_local: entry.opponentIsLocal };
@@ -46,12 +54,14 @@ export function targetFor(entry: GameEntry): SessionTarget {
 
 /** Our own invite, not answered yet: we challenged and nothing came back. */
 export function isAwaitingOpponent(entry: GameEntry): boolean {
+  if (entry.table) return false; // an open game in a space waits for a seat, not an answer
   const g = entry.game;
   return g.role === "challenger" && !g.outcome && !g.theirLeaves && g.shots.length === 0;
 }
 
 /** A received invite we haven't played in yet (no shot of ours). */
 export function isUnansweredInvite(entry: GameEntry): boolean {
+  if (entry.table) return false;
   const g = entry.game;
   return g.role === "invitee" && !g.outcome && g.shots.length === 0;
 }
@@ -72,6 +82,7 @@ export function senderOf(msg: AppMessage): string | undefined {
 
 /** The event comes from this game's opponent: same household and, when both name one, same person. */
 export function fromOpponent(entry: GameEntry, msg: AppMessage): boolean {
+  if (entry.table) return false; // a table game only takes table messages, by seat (table.ts)
   if (msg.fromInstance !== entry.opponentInstanceId) return false;
   const sender = senderOf(msg);
   return !(sender && entry.opponentRef && sender !== entry.opponentRef);
@@ -116,6 +127,7 @@ export function classifySessionEvent(
 
 export type LaunchAction =
   | { kind: "none" }
+  | { kind: "table"; session: GroupSession }
   | { kind: "start"; invite: AppMessage }
   | { kind: "open"; sessionId: string }
   | { kind: "mismatch" }
@@ -125,6 +137,12 @@ export type LaunchAction =
 export function launchAction(launch: LaunchContext | undefined, games: ReadonlyMap<string, GameEntry>): LaunchAction {
   const sessionId = launch?.sessionId;
   if (!sessionId) return { kind: "none" };
+  if (launch.group) {
+    // Join / Play for an open game in a space. A table's id never names a 1:1 game we have.
+    const mine = games.get(sessionId);
+    if (mine && !mine.table) return { kind: "mismatch" };
+    return { kind: "table", session: launch.group };
+  }
   const known = games.get(sessionId);
   if (known) {
     if (launch.invite && !fromOpponent(known, launch.invite)) return { kind: "mismatch" };

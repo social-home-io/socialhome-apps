@@ -38,6 +38,24 @@ export function compareSemver(a, b) {
 }
 
 /**
+ * The apps whose built bundle (`apps/<id>/dist/`) differs between the PR's
+ * merge base and its head — both built the same way. A change outside an app
+ * (the SDK, a build tool, the lockfile) can change what that app ships
+ * without touching a file under `apps/<id>/`: the bundle is what households
+ * download, so it is what counts. Apps missing on either side (new or
+ * removed) are left to the file check.
+ *
+ * @param {Record<string, string>} baseHashes app_id → bundle hash at the merge base
+ * @param {Record<string, string>} headHashes app_id → bundle hash at the head
+ * @returns {string[]} app ids, sorted
+ */
+export function bundlesChanged(baseHashes, headHashes) {
+  return Object.keys(headHashes)
+    .filter((id) => id in baseHashes && baseHashes[id] !== headHashes[id])
+    .sort();
+}
+
+/**
  * Check a pull request.
  *
  * @param {object} input
@@ -47,6 +65,9 @@ export function compareSemver(a, b) {
  * @param {Record<string, Array<{version?: string}> | null>} input.headChangelogs app_id → head CHANGELOG.json
  * @param {string|null} input.baseSdkVersion
  * @param {string|null} input.headSdkVersion
+ * @param {string[]} [input.changedBundles] app ids whose built bundle changed
+ *   (`bundlesChanged`) — also when none of their own files did, e.g. through
+ *   the SDK
  * @returns {string[]} problems, empty when the PR is fine
  */
 export function checkVersions({
@@ -56,12 +77,17 @@ export function checkVersions({
   headChangelogs,
   baseSdkVersion,
   headSdkVersion,
+  changedBundles = [],
 }) {
   const problems = [];
   const shipping = changedFiles.filter(shipsCode);
 
-  const apps = new Set(shipping.map(appIdOf).filter((id) => id !== null));
+  const byFiles = new Set(shipping.map(appIdOf).filter((id) => id !== null));
+  const apps = new Set([...byFiles, ...changedBundles]);
   for (const id of [...apps].sort()) {
+    const why = byFiles.has(id)
+      ? "this PR changes what the app ships"
+      : "this PR changes the app's built bundle (apps/" + id + "/dist/, e.g. through the SDK or a build tool)";
     const head = headManifests[id];
     if (head === null || head === undefined) continue; // app removed
     const base = baseManifests[id] ?? null;
@@ -72,7 +98,7 @@ export function checkVersions({
     }
     if (base && parseCalver(base.version) && compareCalver(version, base.version) <= 0) {
       problems.push(
-        `apps/${id}: this PR changes what the app ships, so bump "version" in ` +
+        `apps/${id}: ${why}, so bump "version" in ` +
           `apps/${id}/manifest.json above ${base.version} (CalVer, e.g. today's date)`,
       );
     }

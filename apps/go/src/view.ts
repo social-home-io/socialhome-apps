@@ -12,6 +12,12 @@ import { canClaim, hasPendingClaim, isAwaitingOpponent, isMyTurn, personName, st
 import type { GameEntry } from "./lifecycle.js";
 import { splitLeft } from "./clock.js";
 import { stonesPlayed } from "./game.js";
+import { isWaitingForPlayer } from "./table.js";
+
+/** Who the game is with — "Open game" while nobody has taken the seat at our table. */
+export function opponentLabel(entry: GameEntry): string {
+  return entry.opponentName || t("table.openGame");
+}
 
 export function colorName(c: Color): string {
   return t(c === "b" ? "color.b" : "color.w");
@@ -28,6 +34,7 @@ export function chipFor(entry: GameEntry, now = Date.now()): { text: string; ton
   const st = stateOf(entry);
   const name = personName(entry);
   if (!st) return { text: t("chip.waitSetup", { name }), tone: "wait" };
+  if (isWaitingForPlayer(entry)) return { text: t("chip.openGame"), tone: "wait" };
   if (st.result) {
     return st.result.winner === entry.myColor ? { text: t("chip.won"), tone: "good" } : { text: t("chip.lost"), tone: "bad" };
   }
@@ -81,6 +88,7 @@ export function statusFor(entry: GameEntry): { title: string; detail: string | n
   const st = stateOf(entry);
   const name = personName(entry);
   if (!st) return { title: t("status.waitSetup", { name }), detail: t("status.waitSetupBody", { name }) };
+  if (isWaitingForPlayer(entry)) return { title: t("status.waitingForPlayer"), detail: t("table.waiting") };
   const last = entry.log[entry.log.length - 1];
   const mine = isMyTurn(entry);
   if (st.phase === "counting") {
