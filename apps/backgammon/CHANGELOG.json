@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.31.1",
+    "date": "2026-10-31",
+    "notes": {
+      "en": "Roll without asking: switch it on under the doubling cube or in a game, and your roll comes right with the other player's move, with no Roll or Double question and no wait. You don't double while it's on. If you answer an invite on two screens at once, the second screen now picks up the game by itself. Resigning at the same moment as the other player ends the same way on both screens.",
+      "de": "Ohne Nachfrage würfeln: Schalte es unter dem Dopplerwürfel oder im Spiel ein, dann kommt dein Wurf gleich mit dem Zug der anderen Person, ohne Frage nach Würfeln oder Verdoppeln und ohne Warten. Solange es an ist, verdoppelst du nicht. Nimmst du eine Einladung auf zwei Bildschirmen gleichzeitig an, übernimmt der zweite das Spiel jetzt von selbst. Gebt ihr gleichzeitig auf, endet es auf beiden Bildschirmen gleich.",
+      "nl": "Gooien zonder te vragen: zet het aan onder de verdubbelingskubus of in een spel, en je worp komt meteen mee met de zet van de ander, zonder vraag om te gooien of te verdubbelen en zonder wachten. Zolang het aan staat, verdubbel je niet. Neem je een uitnodiging op twee schermen tegelijk aan, dan neemt het tweede scherm het spel nu vanzelf over. Geven jullie tegelijk op, dan eindigt het op beide schermen hetzelfde.",
+      "fr": "Lancer sans demander : activez-le sous le videau ou dans une partie, et votre lancer arrive avec le coup de l’autre, sans question lancer ou doubler et sans attente. Tant qu’il est activé, vous ne doublez pas. Si vous acceptez une invitation sur deux écrans à la fois, le second reprend désormais la partie tout seul. Un abandon simultané se termine pareil sur les deux écrans.",
+      "es": "Tirar sin preguntar: actívalo bajo el cubo de doblaje o en una partida, y tu tirada llega junto con la jugada de la otra persona, sin preguntar si tiras o doblas y sin esperar. Mientras está activo, no doblas. Si aceptas una invitación en dos pantallas a la vez, la segunda retoma ahora la partida sola. Si abandonáis a la vez, termina igual en las dos pantallas."
+    }
+  },
+  {
     "version": "2026.10.31",
     "date": "2026-10-31",
     "notes": {

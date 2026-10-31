@@ -221,6 +221,37 @@ describe("judgeInbound: a resignation crossing a step", () => {
     expect(judgeInbound(local(mine), msg([...log, [at(0, 0)], [], "resign-w"]))).toEqual({ kind: "stale" });
   });
 
+  it("both resigned at once: the inviter's resignation counts on both sides", () => {
+    const shared: Entry[] = [at(4, 4), at(2, 2)];
+    // Black invited here; White is the invitee.
+    const black: LocalGame = { size: 9, myColor: "b", role: "inviter", log: [...shared, "resign-b"] };
+    const white: LocalGame = { size: 9, myColor: "w", role: "invitee", log: [...shared, "resign-w"] };
+    const toWhite = buildMessage(9, "b", black.log);
+    const toBlack = buildMessage(9, "w", white.log);
+    expect(judgeInbound(black, toBlack)).toEqual({ kind: "stale" });
+    const v = judgeInbound(white, toWhite);
+    expect(v).toMatchObject({ kind: "apply", log: [...shared, "resign-b"], added: ["resign-b"] });
+    expect(v.kind === "apply" && v.state.result).toEqual({ winner: "w", by: "resign" });
+    // The other way round: White invited.
+    const w2 = judgeInbound({ ...white, role: "inviter" }, toWhite);
+    const b2 = judgeInbound({ ...black, role: "invitee" }, toBlack);
+    expect(w2).toEqual({ kind: "stale" });
+    expect(b2).toMatchObject({ kind: "apply", log: [...shared, "resign-w"] });
+    // Without knowing who invited, still refused rather than guessed.
+    expect(judgeInbound({ ...white, role: undefined }, toWhite)).toEqual({ kind: "refuse", reason: "rewrite" });
+  });
+
+  it("a step and a resignation crossing the other's resignation: the step, then the inviter's resignation", () => {
+    const shared: Entry[] = [at(4, 4)];
+    // White moved and then resigned; Black resigned meanwhile. Black invited.
+    const black: LocalGame = { size: 9, myColor: "b", role: "inviter", log: [...shared, "resign-b"] };
+    const white: LocalGame = { size: 9, myColor: "w", role: "invitee", log: [...shared, at(2, 2), "resign-w"] };
+    const vb = judgeInbound(black, buildMessage(9, "w", white.log));
+    const vw = judgeInbound(white, buildMessage(9, "b", black.log));
+    expect(vb).toMatchObject({ kind: "apply", log: [...shared, at(2, 2), "resign-b"], added: [at(2, 2)] });
+    expect(vw).toMatchObject({ kind: "apply", log: [...shared, at(2, 2), "resign-b"], added: ["resign-b"] });
+  });
+
   it("anything else that parts from our log is a rewrite", () => {
     const shared: Entry[] = [at(4, 4)];
     expect(judgeInbound(local([...shared, "resign-b"]), msg([...shared, at(2, 2), at(3, 3)]))).toEqual({ kind: "refuse", reason: "rewrite" });

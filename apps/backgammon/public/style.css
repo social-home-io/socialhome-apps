@@ -317,3 +317,4 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+.auto-field { margin-block-start: 8px; }

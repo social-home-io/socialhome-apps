@@ -18,6 +18,11 @@
  *   - `"timeout-w"` / `"timeout-b"`: with a clock, the player who has to act
  *     confirms their own time ran out (their app adds it when the other
  *     claims the win and its own records agree).
+ *   - `"auto-w"` / `"auto-b"`: that player rolls without being asked from
+ *     now on — it gives up offering the cube on its own turns;
+ *     `"manual-w"` / `"manual-b"` takes that back. Only the player about to
+ *     act on its own turn can say so, as the first entry of that turn, and
+ *     always together with the step that follows it (inbound.ts).
  *
  * Every roll comes from the two players' dice chains (dice.ts) through a
  * `DiceSource`; this file decides which link each player must have shown
@@ -36,6 +41,16 @@
  *     send "roll" (your app answers "show" with link t + 1) or "double"
  *     (your "take" shows it; "drop" ends the game);
  *   - "open" shows link 1.
+ *
+ * Rolling without being asked ("auto-*") is fair for the same reason: the
+ * roller says it before the other player's turn that comes ahead of its
+ * own, as an entry in the log. When the other player finishes that turn
+ * it knows the roller has given up the cube for its next turn, so it may
+ * show link t + 1 with the turn — exactly as when the cube isn't
+ * available. The roller can't take it back once it knows the roll: the
+ * next chance to say "manual-*" is the first entry of its next turn, after
+ * the other player's turn was sent, and it applies only from the turn
+ * after.
  */
 
 import {
@@ -67,7 +82,11 @@ export type Entry =
   | "resign-w"
   | "resign-b"
   | "timeout-w"
-  | "timeout-b";
+  | "timeout-b"
+  | "auto-w"
+  | "auto-b"
+  | "manual-w"
+  | "manual-b";
 
 /** The fixed setup, chosen by the inviter. */
 export interface Setup {
@@ -81,8 +100,10 @@ export interface Setup {
 
 /** The longest a game can be: one link per turn, the last one shown with turn L − 1. */
 export const MAX_TURN = CHAIN_LENGTH - 1;
-/** Entries a log may have: per turn at most a roll (or a double) and its answer, then the turn; plus "open" and the end. */
-export const MAX_LOG = 3 * MAX_TURN + 4;
+/** How often each player may switch rolling without being asked on or off in one game. */
+export const MAX_AUTO_CHANGES = 20;
+/** Entries a log may have: per turn at most a roll (or a double) and its answer, then the turn; plus "open", the end and the auto-roll switches. */
+export const MAX_LOG = 3 * MAX_TURN + 4 + 2 * MAX_AUTO_CHANGES;
 /** Most numbers in one turn entry: four steps. */
 export const MAX_TURN_NUMBERS = 8;
 
@@ -137,6 +158,12 @@ export interface GameState {
   cube: { value: number; owner: Color | null };
   /** The newest link each colour must have shown. */
   reveals: Record<Color, number>;
+  /** Each colour rolls without being asked (gave up offering the cube on its turns). */
+  autoRoll: Record<Color, boolean>;
+  /** How often each colour switched `autoRoll`. */
+  autoChanges: Record<Color, number>;
+  /** Nothing has happened yet in this turn (or before the opening): the player about to act may switch `autoRoll`. */
+  fresh: boolean;
   last: LastTurn | null;
   result: Result | null;
   /** Entries so far. */
@@ -168,6 +195,9 @@ export function initialState(setup: Setup, dice: DiceSource): GameState {
     opening,
     cube: { value: 1, owner: null },
     reveals: { [setup.inviter]: 0, [invitee]: 1 } as Record<Color, number>,
+    autoRoll: { w: false, b: false },
+    autoChanges: { w: 0, b: 0 },
+    fresh: true,
     last: null,
     result: null,
     n: 0,
@@ -179,9 +209,23 @@ export function initialState(setup: Setup, dice: DiceSource): GameState {
   return st;
 }
 
-/** Whether *mover* may offer the cube at the start of turn *t*. */
-export function mayDouble(setup: Setup, cube: { value: number; owner: Color | null }, t: number, mover: Color): boolean {
-  return setup.cube && t >= 2 && cube.value < MAX_CUBE && (cube.owner === null || cube.owner === mover);
+/** Whether *mover* may offer the cube at the start of turn *t* (never while it rolls without being asked). */
+export function mayDouble(setup: Setup, cube: { value: number; owner: Color | null }, t: number, mover: Color, autoRoll = false): boolean {
+  return setup.cube && !autoRoll && t >= 2 && cube.value < MAX_CUBE && (cube.owner === null || cube.owner === mover);
+}
+
+export const isAuto = (e: Entry): e is "auto-w" | "auto-b" | "manual-w" | "manual-b" =>
+  e === "auto-w" || e === "auto-b" || e === "manual-w" || e === "manual-b";
+
+/** The entry that switches *c*'s rolling without being asked to *on*. */
+export function autoEntry(c: Color, on: boolean): Entry {
+  return `${on ? "auto" : "manual"}-${c}` as Entry;
+}
+
+/** Whether *c* may switch rolling without being asked now: on its own turn, before anything else in it. */
+export function canSwitchAuto(state: GameState, c: Color): boolean {
+  if (!state.setup.cube || !state.fresh || state.toMove !== c || state.autoChanges[c] >= MAX_AUTO_CHANGES) return false;
+  return state.phase === "start" || ((state.phase === "ask" || state.phase === "play") && state.mover === c);
 }
 
 export const isResign = (e: Entry): e is "resign-w" | "resign-b" => e === "resign-w" || e === "resign-b";
@@ -198,8 +242,8 @@ export function timeoutOf(c: Color): Entry {
 
 /** Who made *entry* in *state*: the resigning (or timed-out) player, else the player who has to act. */
 export function actorOf(state: GameState, entry: Entry): Color {
-  if (entry === "resign-w" || entry === "timeout-w") return "w";
-  if (entry === "resign-b" || entry === "timeout-b") return "b";
+  if (entry === "resign-w" || entry === "timeout-w" || entry === "auto-w" || entry === "manual-w") return "w";
+  if (entry === "resign-b" || entry === "timeout-b" || entry === "auto-b" || entry === "manual-b") return "b";
   return state.toMove;
 }
 
@@ -212,14 +256,16 @@ export function sameEntry(a: Entry, b: Entry): boolean {
 
 /** Whether the player to move may offer the cube now (before rolling). */
 export function canDouble(state: GameState): boolean {
-  return state.phase === "ask" && state.mover !== null && mayDouble(state.setup, state.cube, state.turn, state.mover);
+  return state.phase === "ask" && state.mover !== null && mayDouble(state.setup, state.cube, state.turn, state.mover, state.autoRoll[state.mover]);
 }
 
 /** Start turn *t* for *mover*: "ask" when it may double, else "play" with its roll when known. */
 function beginTurn(state: GameState, t: number, mover: Color, dice: DiceSource): GameState {
-  if (mayDouble(state.setup, state.cube, t, mover)) return { ...state, phase: "ask", turn: t, mover, toMove: mover, roll: null };
+  if (mayDouble(state.setup, state.cube, t, mover, state.autoRoll[mover])) {
+    return { ...state, phase: "ask", turn: t, mover, toMove: mover, roll: null, fresh: true };
+  }
   const roll = t === 1 ? (state.opening ? [state.opening.w, state.opening.b] as [number, number] : null) : dice.roll(t);
-  return { ...state, phase: "play", turn: t, mover, toMove: mover, roll };
+  return { ...state, phase: "play", turn: t, mover, toMove: mover, roll, fresh: true };
 }
 
 /** The game won by *winner* now: what the board is worth times the cube. */
@@ -243,7 +289,7 @@ function finish(state: GameState, result: Result): GameState {
 export function applyEntry(state: GameState, entry: Entry, dice: DiceSource): GameState {
   if (state.phase === "over") throw new IllegalMove("over");
   if (state.n >= MAX_LOG) throw new IllegalMove("too-long");
-  const base: GameState = { ...state, n: state.n + 1 };
+  const base: GameState = { ...state, n: state.n + 1, fresh: false };
   const value = state.cube.value;
 
   if (isResign(entry)) {
@@ -268,8 +314,21 @@ export function applyEntry(state: GameState, entry: Entry, dice: DiceSource): Ga
     return beginTurn({ ...base, opening, reveals }, 1, opening.starter, dice);
   }
 
+  if (isAuto(entry)) {
+    const by: Color = entry.endsWith("-w") ? "w" : "b";
+    const on = entry.startsWith("auto");
+    if (!canSwitchAuto(state, by)) throw new IllegalMove(state.toMove === by ? "phase" : "turn");
+    if (state.autoRoll[by] === on) throw new IllegalMove("bad-entry");
+    return {
+      ...base,
+      autoRoll: { ...state.autoRoll, [by]: on },
+      autoChanges: { ...state.autoChanges, [by]: state.autoChanges[by] + 1 },
+    };
+  }
+
   if (entry === "roll") {
-    if (!canDouble(state)) throw new IllegalMove("phase");
+    // "ask" comes only when the mover could double; it may have given that up just now ("auto-*").
+    if (state.phase !== "ask") throw new IllegalMove("phase");
     return { ...base, phase: "dice", toMove: other(state.mover!) };
   }
 
@@ -316,7 +375,8 @@ export function applyEntry(state: GameState, entry: Entry, dice: DiceSource): Ga
     const t = st.turn;
     const end = r.board[mover][OFF] === CHECKERS || t >= MAX_TURN;
     // Link t proves our roll; link t + 1 gives them theirs, unless they may double first.
-    const ahead = !end && !mayDouble(st.setup, st.cube, t + 1, other(mover));
+    const them = other(mover);
+    const ahead = !end && !mayDouble(st.setup, st.cube, t + 1, them, st.autoRoll[them]);
     const reveals = { ...st.reveals, [mover]: Math.max(st.reveals[mover], ahead ? t + 1 : t) };
     const after: GameState = { ...st, board: r.board, roll, last, reveals };
     if (r.board[mover][OFF] === CHECKERS) {

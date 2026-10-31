@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CHAIN_LENGTH, DICE_SUITE, buildChain, toB64url } from "./dice.js";
-import { MAX_LOG, replay } from "./game.js";
+import { MAX_LOG, autoEntry, replay, resignBy } from "./game.js";
 import type { Entry } from "./game.js";
 import {
   DAY_MS,
@@ -311,9 +311,9 @@ describe("the judge", () => {
     const rewritten = clone(p.message());
     (rewritten["log"] as Entry[])[0] = (rewritten["log"] as Entry[])[0] === "open" ? [24, 23, 13, 9] : "open";
     expect(judgeInbound(q.local(), rewritten)).toEqual({ kind: "refuse", reason: "rewrite" });
-    // Three new entries at once.
-    const three = { ...clone(p.message()), log: [...p.log, "double", "take", "resign-w"] };
-    expect(judgeInbound(q.local(), three)).toEqual({ kind: "refuse", reason: "too-many" });
+    // More new entries than one message may add.
+    const four = { ...clone(p.message()), log: [...p.log, "auto-w", "double", "take", "resign-w"] };
+    expect(judgeInbound(q.local(), four)).toEqual({ kind: "refuse", reason: "too-many" });
   });
 
   it("refuses unknown keys, versions, rules and dice suites as unsupported", () => {
@@ -436,5 +436,104 @@ describe("the judge", () => {
     expect(catchUpFromOwnCopy(p.setup!, before, p.log, p.dice())).toEqual(p.log);
     expect(catchUpFromOwnCopy(p.setup!, p.log, before, p.dice())).toBeNull();
     expect(catchUpFromOwnCopy(p.setup!, before, [...before, "take"], p.dice())).toBeNull();
+  });
+});
+
+describe("rolling without being asked, over the wire", () => {
+  /** Honest play where *auto* says who rolls without being asked. */
+  function playAuto(a: Player, b: Player, steps: number, auto: (p: Player) => boolean): void {
+    for (let i = 0; i < steps && a.state()!.phase !== "over"; i++) {
+      const p = actorOf2(a, b);
+      const v = opponent(p, a, b).receive(p.playAll(p.autoSteps(auto(p))));
+      if (v.kind !== "apply") throw new Error(`step ${i}: ${JSON.stringify(v)}`);
+    }
+  }
+
+  it("the switch travels with the next step; afterwards the roll comes with the other player's move", () => {
+    const { a, b } = startGame({ seeds: [41, 42] });
+    playAuto(a, b, 40, (p) => p === b);
+    expect(a.state()!.autoRoll[b.color!]).toBe(true);
+    // From now on b is never asked: whenever b is to move, it plays (no roll/show round trip).
+    for (let i = 0; i < 30 && a.state()!.phase !== "over"; i++) {
+      const st = b.state()!;
+      if (st.mover === b.color && st.toMove === b.color) {
+        expect(st.phase).toBe("play");
+        expect(st.roll).not.toBeNull();
+        // a never knows b's roll before b's turn shows it.
+        expect(a.dice().roll(st.turn)).toBeNull();
+      }
+      playAuto(a, b, 1, (p) => p === b);
+    }
+    expect(a.log.filter((e) => e === "roll").length).toBeGreaterThan(0); // a still asks for its own rolls
+  });
+
+  it("refuses a switch on its own, with a resignation, with a double, twice, or for the other player", () => {
+    const { a, b } = startGame({ seeds: [43, 44] });
+    while (a.state()!.phase !== "ask") playOn(a, b, 1);
+    const p = actorOf2(a, b);
+    const q = opponent(p, a, b);
+    const sw = autoEntry(p.color!, true);
+    const send = (log: Entry[]) => judgeInbound(q.local(), { ...clone(p.message()), log: [...q.log, ...log] });
+    expect(send([sw])).toEqual({ kind: "refuse", reason: "too-many" });
+    expect(send([sw, resignBy(p.color!)])).toEqual({ kind: "refuse", reason: "too-many" });
+    expect(send([sw, "double"])).toEqual({ kind: "refuse", reason: "illegal" });
+    expect(send([sw, autoEntry(p.color!, false), "roll"])).toEqual({ kind: "refuse", reason: "illegal" });
+    expect(send([autoEntry(q.color!, true), "roll"])).toEqual({ kind: "refuse", reason: "illegal" });
+    // The honest shape is taken.
+    expect(send([sw, "roll"])).toMatchObject({ kind: "apply", added: [sw, "roll"] });
+  });
+
+  it("a turn that holds back the link of a roller who gave up the cube is refused", () => {
+    const { a, b } = startGame({ seeds: [45, 46] });
+    playAuto(a, b, 40, (p) => p === b);
+    // Play to a's finished turn and check the link it must show.
+    for (let i = 0; i < 40; i++) {
+      const st = a.state()!;
+      if (st.phase === "play" && st.mover === a.color) break;
+      playAuto(a, b, 1, (p) => p === b);
+    }
+    const st = a.state()!;
+    expect(st.phase === "play" && st.mover === a.color).toBe(true);
+    const turn = autoTurn(st);
+    const honest = clone(a.play(turn));
+    expect((honest["shown"] as { n: number }).n).toBe(st.turn + 1);
+    const held = { ...honest, shown: { n: st.turn, link: toB64url(a.chain![st.turn]) } };
+    expect(judgeInbound(b.local(), held)).toEqual({ kind: "refuse", reason: "dice" });
+    expect(b.receive(honest)).toMatchObject({ kind: "apply" });
+    expect(b.state()!.roll).not.toBeNull();
+  });
+
+  it("a resignation crossing a switch and a step: the resignation wins on both sides", () => {
+    const { a, b } = startGame({ seeds: [47, 48] });
+    while (a.state()!.phase !== "ask") playOn(a, b, 1);
+    const p = actorOf2(a, b);
+    const q = opponent(p, a, b);
+    const before = q.log.length;
+    const step = p.playAll(p.autoSteps(true));
+    const resign = q.play(resignBy(q.color!));
+    expect(q.receive(step)).toEqual({ kind: "stale" });
+    expect(p.receive(resign)).toMatchObject({ kind: "apply" });
+    expect(p.log).toEqual(q.log);
+    expect(q.log.length).toBe(before + 1);
+    expect(p.state()!.result).toMatchObject({ winner: p.color, by: "resign" });
+  });
+
+  it("a step and a resignation crossing the other's resignation: the inviter's counts on both sides", () => {
+    for (const seeds of [[49, 50], [51, 52]] as [number, number][]) {
+      const { a, b } = startGame({ seeds, cube: false });
+      playOn(a, b, 3);
+      const p = actorOf2(a, b);
+      const q = opponent(p, a, b);
+      p.play(p.autoStep());
+      const pm = p.play(resignBy(p.color!));
+      const qm = q.play(resignBy(q.color!));
+      p.receive(qm);
+      q.receive(pm);
+      expect(p.log).toEqual(q.log);
+      expect(p.state()!.result).toEqual(q.state()!.result);
+      // The inviter (a) resigned: the invitee wins.
+      expect(p.state()!.result!.winner).toBe(b.color);
+      expect(p.log[p.log.length - 1]).toBe(resignBy(a.color!));
+    }
   });
 });

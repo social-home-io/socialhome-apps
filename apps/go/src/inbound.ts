@@ -33,7 +33,8 @@
  *
  * One race is resolved rather than refused: resigning is allowed on either
  * turn, so a resignation can cross a step in flight. Both sides then end
- * with the step first and the resignation last.
+ * with the step first and the resignation last. When both resigned at
+ * once, the inviter's resignation counts on both sides.
  */
 
 import { isHandicap, isPoint, isSize, other } from "./rules.js";
@@ -79,6 +80,8 @@ export interface LocalGame {
   myColor: Color | null;
   /** The agreed handicap and clock (ignored while `size` is `null`). */
   rules?: Rules;
+  /** Who invited: decides which of two crossing resignations counts. */
+  role?: "inviter" | "invitee";
   log: readonly Entry[];
 }
 
@@ -238,7 +241,7 @@ export function judgeInbound(local: LocalGame, payload: unknown): InboundVerdict
   }
 
   if (shared === history.length && !fresh) return { kind: "stale" };
-  if (shared < ours.length) return judgeResignRace(size, rules, me, ours, history, shared);
+  if (shared < ours.length) return judgeResignRace(size, rules, me, ours, history, shared, local.role);
 
   const added = history.slice(ours.length);
   // Checked before any replay, so a huge forged list costs nothing.
@@ -252,10 +255,11 @@ export function judgeInbound(local: LocalGame, payload: unknown): InboundVerdict
 }
 
 /**
- * The logs part after `shared` entries. Fine only when one side's tail is
- * just a resignation and the other's is one step of the other player made
- * meanwhile: the result is that step, then the resignation (if the game was
- * still running after it).
+ * The logs part after `shared` entries. Fine only when at least one side's
+ * tail ends with that side's resignation and only one side made a step
+ * (at most one) before it: the result is that step, then the resignation
+ * (if the game was still running after the step). Both resigned at once:
+ * the inviter's resignation counts — both sides reach the same log.
  */
 function judgeResignRace(
   size: Size,
@@ -264,6 +268,7 @@ function judgeResignRace(
   ours: readonly Entry[],
   theirs: readonly Entry[],
   shared: number,
+  role: "inviter" | "invitee" | undefined,
 ): InboundVerdict {
   const them = other(me);
   const ourTail = ours.slice(shared);
@@ -275,7 +280,7 @@ function judgeResignRace(
   const byOnly = (tail: readonly Entry[], who: Color): GameState | null => {
     let st = base.state;
     for (const e of tail) {
-      if (actorOf(st, e) !== who) return null;
+      if (isResign(e) || actorOf(st, e) !== who) return null;
       try {
         st = applyEntry(st, e);
       } catch {
@@ -285,26 +290,37 @@ function judgeResignRace(
     return st;
   };
   const resignOf = (who: Color): Entry => (who === "b" ? "resign-b" : "resign-w");
+  const split = (tail: readonly Entry[], who: Color) =>
+    tail.length > 0 && tail[tail.length - 1] === resignOf(who)
+      ? { steps: tail.slice(0, -1), resigned: true }
+      : { steps: tail, resigned: false };
+  const mine = split(ourTail, me);
+  const yours = split(theirTail, them);
+  if (!mine.resigned && !yours.resigned) return { kind: "refuse", reason: "rewrite" };
+  if (mine.steps.length > 0 && yours.steps.length > 0) return { kind: "refuse", reason: "rewrite" };
+  if (mine.steps.length > 1 || yours.steps.length > 1) return { kind: "refuse", reason: "rewrite" };
+  // Both resigned at once: only the inviter's counts (without knowing who invited, refuse as before).
+  if (mine.resigned && yours.resigned && role === undefined) return { kind: "refuse", reason: "rewrite" };
+  const ourState = byOnly(mine.steps, me);
+  if (!ourState) return { kind: "refuse", reason: "rewrite" };
+  const theirState = byOnly(yours.steps, them);
+  if (!theirState) return { kind: "refuse", reason: "illegal" };
 
-  // They resigned while we made our step: ours first, then theirs.
-  if (theirTail.length === 1 && theirTail[0] === resignOf(them) && byOnly(ourTail, me)) {
-    const merged = [...ours, theirTail[0]];
-    const r = replay(size, merged, rules);
-    // Our own step ended the game already (the agreement): keep it.
-    if (!r) return { kind: "stale" };
-    return { kind: "apply", size, myColor: me, rules, log: merged, state: r.state, added: [theirTail[0]] };
+  const stepped = mine.steps.length > 0 ? ours.slice(0, shared + 1) : theirs.slice(0, shared + yours.steps.length);
+  const after = mine.steps.length > 0 ? ourState : theirState;
+  let merged: Entry[];
+  // A step that ended the game (the agreement) stands; a resignation after it comes too late.
+  if (after.phase === "over") merged = [...stepped];
+  else {
+    const inviter: Color = role === "inviter" ? me : them;
+    const resigner = mine.resigned && yours.resigned ? inviter : mine.resigned ? me : them;
+    merged = [...stepped, resignOf(resigner)];
   }
-
-  // We resigned while they made their step: theirs first, then our resignation.
-  if (ourTail.length === 1 && ourTail[0] === resignOf(me) && theirTail.length === 1) {
-    const moved = byOnly(theirTail, them);
-    if (!moved) return { kind: "refuse", reason: "illegal" };
-    const merged = moved.phase === "over" ? [...theirs] : [...theirs, ourTail[0]];
-    const r = replay(size, merged, rules);
-    if (!r) return { kind: "refuse", reason: "illegal" };
-    return { kind: "apply", size, myColor: me, rules, log: merged, state: r.state, added: theirTail };
-  }
-  return { kind: "refuse", reason: "rewrite" };
+  if (merged.length === ours.length && merged.every((e, i) => sameEntry(e, ours[i]))) return { kind: "stale" };
+  const r = replay(size, merged, rules);
+  if (!r) return { kind: "refuse", reason: "rewrite" };
+  const added = merged.slice(shared).filter((_, i) => r.actors[shared + i] === them);
+  return { kind: "apply", size, myColor: me, rules, log: merged, state: r.state, added };
 }
 
 /**

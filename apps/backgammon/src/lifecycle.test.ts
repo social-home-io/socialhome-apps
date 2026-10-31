@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ShError } from "@socialhome/app-sdk";
 import type { AppMessage, PickedPerson } from "@socialhome/app-sdk";
 import {
+  adoptOwnCopy,
   classifySessionEvent,
   entryForInvite,
   entryForPicked,
@@ -23,8 +24,7 @@ import {
 import type { GameEntry } from "./lifecycle.js";
 import { toB64url } from "./dice.js";
 import { setLocale } from "./i18n.js";
-import { actorOf2, opponent, startGame, seedOf } from "./testkit.js";
-import type { Player } from "./testkit.js";
+import { Player, actorOf2, opponent, startGame, seedOf } from "./testkit.js";
 
 const picked: PickedPerson = { sessionId: "s-1", instance_id: "inst-b", user_ref: "bob", is_local: false, display_name: "Bob · Lakeside" };
 
@@ -157,5 +157,49 @@ describe("invites and sessions", () => {
     expect(pickFailure(new ShError("permission_denied", "x"))).toMatchObject({ kind: "toast" });
     expect(isUnknownGame(new ShError("unknown_session", "x"))).toBe(true);
     expect(isUnknownGame(new Error("x"))).toBe(false);
+  });
+});
+
+describe("two screens of one person answering the same invite", () => {
+  it("the inviter keeps the first answer; the other screen takes the saved copy and plays on", () => {
+    const a = new Player("s-2", "inviter", seedOf(61));
+    const screen1 = new Player("s-2", "invitee", seedOf(62));
+    const screen2 = new Player("s-2", "invitee", seedOf(63));
+    const invite = a.invite("w");
+    expect(screen1.receive(invite).kind).toBe("invite");
+    expect(screen2.receive(invite).kind).toBe("invite");
+    const answer1 = screen1.message();
+    const answer2 = screen2.message();
+    expect(a.receive(answer1)).toMatchObject({ kind: "apply", accepted: true });
+    // The second answer is old news to the inviter, not a refused message.
+    expect(a.receive(answer2)).toEqual({ kind: "stale" });
+    const next = a.play(a.autoStep());
+    expect(screen1.receive(next).kind).toBe("apply");
+    // The losing screen learns that the inviter holds another tip for it.
+    const v = screen2.receive(next);
+    expect(v).toEqual({ kind: "other-screen", myTip: screen1.chain![0] });
+    if (v.kind !== "other-screen") return;
+
+    const mine = entryOf(screen2, { log: [] });
+    // The store still has this screen's own copy (or nothing): nothing to adopt yet.
+    expect(adoptOwnCopy(mine, entryOf(screen2), v.myTip)).toBeNull();
+    expect(adoptOwnCopy(mine, null, v.myTip)).toBeNull();
+    // Another game's or another setup's copy is never taken.
+    expect(adoptOwnCopy(mine, entryOf(screen1, { sessionId: "s-9" }), v.myTip)).toBeNull();
+    expect(adoptOwnCopy(mine, entryOf(screen1, { setup: { ...screen1.setup!, cube: false } }), v.myTip)).toBeNull();
+    // The winning screen's saved copy: same seed as the inviter holds.
+    const adopted = adoptOwnCopy(mine, entryOf(screen1), v.myTip);
+    expect(adopted).not.toBeNull();
+    expect(adopted!.seed).toBe(toB64url(screen1.seed));
+    expect(adopted!.log).toEqual(screen1.log);
+    expect(stateOf(adopted!)?.n).toBe(screen1.log.length);
+    // Played on from the adopted copy, the next message is the inviter's to take.
+    expect(ownSideOf(adopted!)!.myTip).toEqual(screen1.chain![0]);
+  });
+
+  it("the inviter's own tip mismatch is still refused (no second screen there)", () => {
+    const { a, b } = startGame({ seeds: [64, 65] });
+    const forged = { ...JSON.parse(JSON.stringify(b.message())), tips: { ...b.message().tips, [a.color!]: toB64url(seedOf(66)) } };
+    expect(a.receive(forged)).toEqual({ kind: "refuse", reason: "setup" });
   });
 });
