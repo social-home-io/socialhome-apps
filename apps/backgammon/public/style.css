@@ -108,6 +108,7 @@ p { margin: 4px 0; }
 .btn.danger { color: var(--bad); }
 dialog .btn.danger { background: var(--bad); color: var(--bg); border-color: transparent; }
 .btn.wide { width: 100%; }
+.btn:disabled { opacity: 0.45; cursor: default; }
 .btn:focus-visible, .choice input:focus-visible + label {
   outline: 3px solid var(--focus); outline-offset: 2px;
 }

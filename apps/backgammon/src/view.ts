@@ -152,7 +152,11 @@ export function statusFor(entry: GameEntry): { title: string; detail: string | n
   }
   let detail: string | null = null;
   if (st.turn === 1 && st.opening) detail = openingText(st, me, name);
-  else if (st.last) detail = lastTurnText(st.last, me, name);
+  else if (st.last) {
+    detail = lastTurnText(st.last, me, name);
+    // The other player opened: say the opening roll with it (this side learned it just now).
+    if (st.last.turn === 1 && st.last.by !== me && st.opening) detail = `${openingText(st, me, name)} ${detail}`;
+  }
   if (mine) return { title: st.roll ? t("status.yourRoll", { roll: rollText(st.roll) }) : t("status.yourTurn"), detail };
   return { title: t("status.theirTurn", { name }), detail };
 }
@@ -191,7 +195,8 @@ export function pointsBreakdown(st: GameState): string {
   const r = st.result;
   if (!r || r.winner === null) return "";
   const mult = r.kind === "gammon" ? 2 : r.kind === "backgammon" ? 3 : 1;
-  if (r.cube === 1 && mult === 1) return "";
+  // Only when both count: "2 points" after a double, or "a gammon: 2 points", says it already.
+  if (r.cube === 1 || mult === 1) return "";
   return t("end.breakdown", { cube: r.cube, mult });
 }
 
@@ -252,6 +257,10 @@ export function announceInbound(entry: GameEntry, added: readonly Entry[], after
   const out: string[] = [];
   for (const e of added) {
     if (isTurn(e) && after.last && after.last.by !== me) {
+      if (after.last.turn === 1) {
+        const o = openingText(after, me, name);
+        if (o) out.push(o);
+      }
       out.push(lastTurnText(after.last, me, name));
       const hits = after.last.steps.filter((s) => s.hit).length;
       if (hits > 0) out.push(hits === 1 ? t("say.hitYou1") : t("say.hitYou", { n: hits }));

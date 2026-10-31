@@ -125,7 +125,9 @@ describe("announcements for the other player's steps", () => {
     st = { ...st, board };
     const after = applyEntry(st, [8, 4, 6, 5], dice);
     const lines = announceInbound(entry(), [[8, 4, 6, 5]], after);
-    expect(lines[0]).toBe("Ben rolled 4 and 1: 17 to 21, 19 to 20.");
+    // Black learns the opening roll only with White's first turn: both are said.
+    expect(lines[0]).toBe("Opening roll: you 1, Ben 4. Ben starts.");
+    expect(lines[1]).toBe("Ben rolled 4 and 1: 17 to 21, 19 to 20.");
     expect(lines).toContain("Your checker was hit and is on the bar.");
     expect(lines[lines.length - 1]).toBe("Your turn: you rolled 6 and 5.");
   });
@@ -150,7 +152,10 @@ describe("the end", () => {
     const st = over(applyEntry(applyEntry(initialState(SETUP, dice), [24, 23, 13, 9], dice), resignBy("b"), dice));
     expect(resultLine(st, "b", "Ben")).toBe("You resigned: Ben wins 3 points.");
     expect(resultLine(st, "w", "Bob")).toBe("Bob resigned: you win 3 points.");
-    expect(pointsBreakdown(st)).toBe("Cube 1 × 3");
+    expect(pointsBreakdown(st)).toBe("");
+    const doubled = applyEntry({ ...st, phase: "play", result: null, cube: { value: 2, owner: "w" } }, resignBy("b"), dice);
+    expect(resultLine(doubled, "w", "Bob")).toBe("Bob resigned: you win 6 points.");
+    expect(pointsBreakdown(doubled)).toBe("Cube 2 × 3");
   });
 });
 
