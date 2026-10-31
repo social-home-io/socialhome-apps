@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.31.2",
+    "date": "2026-10-31",
+    "notes": {
+      "en": "Play Backgammon as an open game in a space: start it from the space's Games and whoever takes the seat plays Black, with the doubling cube and no clock; the fair opening roll decides who starts. Moves and \"Your turn\" work as in any game, and every move and roll is still checked on both sides. Your open game waits in your list until someone joins, and you can close it there. Invites work as before.",
+      "de": "Spiel Backgammon als offene Partie in einem Space: Starte sie unter „Spiele“ im Space, und wer den Platz einnimmt, spielt Schwarz – mit Dopplerwürfel und ohne Uhr; der faire Eröffnungswurf entscheidet, wer beginnt. Züge und „Du bist dran“ funktionieren wie in jeder Partie, und jeder Zug und Wurf wird weiter auf beiden Seiten geprüft. Deine offene Partie wartet in deiner Liste, bis jemand mitmacht, und du kannst sie dort schließen. Einladungen funktionieren wie bisher.",
+      "nl": "Speel backgammon als open partij in een space: start hem bij Spellen in de space, en wie de plek inneemt speelt met zwart, met verdubbelingskubus en zonder klok; de eerlijke openingsworp bepaalt wie begint. Zetten en „Jij bent aan de beurt” werken zoals in elke partij, en elke zet en worp wordt nog steeds aan beide kanten gecontroleerd. Je open partij wacht in je lijst tot iemand meedoet, en je kunt hem daar sluiten. Uitnodigingen werken zoals voorheen.",
+      "fr": "Jouez au backgammon en partie ouverte dans un espace : lancez-la depuis Jeux dans l’espace, et la personne qui prend la place joue Noir, avec videau et sans pendule ; le premier lancer équitable décide qui commence. Les coups et « À vous de jouer » fonctionnent comme dans toute partie, et chaque coup et lancer reste vérifié des deux côtés. Votre partie ouverte attend dans votre liste jusqu’à ce que quelqu’un participe, et vous pouvez l’y fermer.",
+      "es": "Juega al backgammon como partida abierta en un espacio: empiézala desde Juegos en el espacio, y quien ocupe la plaza juega con negras, con cubo de doblaje y sin reloj; la tirada inicial justa decide quién empieza. Las jugadas y «Te toca» funcionan como en cualquier partida, y cada jugada y tirada se sigue comprobando en los dos lados. Tu partida abierta espera en tu lista hasta que alguien participe, y puedes cerrarla ahí. Las invitaciones funcionan como antes."
+    }
+  },
+  {
     "version": "2026.10.31.1",
     "date": "2026-10-31",
     "notes": {

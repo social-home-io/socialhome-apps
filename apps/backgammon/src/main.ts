@@ -19,7 +19,7 @@
  */
 
 import sh, { ShError } from "@socialhome/app-sdk";
-import type { AppLook, AppMessage, Contact, PickedPerson } from "@socialhome/app-sdk";
+import type { AppLook, AppMessage, Contact, GroupEvent, GroupMessage, GroupSession, PickedPerson } from "@socialhome/app-sdk";
 import { BAR, MAX_CUBE, OFF, other, flatten, nextSteps, targetsFrom, turnNeed, diceToPlay, without } from "./rules.js";
 import type { Board, Color, Step } from "./rules.js";
 import {
@@ -32,14 +32,13 @@ import {
   isTimeout,
   mustPass,
   passReason,
-  passesTurn,
   resignBy,
   resignResult,
   timeoutOf,
 } from "./game.js";
 import type { Entry, GameState, Setup } from "./game.js";
 import { newSeed, toB64url } from "./dice.js";
-import { CLOCK_DAYS, buildMessage, catchUpFromOwnCopy, isBgMessage, isClockDays, judgeInbound } from "./inbound.js";
+import { CLOCK_DAYS, buildMessage, catchUpFromOwnCopy, isBgMessage, isClockDays } from "./inbound.js";
 import type { MessageExtras } from "./inbound.js";
 import { decideClaim, markFor } from "./clock.js";
 import {
@@ -57,7 +56,6 @@ import {
   isMyTurn,
   isUnknownGame,
   launchAction,
-  localOf,
   ownSideOf,
   adoptOwnCopy,
   parseEntry,
@@ -86,6 +84,7 @@ import {
   clockName,
   colorName,
   metaFor,
+  opponentLabel,
   passText,
   pipsText,
   pointsBreakdown,
@@ -100,6 +99,21 @@ import type { Announcer } from "./announcer.js";
 import { t } from "./i18n.js";
 import type { MessageKey } from "./i18n.js";
 import { applyLook } from "./look.js";
+import {
+  canCloseTable,
+  classifyTableEvent,
+  entryForTable,
+  handsTurn,
+  isPlayableTable,
+  isWaitingForPlayer,
+  judgeGame,
+  parseSavedGame,
+  routeTableMessage,
+  tableColor,
+  tableRole,
+  updateFromTable,
+} from "./table.js";
+import type { TableAction } from "./table.js";
 
 const client = sh as NonNullable<typeof sh>;
 /** Lobby choices: saved in order per key, the last change wins (prefs.ts). */
@@ -130,6 +144,10 @@ interface UI {
   liveInvites: boolean;
   reducedMotion: boolean;
   unsupportedShown: Set<string>;
+  /** This Social Home has open games in spaces (`sh.group`, SDK 1.9). */
+  groups: boolean;
+  /** Join opened Backgammon for this table before our seat was confirmed: open it once seated. */
+  launchTable: string | null;
 }
 
 const ui: UI = {
@@ -150,6 +168,8 @@ const ui: UI = {
   liveInvites: false,
   reducedMotion: false,
   unsupportedShown: new Set(),
+  groups: false,
+  launchTable: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -199,7 +219,7 @@ async function loadAll(): Promise<void> {
   const all = await client.store.list();
   for (const [key, value] of Object.entries(all)) {
     if (key.startsWith(PREFIX)) {
-      const entry = parseEntry(value);
+      const entry = parseSavedGame(value);
       if (!entry) continue;
       ui.games.set(entry.sessionId, entry);
       // A clock without a mark for this position starts counting now (never earlier).
@@ -527,10 +547,11 @@ function onAutoChanged(entry: GameEntry): void {
 }
 
 function gameCard(entry: GameEntry): HTMLElement {
-  const name = entry.opponentName;
+  const name = opponentLabel(entry);
   const li = make("li", { cls: "card game" });
   const top = make("div", { cls: "game-top" });
-  top.append(checkerIcon(entry.myColor ?? "random"), make("span", { cls: "who", text: name }));
+  const icon = entry.myColor ?? (entry.table ? tableColor(entry.table.me) : "random");
+  top.append(checkerIcon(icon), make("span", { cls: "who", text: name }));
   const chip = chipFor(entry);
   top.append(make("span", { cls: `chip ${chip.tone}`, text: chip.text, attrs: { "data-chip": entry.sessionId } }));
   li.appendChild(top);
@@ -540,12 +561,20 @@ function gameCard(entry: GameEntry): HTMLElement {
   const attrs = { "aria-label": t("btn.openWith", { name }), "data-open": entry.sessionId };
   acts.append(isMyTurn(entry) ? button(t("btn.play"), "primary", open, attrs) : button(t("btn.open"), "", open, attrs));
   if (isAwaitingOpponent(entry)) acts.append(button(t("btn.cancelInvite"), "ghost", () => void cancelInvite(entry)));
+  // Our open game in a space: nobody took the seat yet. Close it there.
+  if (canCloseTable(entry)) acts.append(closeTableButton(entry));
   if (stateOf(entry)?.phase === "over") {
-    acts.append(button(t("btn.rematch"), "", () => void rematch(entry), { "aria-label": t("btn.rematchWho", { name }) }));
+    // A rematch goes through the invite sheet: not for an open game in a
+    // space (Social Home gives an app seats there, never people).
+    if (!entry.table) acts.append(button(t("btn.rematch"), "", () => void rematch(entry), { "aria-label": t("btn.rematchWho", { name }) }));
     acts.append(button(t("btn.remove"), "ghost", () => void removeGame(entry), { "aria-label": t("btn.removeWith", { name }) }));
   }
   li.appendChild(acts);
   return li;
+}
+
+function closeTableButton(entry: GameEntry): HTMLButtonElement {
+  return button(t("btn.closeTable"), "ghost", () => void closeTable(entry), { "aria-label": t("btn.closeTableLabel") });
 }
 
 function contactFor(entry: GameEntry): Contact {
@@ -633,7 +662,7 @@ function renderGame(): void {
     return renderLobby();
   }
   const st = stateOf(entry);
-  const name = personName(entry);
+  const name = personName(entry) || opponentLabel(entry);
   const hadBoardFocus = document.activeElement?.closest("#board-grid") != null;
   const r = root();
   r.replaceChildren();
@@ -644,7 +673,7 @@ function renderGame(): void {
   const back = make("button", { cls: "btn ghost back", attrs: { type: "button", "aria-label": t("game.backLabel") } });
   back.append(make("span", { cls: "flip-rtl", text: "←", attrs: { "aria-hidden": "true" } }), ` ${t("game.back")}`);
   back.addEventListener("click", toLobby);
-  top.append(back, make("h2", { cls: "title", text: entry.opponentName }));
+  top.append(back, make("h2", { cls: "title", text: opponentLabel(entry) }));
   r.appendChild(top);
 
   if (!st || !entry.myColor) {
@@ -655,6 +684,12 @@ function renderGame(): void {
     if (isAwaitingOpponent(entry)) {
       const row = make("div", { cls: "row acts" });
       row.append(button(t("btn.cancelInvite"), "ghost", () => void cancelInvite(entry)));
+      card.append(row);
+    }
+    // Our open game, nobody seated yet: no Resign (nobody to resign to), Close instead.
+    if (canCloseTable(entry)) {
+      const row = make("div", { cls: "row acts" });
+      row.append(closeTableButton(entry));
       card.append(row);
     }
     r.appendChild(card);
@@ -698,7 +733,8 @@ function sidePanel(entry: GameEntry, st: GameState, name: string): { info: HTMLE
   if (st.phase === "over") {
     side.appendChild(resultCard(entry, st));
     const row = make("div", { cls: "row acts" });
-    row.append(button(t("btn.rematch"), "primary", () => void rematch(entry)), button(t("btn.backToGames"), "", toLobby));
+    if (!entry.table) row.append(button(t("btn.rematch"), "primary", () => void rematch(entry)));
+    row.append(button(t("btn.backToGames"), entry.table ? "primary" : "", toLobby));
     lower.appendChild(row);
     lower.appendChild(fairDice());
     return { info: side, lower };
@@ -771,7 +807,7 @@ function sidePanel(entry: GameEntry, st: GameState, name: string): { info: HTMLE
     lower.appendChild(make("p", { cls: "hint small", text: ui.hint }));
   }
   if (entry.setup!.cube) lower.appendChild(autoField("auto-game", () => onAutoChanged(entry)));
-  lower.appendChild(button(t("btn.resign"), "ghost danger resign", () => void onResign(entry)));
+  if (!isWaitingForPlayer(entry)) lower.appendChild(button(t("btn.resign"), "ghost danger resign", () => void onResign(entry)));
   lower.appendChild(fairDice());
   lower.appendChild(make("p", { cls: "muted small keys", text: t(entry.setup!.days > 0 ? "game.keysClock" : "game.keys") }));
   return { info: side, lower };
@@ -1249,24 +1285,37 @@ function setHint(text: string): void {
 // Actions
 // ---------------------------------------------------------------------------
 
+/**
+ * Send a game's message to the other player: over its table for an open game
+ * in a space (handing their seat the turn), else over the 1:1 session.
+ */
+function sendGame(entry: GameEntry, msg: unknown, turn: boolean): Promise<unknown> {
+  const table = entry.table;
+  if (table) {
+    if (table.them === null) return Promise.reject(new Error("nobody has taken the seat yet"));
+    return client.group.send(entry.sessionId, msg, turn ? { turn: table.them } : {});
+  }
+  return client.federation.send(entry.sessionId, targetFor(entry), msg, { turn });
+}
+
 /** Send our whole game to the opponent (with our time claim while it waits for an answer). */
 async function sendState(entry: GameEntry): Promise<void> {
   const own = ownSideOf(entry);
   if (!own) return;
-  const st = stateOf(entry);
   const claim = hasPendingClaim(entry);
-  // Only when our step hands them the turn (never the invite, a claim, a resignation or the end).
-  const turn = !!st && passesTurn(st, entry.myColor!) && !claim;
+  // Only when our step hands them the turn (never the invite, a claim, a resignation or the end);
+  // at a table also our opening dice commitment (table.ts).
+  const turn = handsTurn(entry) && !claim;
   try {
     const msg = buildMessage(own, claim ? { claim: true } : {});
-    await client.federation.send(entry.sessionId, targetFor(entry), msg, { turn });
+    await sendGame(entry, msg, turn);
     if (entry.unsent) {
       entry.unsent = false;
       void persist(entry);
       if (ui.active === entry.sessionId) render();
     }
   } catch (err) {
-    if (isUnknownGame(err)) {
+    if (isUnknownGame(err) && !entry.table) {
       void offerContinue(entry);
       return;
     }
@@ -1283,7 +1332,7 @@ async function sendExtra(entry: GameEntry, extras: MessageExtras): Promise<void>
   const own = ownSideOf(entry);
   if (!own) return;
   try {
-    await client.federation.send(entry.sessionId, targetFor(entry), buildMessage(own, extras), { turn: false });
+    await sendGame(entry, buildMessage(own, extras), false);
   } catch {
     console.warn("backgammon.send_failed", { session_id: entry.sessionId, kind: "claim-answer" });
   }
@@ -1484,6 +1533,8 @@ async function rematch(entry: GameEntry): Promise<void> {
 
 async function removeGame(entry: GameEntry): Promise<void> {
   if (!(await confirmDialog(removeCopy(entry)))) return;
+  // A finished game at a table: our seat there isn't needed any more.
+  if (entry.table && ui.groups) void client.group.leave(entry.sessionId).catch(() => {});
   await dropGame(entry.sessionId);
   document.querySelector<HTMLElement>("[data-new-game]")?.focus();
 }
@@ -1506,6 +1557,26 @@ async function cancelInvite(entry: GameEntry): Promise<void> {
     toast(t("toast.inviteMayShow", { name: personName(entry) }));
   }
   await dropGame(entry.sessionId);
+}
+
+/**
+ * Close our open game in a space before anyone took the seat: it goes from
+ * the space's games (Social Home ends the table for everyone) and from here.
+ */
+async function closeTable(entry: GameEntry): Promise<void> {
+  if (!entry.table) return;
+  try {
+    await client.group.close(entry.sessionId);
+  } catch (err) {
+    // Already over there (closed on another screen, expired): just forget it.
+    const code = err instanceof ShError ? err.code : undefined;
+    if (code !== "group_closed" && code !== "group_not_found") {
+      toast(t("table.closeFailed"));
+      return;
+    }
+  }
+  await dropGame(entry.sessionId);
+  document.querySelector<HTMLElement>("[data-new-game]")?.focus();
 }
 
 /** "Continue game with Ben": Social Home's sheet re-registers the game, then our state goes out again. */
@@ -1540,7 +1611,7 @@ function onInboundMessage(msg: AppMessage): void {
 }
 
 async function takeMessage(entry: GameEntry, payload: unknown): Promise<void> {
-  let v = judgeInbound(localOf(entry), payload);
+  let v = judgeGame(entry, payload);
   if (v.kind === "refuse" && entry.setup && (v.reason === "wrong-player" || v.reason === "too-many" || v.reason === "rewrite" || v.reason === "claim" || v.reason === "dice")) {
     // This screen may be behind our own store (the same person played on another screen).
     const stored = parseEntry(await client.store.get(PREFIX + entry.sessionId).catch(() => null));
@@ -1550,7 +1621,7 @@ async function takeMessage(entry: GameEntry, payload: unknown): Promise<void> {
       entry.log = ahead;
       entry.theirShown = stored.theirShown;
       if (stored.clockFrom) entry.clockFrom = stored.clockFrom;
-      v = judgeInbound(localOf(entry), payload);
+      v = judgeGame(entry, payload);
     }
   }
   const shown = ui.active === entry.sessionId && ui.view === "game";
@@ -1643,7 +1714,7 @@ async function takeMessage(entry: GameEntry, payload: unknown): Promise<void> {
         if (focused) focusCell(ui.cursor);
       } else {
         if (v.added.some(isTimeout)) toast(t("say.theyTimedOut", { name }));
-        else if (v.accepted) toast(t("toast.accepted", { name }));
+        else if (v.accepted) toast(t(entry.table ? "table.started" : "toast.accepted", { name }));
         else if (v.added.length > 0) toast(t("toast.newsIn", { name }));
         render();
       }
@@ -1731,6 +1802,193 @@ async function applyHeld(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Open games in a space (tables, SDK 1.9) — table.ts decides, this applies
+// ---------------------------------------------------------------------------
+
+/** Table events that came in before our saved games were loaded. */
+let tableEventsBeforeBoot: GroupEvent[] | null = [];
+
+function onGroupEvent(event: GroupEvent): void {
+  if (tableEventsBeforeBoot) {
+    tableEventsBeforeBoot.push(event);
+    return;
+  }
+  if (event.type === "message") {
+    void takeTableMessage(event).catch((err) => console.error("backgammon.table_message_failed", err));
+    return;
+  }
+  handleTableAction(classifyTableEvent(event, ui.games));
+}
+
+/**
+ * A message at a table: routed by the table Social Home delivered it for and
+ * the sender's seat (never an id in the payload), then judged like any 1:1
+ * message (the dice handshake, steps, the cube, resignations, claims).
+ */
+async function takeTableMessage(msg: GroupMessage): Promise<void> {
+  if (!isBgMessage(msg.data)) return;
+  let route = routeTableMessage(msg, ui.games);
+  if (route.kind === "drop" && route.reason === "no-opponent-yet") {
+    // A step before the roster said who sat down: ask Social Home for the table once.
+    const session = await client.group.get(msg.id).catch(() => null);
+    if (session) seatTable(session, false);
+    route = routeTableMessage(msg, ui.games);
+  }
+  if (route.kind === "drop") {
+    console.warn("backgammon.table_dropped", { session_id: msg.id, reason: route.reason });
+    return;
+  }
+  const entry = route.entry;
+  await withGame(entry.sessionId, () => takeMessage(entry, msg.data));
+}
+
+function handleTableAction(action: TableAction): void {
+  switch (action.kind) {
+    case "seat": {
+      const launched = ui.launchTable === action.session.id;
+      const entry = seatTable(action.session, launched);
+      if (entry && launched) {
+        ui.launchTable = null;
+        openGame(entry.sessionId);
+      } else {
+        if (!entry) void adoptTableFromStore(action.session.id);
+        render();
+      }
+      return;
+    }
+    case "joined":
+      onSeatTaken(action.entry);
+      return;
+    case "update":
+      void persist(action.entry);
+      render();
+      return;
+    case "gone":
+      toast(action.reason === "left" ? t("table.left", { name: opponentLabel(action.entry) }) : t("table.ended"));
+      void dropGame(action.entry.sessionId);
+      return;
+    case "mine-over":
+      // We left on another screen, or Social Home took us out: forget it.
+      void dropGame(action.entry.sessionId);
+      return;
+    case "ignore":
+      return;
+  }
+}
+
+/** Someone took the seat at our open game: their app sends its dice commitment. */
+function onSeatTaken(entry: GameEntry): void {
+  entry.updatedAt = Date.now();
+  void persist(entry);
+  const text = t("table.joined", { name: opponentLabel(entry) });
+  if (ui.view === "game" && ui.active === entry.sessionId) say(text);
+  else toast(text);
+  render();
+}
+
+/**
+ * Our game for a table we sit at: the one we have (names refreshed), or a
+ * new one. A new game of the player who sat down makes our secret dice seed
+ * and sends its commitment at once — only where *mayStart* (the screen Join
+ * opened, or opening the app), so two screens of one person never commit
+ * two different seeds; another screen takes the saved copy instead.
+ */
+function seatTable(session: GroupSession, mayStart: boolean): GameEntry | null {
+  const known = ui.games.get(session.id);
+  if (known) {
+    if (!known.table) return null; // a 1:1 game's id never becomes a table
+    const { changed, joined } = updateFromTable(known, session);
+    if (joined) onSeatTaken(known);
+    else if (changed) void persist(known);
+    return known;
+  }
+  if (!isPlayableTable(session)) return null;
+  const commits = tableRole(session.me!) === "inviter";
+  if (commits && !mayStart) return null;
+  const entry = entryForTable(session, newSeed(), Date.now());
+  if (!entry) return null;
+  ui.games.set(entry.sessionId, entry);
+  if (commits) {
+    // The seed is saved before its tip goes out; the commitment hands the opener the turn.
+    void withGame(entry.sessionId, async () => {
+      await persist(entry);
+      await sendState(entry);
+    });
+  } else {
+    void persist(entry);
+  }
+  return entry;
+}
+
+/** Waits before looking again for the table game another screen of ours started. */
+const TABLE_ADOPT_RETRY_MS = [2000, 6000];
+
+/** Another screen of this person took the seat: take its saved game when it is there. */
+async function adoptTableFromStore(id: string, attempt = 0): Promise<void> {
+  if (ui.games.has(id)) return;
+  const saved = parseSavedGame(await client.store.get(PREFIX + id).catch(() => null));
+  if (saved?.table && saved.sessionId === id) {
+    ui.games.set(id, saved);
+    render();
+    return;
+  }
+  if (attempt < TABLE_ADOPT_RETRY_MS.length) {
+    setTimeout(() => void adoptTableFromStore(id, attempt + 1), TABLE_ADOPT_RETRY_MS[attempt]);
+  }
+}
+
+/**
+ * On open: what happened at our tables while Backgammon was closed — someone
+ * took the seat, the table ended, we left on another screen — and tables we
+ * sit at but have no game for yet (opened or joined on another screen).
+ */
+async function syncTables(): Promise<void> {
+  let tables: GroupSession[];
+  try {
+    tables = await client.group.list();
+  } catch (err) {
+    console.info("backgammon.no_tables", err);
+    return;
+  }
+  for (const session of tables) {
+    const known = ui.games.get(session.id);
+    if (!known) {
+      if (isPlayableTable(session)) seatTable(session, true);
+      continue;
+    }
+    if (!known.table) continue;
+    if (session.myState === "left" || session.myState === "removed") {
+      handleTableAction({ kind: "mine-over", entry: known });
+    } else if (session.state === "ended") {
+      handleTableAction(classifyTableEvent({ type: "ended", id: session.id, session }, ui.games));
+    } else {
+      seatTable(session, true);
+    }
+  }
+}
+
+/** Messages at our tables that waited while Backgammon was closed (each player's latest). */
+async function applyGroupHeld(): Promise<void> {
+  let held: GroupMessage[];
+  try {
+    held = await client.group.held();
+  } catch (err) {
+    console.info("backgammon.no_held_table_messages", err);
+    return;
+  }
+  for (const msg of held) {
+    await takeTableMessage(msg).catch((err) => console.error("backgammon.held_table_message_failed", err));
+  }
+}
+
+/** Boot is done: take the table events that came in meanwhile. */
+function flushEarlyTableEvents(): void {
+  const early = tableEventsBeforeBoot ?? [];
+  tableEventsBeforeBoot = null;
+  for (const event of early) onGroupEvent(event);
+}
+
+// ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 
@@ -1749,6 +2007,7 @@ async function main(): Promise<void> {
   if (!booted) {
     client.onMessage(onInboundMessage);
     client.onSession(onInboundSession);
+    client.group.onEvent(onGroupEvent);
   }
   root().replaceChildren(make("p", { cls: "muted", text: t("app.loading") }));
   try {
@@ -1762,7 +2021,10 @@ async function main(): Promise<void> {
       booted = true;
     }
     ui.selfUserId = ctx.selfUserId;
+    // Open games in spaces (an older Social Home has none: 1:1 only).
+    ui.groups = ctx.groups === true;
     ui.contacts = await client.contacts().catch(() => []);
+    if (ui.groups) await syncTables();
     render();
 
     if (ctx.launch === undefined) {
@@ -1772,7 +2034,15 @@ async function main(): Promise<void> {
       render();
     } else {
       const launch = launchAction(ctx.launch, ui.games);
-      if (launch.kind === "start") {
+      if (launch.kind === "table") {
+        const entry = seatTable(launch.session, true);
+        if (entry) openGame(entry.sessionId);
+        else if (launch.session.state !== "ended" && launch.session.myState === "joining") {
+          // Join was pressed; the table's household hasn't seated us yet.
+          ui.launchTable = launch.session.id;
+          toast(t("table.joining"));
+        } else toast(t("table.ended"));
+      } else if (launch.kind === "start") {
         const entry = seatInvite(launch.invite);
         if (entry) openGame(entry.sessionId);
       } else if (launch.kind === "open") openGame(launch.sessionId);
@@ -1780,6 +2050,8 @@ async function main(): Promise<void> {
       else if (launch.kind === "mismatch") toast(t("invite.mismatch"));
     }
     await applyHeld();
+    if (ui.groups) await applyGroupHeld();
+    flushEarlyTableEvents();
     for (const entry of ui.games.values()) {
       // A step that didn't go out (offline when it was made): send it now.
       if (entry.unsent) void withGame(entry.sessionId, () => sendState(entry));
@@ -1787,6 +2059,7 @@ async function main(): Promise<void> {
       void withGame(entry.sessionId, () => autoAct(entry));
     }
   } catch (err) {
+    flushEarlyTableEvents();
     console.error("backgammon.init_failed", err);
     const box = make("div", { cls: "card error", attrs: { role: "alert" } });
     box.append(make("p", { text: t("app.loadFailed") }), button(t("btn.retry"), "primary", () => void main()));

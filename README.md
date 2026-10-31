@@ -367,6 +367,17 @@ Take the seat"); the game starts when someone takes the seat, and
 `launch.group` tells both sides who opened it (e.g. for colours). Their 1:1
 invites keep working as before.
 
+The four games in this repo do exactly that (`apps/<id>/src/table.ts`): the
+opener is seat 1, and **whoever takes the seat moves first** — White in
+Chess, Black in Go (9 × 9, no handicap, no clock), the first shot in
+Battleships, and in Backgammon the first commitment of the fair dice (they
+play Black; the opening roll still decides who starts). Both sides work it
+out from their own seat, so nothing about it travels and nobody waits for
+the opener's app. Settings are fixed at a table (a message with any other
+setup is refused), moves go `sh.group.send(id, state, { turn: theirSeat })`,
+and an incoming message is routed only by the table id Social Home delivered
+and the other player's seat, then judged exactly like a 1:1 move.
+
 Set `min_core_version` to the first Social Home release with group games for
 apps (the release that ships the `sh.group` bridge): an older Social Home
 ignores `players` / `tables` / `late_join` and runs the app 1:1 only

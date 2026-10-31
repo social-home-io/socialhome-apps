@@ -17,7 +17,7 @@
  */
 
 import { parseSessionPayload, ShError } from "@socialhome/app-sdk";
-import type { AppMessage, Contact, LaunchContext, PickedPerson, SessionTarget } from "@socialhome/app-sdk";
+import type { AppMessage, Contact, GroupSession, LaunchContext, PickedPerson, SessionTarget } from "@socialhome/app-sdk";
 import { t } from "./i18n.js";
 import { other } from "./rules.js";
 import type { Color, WinKind } from "./rules.js";
@@ -28,6 +28,7 @@ import { diceSource, isClockDays, parseLog } from "./inbound.js";
 import type { LocalGame, OwnSide, Shown } from "./inbound.js";
 import { turnClock } from "./clock.js";
 import type { ClockMark, TurnClock } from "./clock.js";
+import type { TableInfo } from "./table.js";
 
 export type Role = "inviter" | "invitee";
 
@@ -63,6 +64,8 @@ export interface GameEntry {
   theirHint?: ClockMark;
   /** Clock: "Keep playing" hid the claim offer at this log length. */
   claimHiddenAt?: number;
+  /** An open game in a space: played over that table (table.ts), not a 1:1 session. */
+  table?: TableInfo;
 }
 
 const chains = new Map<string, Uint8Array[]>();
@@ -280,7 +283,11 @@ export function showClaimOffer(entry: GameEntry, now = Date.now()): boolean {
 
 /** What gets saved: the entry without anything rebuilt. */
 export function toStored(entry: GameEntry): GameEntry {
-  return { ...entry, log: entry.log.map((e) => (Array.isArray(e) ? [...e] : e)) };
+  return {
+    ...entry,
+    log: entry.log.map((e) => (Array.isArray(e) ? [...e] : e)),
+    ...(entry.table ? { table: { ...entry.table } } : {}),
+  };
 }
 
 /**
@@ -301,9 +308,9 @@ export function isOver(entry: GameEntry): boolean {
   return stateOf(entry)?.phase === "over";
 }
 
-/** Our own invite, not answered yet: we invited and nothing came back. */
+/** Our own invite, not answered yet: we invited and nothing came back (never an open game: no invite). */
 export function isAwaitingOpponent(entry: GameEntry): boolean {
-  return entry.role === "inviter" && !entry.heard && !isOver(entry);
+  return entry.role === "inviter" && !entry.heard && !entry.table && !isOver(entry);
 }
 
 /** A received invite nobody has played in yet. */
@@ -356,7 +363,8 @@ export function classifySessionEvent(
   const { verb, reason } = parseSessionPayload(msg.payload);
   if (verb === "close") {
     const entry = games.get(msg.sessionId);
-    if (!entry || !fromOpponent(entry, msg)) return { kind: "ignore" };
+    // An open game in a space has no 1:1 session to close.
+    if (!entry || entry.table || !fromOpponent(entry, msg)) return { kind: "ignore" };
     if (reason === "declined" && isAwaitingOpponent(entry)) return { kind: "declined", entry };
     if (reason === "withdrawn" && isUnansweredInvite(entry)) return { kind: "withdrawn", entry };
     if (reason === "ended" && !isOver(entry)) return { kind: "ended", entry };
@@ -373,6 +381,8 @@ export function classifySessionEvent(
 
 export type LaunchAction =
   | { kind: "none" }
+  /** Join / Play opened Backgammon for an open game in a space (a table). */
+  | { kind: "table"; session: GroupSession }
   | { kind: "start"; invite: AppMessage }
   | { kind: "open"; sessionId: string }
   | { kind: "mismatch" }
@@ -382,8 +392,16 @@ export type LaunchAction =
 export function launchAction(launch: LaunchContext | undefined, games: ReadonlyMap<string, GameEntry>): LaunchAction {
   const sessionId = launch?.sessionId;
   if (!sessionId) return { kind: "none" };
+  if (launch.group) {
+    // A table's id never names a 1:1 game we have.
+    const mine = games.get(sessionId);
+    if (mine && !mine.table) return { kind: "mismatch" };
+    return { kind: "table", session: launch.group };
+  }
   const known = games.get(sessionId);
   if (known) {
+    // An invite never names a game played at a table.
+    if (known.table && launch.invite) return { kind: "mismatch" };
     if (launch.invite && !fromOpponent(known, launch.invite)) return { kind: "mismatch" };
     return { kind: "open", sessionId };
   }
@@ -400,7 +418,8 @@ export type InboundRoute = { kind: "game"; entry: GameEntry } | { kind: "drop"; 
  */
 export function routeInbound(msg: AppMessage, games: ReadonlyMap<string, GameEntry>): InboundRoute {
   const entry = games.get(msg.sessionId);
-  if (!entry) return { kind: "drop", reason: "unknown-game" };
+  // A table game takes steps only from its table (table.ts), never a 1:1 session.
+  if (!entry || entry.table) return { kind: "drop", reason: "unknown-game" };
   if (!fromOpponent(entry, msg)) return { kind: "drop", reason: "not-opponent" };
   return { kind: "game", entry };
 }

@@ -16,6 +16,12 @@ import type { GameEntry } from "./lifecycle.js";
 import { splitLeft } from "./clock.js";
 import { THEIR_BAR, THEIR_OFF } from "./board-nav.js";
 import { turnsPlayed } from "./game.js";
+import { TABLE_SETUP, isWaitingForPlayer, tableColor } from "./table.js";
+
+/** Who the game is with — "Open game" while nobody has taken the seat at our table. */
+export function opponentLabel(entry: GameEntry): string {
+  return entry.opponentName || t("table.openGame");
+}
 
 export function colorName(c: Color): string {
   return t(c === "w" ? "color.w" : "color.b");
@@ -58,6 +64,7 @@ export type Tone = "turn" | "wait" | "good" | "bad" | "info";
 export function chipFor(entry: GameEntry, now = Date.now()): { text: string; tone: Tone } {
   const st = stateOf(entry);
   const name = personName(entry);
+  if (isWaitingForPlayer(entry)) return { text: t("chip.openGame"), tone: "wait" };
   if (!st) {
     if (isAwaitingOpponent(entry)) return { text: t("chip.inviteSent"), tone: "wait" };
     return { text: t("chip.waitSetup", { name }), tone: "wait" };
@@ -86,6 +93,8 @@ export function rulesLine(setup: Setup): string {
 
 /** "White · turn 12 · cube 2" for a lobby row. */
 export function metaFor(entry: GameEntry): string {
+  // An open game in a space: the fixed setup, our colour from our seat.
+  if (entry.table && !entry.setup) return [colorName(tableColor(entry.table.me)), rulesLine(TABLE_SETUP)].join(" · ");
   if (!entry.setup || !entry.myColor) return t("meta.unknown", { name: personName(entry) });
   const color = colorName(entry.myColor);
   const parts = [color];
@@ -130,8 +139,11 @@ export function lastTurnText(last: LastTurn, me: Color, name: string): string {
 export function statusFor(entry: GameEntry): { title: string; detail: string | null } {
   const st = stateOf(entry);
   const name = personName(entry);
+  if (isWaitingForPlayer(entry)) return { title: t("status.waitingForPlayer"), detail: t("table.waiting") };
   if (!st) {
     if (isAwaitingOpponent(entry)) return { title: t("status.inviteSent", { name }), detail: t("status.inviteSentBody", { name }) };
+    // At a table, our dice commitment went out: the opener's app answers it.
+    if (entry.table && entry.role === "inviter") return { title: t("status.waitSetup", { name }), detail: t("table.waitAnswer", { name }) };
     return { title: t("status.waitSetup", { name }), detail: t("status.waitSetupBody", { name }) };
   }
   const me = entry.myColor!;
