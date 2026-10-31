@@ -10,6 +10,7 @@ import type { Game, Outcome, Shot } from "./game.js";
 import type { GameEvent } from "./protocol.js";
 import { personName } from "./lifecycle.js";
 import type { GameEntry } from "./lifecycle.js";
+import { isWaitingForPlayer } from "./table.js";
 import { ago, t } from "./i18n.js";
 import type { MessageKey } from "./i18n.js";
 
@@ -186,12 +187,18 @@ export interface Status {
 export function statusFor(entry: GameEntry): Status {
   const g = entry.game;
   const name = personName(entry);
+  if (isWaitingForPlayer(entry)) {
+    return { title: t("status.waitingForPlayer"), detail: t(g.root ? "progress.openLocked" : "progress.openPlace") };
+  }
   switch (phase(g)) {
     case "place":
       return { title: t("place.title"), detail: t("place.seal", { name }) };
     case "wait-seal":
       return g.role === "challenger"
-        ? { title: t("status.inviteSent"), detail: t("status.inviteSentDetail", { name }) }
+        ? {
+            title: entry.table ? t("status.waitSeal", { name }) : t("status.inviteSent"),
+            detail: t("status.inviteSentDetail", { name }),
+          }
         : { title: t("status.waitSeal", { name }), detail: t("status.waitSealDetail", { name }) };
     case "my-turn": {
       const last = lastEvent(entry);
@@ -216,11 +223,12 @@ export function chipFor(entry: GameEntry, now = Date.now()): { text: string; ton
     if (o.kind === "won") return g.check === "ok" ? { text: t("chip.wonChecked"), tone: "ok" } : { text: t("chip.wonPending"), tone: "plain" };
     return g.check === "ok" ? { text: t("chip.lost"), tone: "plain" } : { text: t("chip.lostUnshown", { name }), tone: "plain" };
   }
+  if (isWaitingForPlayer(entry)) return { text: t("chip.openGame"), tone: "plain" };
   switch (phase(g)) {
     case "place":
       return { text: t("chip.place"), tone: "turn" };
     case "wait-seal":
-      return g.role === "challenger" ? { text: t("chip.inviteSent"), tone: "plain" } : { text: t("chip.waitSeal", { name }), tone: "plain" };
+      return g.role === "challenger" && !entry.table ? { text: t("chip.inviteSent"), tone: "plain" } : { text: t("chip.waitSeal", { name }), tone: "plain" };
     case "my-turn":
       return { text: t("chip.yourTurn"), tone: "turn" };
     default:
@@ -240,9 +248,10 @@ export function progressFor(entry: GameEntry): string {
   const name = personName(entry);
   if (g.outcome?.kind === "void") return voidReason(g.outcome, name);
   if (g.outcome?.kind === "won" && g.check === "ok") return t("progress.wonChecked", { name });
+  if (isWaitingForPlayer(entry)) return t(g.root ? "progress.openLocked" : "progress.openPlace");
   switch (phase(g)) {
     case "place":
-      return t("progress.place", { name });
+      return t(entry.table ? "progress.placeTable" : "progress.place", { name });
     case "wait-seal":
       return t(g.role === "challenger" ? "progress.inviteSent" : "progress.waitSeal", { name });
     default: {

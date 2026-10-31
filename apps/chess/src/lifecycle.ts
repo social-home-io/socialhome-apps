@@ -23,10 +23,11 @@
  */
 
 import { parseSessionPayload, ShError } from "@socialhome/app-sdk";
-import type { AppMessage, Contact, LaunchContext, PickedPerson } from "@socialhome/app-sdk";
+import type { AppMessage, Contact, GroupSession, LaunchContext, PickedPerson } from "@socialhome/app-sdk";
 import { initialState, isBoardMove } from "./chess.js";
 import { t } from "./i18n.js";
 import type { Color, GameState } from "./chess.js";
+import type { TableInfo } from "./table.js";
 
 export interface GameEntry {
   sessionId: string;
@@ -46,6 +47,8 @@ export interface GameEntry {
   unsent?: boolean;
   /** When the game last changed here (ms since 1970), for the lobby's order. */
   updatedAt?: number;
+  /** An open game in a space: played over that table (table.ts), not a 1:1 session. */
+  table?: TableInfo;
 }
 
 /** Whether we sent this game's invite (games from before the field: White did). */
@@ -183,6 +186,7 @@ export function classifySessionEvent(
 /** What chess does with the launch context it was opened with. */
 export type LaunchAction =
   | { kind: "none" }
+  | { kind: "table"; session: GroupSession }
   | { kind: "start"; invite: AppMessage }
   | { kind: "open"; sessionId: string }
   | { kind: "mismatch" }
@@ -196,6 +200,7 @@ export type LaunchAction =
  * - `mismatch` — Play for a game we have, but from someone else than its
  *   opponent: refuse (a session id is never moved to another person).
  * - `gone` — the invite no longer waits and we don't know the game.
+ * - `table` — Join / Play opened chess for an open game in a space (a table).
  * - `none` — opened normally, or by an older host (`launch` undefined).
  */
 export function launchAction(
@@ -204,6 +209,12 @@ export function launchAction(
 ): LaunchAction {
   const sessionId = launch?.sessionId;
   if (!sessionId) return { kind: "none" };
+  if (launch.group) {
+    // A table's id never names a 1:1 game we have.
+    const mine = games.get(sessionId);
+    if (mine && !mine.table) return { kind: "mismatch" };
+    return { kind: "table", session: launch.group };
+  }
   const known = games.get(sessionId);
   if (known) {
     // A game we have, invited by someone else than its opponent (a
@@ -320,7 +331,8 @@ export function entryForPicked(p: PickedPerson, myColor: Color = "w", now = 0): 
  * move messages), or undefined. Taken only while nobody has made a move.
  */
 export function colorFromInviter(entry: GameEntry, payload: unknown): Color | undefined {
-  if (isInviter(entry) || entry.state.history.length > 0) return undefined;
+  // At a table the seats decide (table.ts): nobody's word changes them.
+  if (entry.table || isInviter(entry) || entry.state.history.length > 0) return undefined;
   if (typeof payload !== "object" || payload === null) return undefined;
   const c = (payload as Record<string, unknown>)["youPlay"];
   return c === "w" || c === "b" ? c : undefined;

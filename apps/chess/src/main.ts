@@ -13,8 +13,18 @@
  *    still near the player.
  */
 
-import sh from "@socialhome/app-sdk";
-import type { AppLook, AppMessage, Contact, PickedPerson, SendOptions, SessionTarget } from "@socialhome/app-sdk";
+import sh, { ShError } from "@socialhome/app-sdk";
+import type {
+  AppLook,
+  AppMessage,
+  Contact,
+  GroupEvent,
+  GroupMessage,
+  GroupSession,
+  PickedPerson,
+  SendOptions,
+  SessionTarget,
+} from "@socialhome/app-sdk";
 import {
   initialState,
   applyAction,
@@ -79,6 +89,16 @@ import { createAnnouncer } from "./announcer.js";
 import type { Announcer } from "./announcer.js";
 import { t, tAround } from "./i18n.js";
 import { applyLook } from "./look.js";
+import type { TableAction } from "./table.js";
+import {
+  classifyTableEvent,
+  entryForTable,
+  isPlayableTable,
+  isWaitingForPlayer,
+  parseTableInfo,
+  routeTableMessage,
+  updateFromTable,
+} from "./table.js";
 
 // The SDK singleton is non-null in the browser / iframe and `null` outside it
 // (e.g. the Node test runner importing the pure helpers below). `client` is
@@ -155,6 +175,10 @@ interface UIState {
   hint: string | null;
   /** The inviter's colour choice in "New game" (remembered per person). */
   colorChoice: ColorChoice;
+  /** This Social Home has open games in spaces (`sh.group`, SDK 1.9). */
+  groups: boolean;
+  /** Join opened chess for this table before our seat was confirmed: show it once seated. */
+  launchTable: string | null;
 }
 
 const ui: UIState = {
@@ -173,6 +197,8 @@ const ui: UIState = {
   viewMoves: null,
   hint: null,
   colorChoice: "w",
+  groups: false,
+  launchTable: null,
 };
 
 let _hintTimer: ReturnType<typeof setTimeout> | undefined;
@@ -217,6 +243,19 @@ function movePayload(entry: GameEntry): MovePayload {
  */
 function turnOption(entry: GameEntry): SendOptions {
   return { turn: passesTurn(entry.state, entry.myColor) };
+}
+
+/**
+ * Send a game's message to the other player: over its table for an open game
+ * in a space (handing their seat the turn), else over the 1:1 session.
+ */
+function sendGame(entry: GameEntry, payload: unknown, options: SendOptions = {}): Promise<unknown> {
+  const table = entry.table;
+  if (table) {
+    if (table.them === null) return Promise.reject(new Error("nobody has taken the seat yet"));
+    return client.group.send(entry.sessionId, payload, options.turn ? { turn: table.them } : {});
+  }
+  return client.federation.send(entry.sessionId, targetForEntry(entry), payload, options);
 }
 
 interface OpenPayload {
@@ -317,6 +356,8 @@ async function loadAllGames(): Promise<void> {
         ...(e.unsent === true ? { unsent: true } : {}),
         updatedAt: typeof e.updatedAt === "number" ? e.updatedAt : 0,
       };
+      const table = parseTableInfo(e.table);
+      if (table) entry.table = table;
       ui.games.set(entry.sessionId, entry);
     }
   }
@@ -545,10 +586,12 @@ function buildGameRow(entry: GameEntry): HTMLElement {
 
   const info = make("div", { cls: "game-item-info" });
   const top = make("div", { cls: "game-item-top" });
-  top.appendChild(make("span", { cls: "game-opponent-name", text: entry.opponentName }));
+  top.appendChild(make("span", { cls: "game-opponent-name", text: opponentLabel(entry) }));
   let badge: HTMLElement;
   if (isOver) {
     badge = make("span", { cls: "badge badge-over", text: resultLabel(entry.state.result!, entry.myColor) });
+  } else if (isWaitingForPlayer(entry)) {
+    badge = make("span", { cls: "badge badge-waiting", text: t("badge.openGame") });
   } else if (entry.unsent) {
     badge = make("span", { cls: "badge badge-unsent", text: t("badge.notSent") });
   } else if (isAwaitingOpponent(entry)) {
@@ -568,21 +611,28 @@ function buildGameRow(entry: GameEntry): HTMLElement {
     cls: isOver ? "btn btn-ghost" : "btn btn-primary",
     text: t(isOver ? "btn.view" : "btn.resume"),
     attrs: {
-      "aria-label": t(isOver ? "btn.viewWith" : "btn.resumeWith", { name: entry.opponentName }),
+      "aria-label": t(isOver ? "btn.viewWith" : "btn.resumeWith", { name: opponentLabel(entry) }),
       "data-resume": sessionId,
     },
   });
   openBtn.addEventListener("click", () => openBoardView(sessionId));
   actions.appendChild(openBtn);
 
-  if (isAwaitingOpponent(entry)) {
+  if (isWaitingForPlayer(entry)) {
+    // Our open game in a space: nobody took the seat yet. Close it there.
+    const closeBtn = make("button", { cls: "btn btn-ghost", text: t("btn.closeTable") });
+    closeBtn.addEventListener("click", () => void onCloseTable(sessionId));
+    actions.appendChild(closeBtn);
+  } else if (isAwaitingOpponent(entry)) {
     // Our invite hasn't been answered: take it back, so the invitee's
     // "Needs you" item goes too (not just our local copy).
     const cancelBtn = make("button", { cls: "btn btn-ghost", text: t("btn.cancelInvite") });
     cancelBtn.addEventListener("click", () => void onCancelInvite(sessionId));
     actions.appendChild(cancelBtn);
   } else {
-    if (isOver && !ui.legacyPicker && !inviteWaitingFor(entry.opponentInstanceId, entry.opponentRef)) {
+    // A rematch goes through the invite sheet: not for an open game in a
+    // space (Social Home gives an app seats there, never people).
+    if (isOver && !entry.table && !ui.legacyPicker && !inviteWaitingFor(entry.opponentInstanceId, entry.opponentRef)) {
       // A rematch swaps colours.
       const rematch = make("button", {
         cls: "btn btn-ghost",
@@ -602,6 +652,11 @@ function buildGameRow(entry: GameEntry): HTMLElement {
   }
   li.appendChild(actions);
   return li;
+}
+
+/** Who the game is with — "Open game" while nobody has taken the seat at our table. */
+function opponentLabel(entry: GameEntry): string {
+  return entry.opponentName || t("table.openGame");
 }
 
 /** The opponent of a game as a contact (for a rematch through the sheet). */
@@ -779,7 +834,7 @@ function renderBoard(): void {
 
   const opponentEl = make("div", { cls: "board-header-opponent" });
   opponentEl.appendChild(pieceEl(`${opponent(entry.myColor)}K`, "color-indicator"));
-  opponentEl.appendChild(make("span", { cls: "opponent-label", text: entry.opponentName }));
+  opponentEl.appendChild(make("span", { cls: "opponent-label", text: opponentLabel(entry) }));
   // A green dot only when Social Home says they are online right now.
   const contact = ui.contacts.find((c) => c.instance_id === entry.opponentInstanceId && c.user_ref === entry.opponentRef);
   if (contact?.online) {
@@ -788,6 +843,16 @@ function renderBoard(): void {
   }
   header.appendChild(opponentEl);
   root.appendChild(header);
+
+  // ---- Our open game in a space: nobody took the seat yet ----
+  if (isWaitingForPlayer(entry)) {
+    const banner = make("div", { cls: "invite-pending" });
+    banner.appendChild(make("p", { cls: "invite-pending-text", text: t("table.waiting") }));
+    const closeBtn = make("button", { cls: "btn btn-ghost", text: t("btn.closeTable") });
+    closeBtn.addEventListener("click", () => void onCloseTable(entry.sessionId));
+    banner.appendChild(closeBtn);
+    root.appendChild(banner);
+  }
 
   // ---- Our invite not answered yet: say so, and let us take it back ----
   if (isAwaitingOpponent(entry)) {
@@ -1139,6 +1204,11 @@ function buildStatusContent(entry: GameEntry): DocumentFragment {
     return frag;
   }
 
+  if (isWaitingForPlayer(entry)) {
+    frag.appendChild(make("p", { cls: "status-waiting", text: t("status.waitingForPlayer") }));
+    return frag;
+  }
+
   const inCheck = isInCheck(game.board, game.sideToMove);
   const myTurn = isMyTurn(game, entry.myColor);
   const colorLabel = t(game.sideToMove === "w" ? "color.w" : "color.b");
@@ -1176,7 +1246,8 @@ function buildStatusContent(entry: GameEntry): DocumentFragment {
  */
 function buildGameActions(entry: GameEntry): HTMLElement | null {
   const game = entry.state;
-  if (game.result !== null) return null;
+  // Nobody to resign to yet at an open game: the banner offers Close instead.
+  if (game.result !== null || isWaitingForPlayer(entry)) return null;
   const me = entry.myColor;
   const bar = make("div", { cls: "game-actions" });
 
@@ -1461,7 +1532,7 @@ async function persistAndSend(entry: GameEntry): Promise<void> {
   await persistGame(entry).catch(() => {});
   const payload = movePayload(entry);
   try {
-    await client.federation.send(entry.sessionId, targetForEntry(entry), payload, turnOption(entry));
+    await sendGame(entry, payload, turnOption(entry));
   } catch (err) {
     if (!isUnknownGame(err)) {
       console.warn("chess.send_failed", { session_id: entry.sessionId });
@@ -1485,7 +1556,7 @@ async function persistAndSend(entry: GameEntry): Promise<void> {
 /** Send a game's newest entry again (Retry, or on open). */
 async function retrySend(entry: GameEntry, quiet = false): Promise<void> {
   try {
-    await client.federation.send(entry.sessionId, targetForEntry(entry), movePayload(entry), turnOption(entry));
+    await sendGame(entry, movePayload(entry), turnOption(entry));
   } catch (err) {
     if (isUnknownGame(err)) {
       entry.unsent = false;
@@ -1671,6 +1742,29 @@ async function onEndGame(sessionId: string): Promise<void> {
     await onAction(entry, "resign");
     return;
   }
+  // A finished game at a table: our seat there isn't needed any more.
+  if (entry.table && ui.groups) void client.group.leave(sessionId).catch(() => {});
+  await removeGame(sessionId);
+  firstControl()?.focus();
+}
+
+/**
+ * Close our open game in a space before anyone took the seat: it goes from
+ * the space's games (Social Home ends the table for everyone) and from here.
+ */
+async function onCloseTable(sessionId: string): Promise<void> {
+  const entry = ui.games.get(sessionId);
+  if (!entry?.table) return;
+  try {
+    await client.group.close(sessionId);
+  } catch (err) {
+    // Already over there (closed on another screen, expired): just forget it.
+    const code = err instanceof ShError ? err.code : undefined;
+    if (code !== "group_closed" && code !== "group_not_found") {
+      showToast(t("table.closeFailed"));
+      return;
+    }
+  }
   await removeGame(sessionId);
   firstControl()?.focus();
 }
@@ -1780,8 +1874,16 @@ async function takeInboundMove(msg: AppMessage): Promise<void> {
     onAccepted(entry, msg.payload);
     return;
   }
+  await applyMoveMessage(entry, msg.payload);
+}
 
-  let verdict = judgeInbound(entry.state, entry.myColor, msg.payload);
+/**
+ * The opponent's move message for one of our games (already routed to it):
+ * judged against our own copy, then applied, shown and announced.
+ */
+async function applyMoveMessage(entry: GameEntry, payload: unknown): Promise<void> {
+  const sessionId = entry.sessionId;
+  let verdict = judgeInbound(entry.state, entry.myColor, payload);
   if (verdict.kind === "refuse" && (verdict.reason === "too-many" || verdict.reason === "wrong-colour")) {
     // This screen may hold an older copy than our store (the same person
     // played on another screen): catch up from our own copy and judge again.
@@ -1789,7 +1891,7 @@ async function takeInboundMove(msg: AppMessage): Promise<void> {
     const own = catchUpFromOwnCopy(entry.state, (stored as Partial<GameEntry> | null)?.state);
     if (own) {
       entry.state = own;
-      verdict = judgeInbound(entry.state, entry.myColor, msg.payload);
+      verdict = judgeInbound(entry.state, entry.myColor, payload);
     }
   }
 
@@ -1977,6 +2079,160 @@ function showInviteToast(opponentName: string, sessionId: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Open games in a space (tables, SDK 1.9) — table.ts decides, this applies
+// ---------------------------------------------------------------------------
+
+/** Table events that came in before our saved games were loaded. */
+let tableEventsBeforeBoot: GroupEvent[] | null = [];
+
+function onGroupEvent(event: GroupEvent): void {
+  if (tableEventsBeforeBoot) {
+    tableEventsBeforeBoot.push(event);
+    return;
+  }
+  if (event.type === "message") {
+    void takeTableMessage(event).catch((err) => {
+      console.error("Chess: table move failed", err);
+    });
+    return;
+  }
+  handleTableAction(classifyTableEvent(event, ui.games));
+}
+
+/**
+ * A move at a table: routed by the table Social Home delivered it for and
+ * the sender's seat (never an id in the payload), then judged like any move.
+ */
+async function takeTableMessage(msg: GroupMessage): Promise<void> {
+  if (messageType(msg.data) !== "move") return;
+  let route = routeTableMessage(msg, ui.games);
+  if (route.kind === "drop" && route.reason === "no-opponent-yet") {
+    // A move before the roster said who sat down: ask Social Home for the table.
+    const session = await client.group.get(msg.id).catch(() => null);
+    if (session) seatTable(session);
+    route = routeTableMessage(msg, ui.games);
+  }
+  if (route.kind === "drop") {
+    console.warn("chess.table_dropped", { session_id: msg.id, reason: route.reason });
+    return;
+  }
+  await applyMoveMessage(route.entry, msg.data);
+}
+
+function handleTableAction(action: TableAction): void {
+  switch (action.kind) {
+    case "seat": {
+      const entry = seatTable(action.session);
+      if (entry && ui.launchTable === entry.sessionId) {
+        ui.launchTable = null;
+        openBoardView(entry.sessionId);
+      } else {
+        render();
+      }
+      return;
+    }
+    case "joined":
+      onSeatTaken(action.entry);
+      return;
+    case "update":
+      render();
+      return;
+    case "gone":
+      showToast(
+        action.reason === "left" ? t("table.left", { name: opponentLabel(action.entry) }) : t("table.ended"),
+      );
+      void removeGame(action.entry.sessionId);
+      return;
+    case "mine-over":
+      // We left on another screen, or Social Home took us out: forget it.
+      void removeGame(action.entry.sessionId);
+      return;
+    case "ignore":
+      return;
+  }
+}
+
+/** Someone took the seat at our open game: they play White and move first. */
+function onSeatTaken(entry: GameEntry): void {
+  touch(entry);
+  void persistGame(entry);
+  const text = t("table.joined", { name: entry.opponentName });
+  if (ui.view === "board" && ui.activeBoardSession === entry.sessionId) say(text);
+  else showToast(text);
+  render();
+}
+
+/** Our game for a table we sit at: the one we have (names refreshed), or a new one. */
+function seatTable(session: GroupSession): GameEntry | null {
+  const known = ui.games.get(session.id);
+  if (known) {
+    if (!known.table) return null; // a 1:1 game's id never becomes a table
+    const { changed, joined } = updateFromTable(known, session);
+    if (joined) onSeatTaken(known);
+    else if (changed) void persistGame(known);
+    return known;
+  }
+  const entry = entryForTable(session, Date.now());
+  if (!entry) return null;
+  ui.games.set(entry.sessionId, entry);
+  void persistGame(entry);
+  return entry;
+}
+
+/**
+ * On open: what happened at our tables while chess was closed — someone took
+ * the seat, the table ended, we left on another screen — and tables we sit
+ * at but have no game for yet (opened on another screen).
+ */
+async function syncTables(): Promise<void> {
+  let tables: GroupSession[];
+  try {
+    tables = await client.group.list();
+  } catch (err) {
+    console.info("Chess: no tables from this Social Home", err);
+    return;
+  }
+  for (const session of tables) {
+    const known = ui.games.get(session.id);
+    if (!known) {
+      if (isPlayableTable(session)) seatTable(session);
+      continue;
+    }
+    if (!known.table) continue;
+    if (session.myState === "left" || session.myState === "removed") {
+      handleTableAction({ kind: "mine-over", entry: known });
+    } else if (session.state === "ended") {
+      handleTableAction(classifyTableEvent({ type: "ended", id: session.id, session }, ui.games));
+    } else {
+      seatTable(session);
+    }
+  }
+}
+
+/** Moves at our tables that waited while chess was closed (each player's latest). */
+async function applyGroupHeld(): Promise<void> {
+  let held: GroupMessage[];
+  try {
+    held = await client.group.held();
+  } catch (err) {
+    console.info("Chess: no held table moves", err);
+    return;
+  }
+  for (const msg of held) {
+    await takeTableMessage(msg).catch((err) => {
+      console.error("Chess: held table move failed", err);
+    });
+  }
+}
+
+/** Boot is done: take the table events that came in meanwhile. */
+function flushEarlyTableEvents(): void {
+  const early = tableEventsBeforeBoot ?? [];
+  tableEventsBeforeBoot = null;
+  for (const event of early) onGroupEvent(event);
+}
+
+// ---------------------------------------------------------------------------
 // Bootstrap
 // ---------------------------------------------------------------------------
 
@@ -2015,6 +2271,7 @@ async function main(): Promise<void> {
   // Subscribe to real-time messages immediately so no events are missed.
   client.onMessage(onInboundMessage);
   client.onSession(onInboundSession);
+  client.group.onEvent(onGroupEvent);
 
   // Show initial loading skeleton
   const root = el("app-root");
@@ -2037,6 +2294,8 @@ async function main(): Promise<void> {
       retryUnsent();
     });
     ui.selfUserId = ctx.selfUserId;
+    // Open games in spaces (an older Social Home has none: 1:1 only).
+    ui.groups = ctx.groups === true;
     // After the context: a Play launch has taken its invite in by then, so
     // the inviter is among the people chess may know.
     ui.contacts = await client.contacts();
@@ -2054,16 +2313,31 @@ async function main(): Promise<void> {
       } catch (err) {
         console.warn("Chess: pending-invite replay failed", err);
       }
+      flushEarlyTableEvents();
       render();
       return;
     }
 
     // Invites wait in Social Home's "Needs you"; "Play" there opens chess
     // with that one game (D12). Opened any other way, nothing is accepted.
+    if (ui.groups) await syncTables();
     render();
     const launch = launchAction(ctx.launch, ui.games);
     let accepted: GameEntry | null = null;
     switch (launch.kind) {
+      case "table": {
+        const entry = seatTable(launch.session);
+        if (entry) {
+          openBoardView(entry.sessionId);
+        } else if (launch.session.state !== "ended" && launch.session.myState === "joining") {
+          // Join was pressed; the table's household hasn't seated us yet.
+          ui.launchTable = launch.session.id;
+          showToast(t("table.joining"));
+        } else {
+          showToast(t("table.ended"));
+        }
+        break;
+      }
       case "start": {
         accepted = seatInvite(launch.invite);
         if (accepted) openBoardView(accepted.sessionId);
@@ -2082,10 +2356,13 @@ async function main(): Promise<void> {
         break;
     }
     await applyHeld();
+    if (ui.groups) await applyGroupHeld();
+    flushEarlyTableEvents();
     // After the inviter's held open told us our colour.
     if (accepted) sendAccepted(accepted);
     retryUnsent();
   } catch (err) {
+    flushEarlyTableEvents();
     console.error("Chess: init failed", err);
     root.replaceChildren(make("p", { cls: "error-msg", text: t("app.loadFailed") }));
   }

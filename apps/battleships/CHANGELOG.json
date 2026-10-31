@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.31",
+    "date": "2026-10-31",
+    "notes": {
+      "en": "Play Battleships as an open game in a space: start it from the space's Games, place your fleet while you wait, and whoever takes the seat fires first once both fleets are locked in. Every answer stays sealed, and \"Your turn\" tells you when it's your move. Your open game waits in your list until someone joins, and you can close it there. Invites work as before.",
+      "de": "Spiel Schiffe versenken als offene Partie in einem Space: Starte sie unter „Spiele“ im Space, stell deine Flotte schon auf, während du wartest, und wer den Platz einnimmt, schießt zuerst, sobald beide Flotten feststehen. Jede Antwort bleibt versiegelt, und „Du bist dran“ sagt dir, wann du dran bist. Deine offene Partie wartet in deiner Liste, bis jemand mitmacht, und du kannst sie dort schließen. Einladungen funktionieren wie bisher.",
+      "nl": "Speel zeeslag als open partij in een space: start hem bij Spellen in de space, zet je vloot al neer terwijl je wacht, en wie de plek inneemt schiet als eerste zodra beide vloten vastliggen. Elk antwoord blijft verzegeld, en „Jij bent aan de beurt” laat weten wanneer jij aan zet bent. Je open partij wacht in je lijst tot iemand meedoet, en je kunt hem daar sluiten. Uitnodigingen werken zoals voorheen.",
+      "fr": "Jouez à la bataille navale en partie ouverte dans un espace : lancez-la depuis Jeux dans l’espace, placez votre flotte en attendant, et la personne qui prend la place tire en premier une fois les deux flottes verrouillées. Chaque réponse reste scellée, et « À vous de jouer » vous prévient quand c’est votre tour. Votre partie ouverte attend dans votre liste jusqu’à ce que quelqu’un participe, et vous pouvez l’y fermer. Les invitations fonctionnent comme avant.",
+      "es": "Juega a Hundir la flota como partida abierta en un espacio: empiézala desde Juegos en el espacio, coloca tu flota mientras esperas, y quien ocupe la plaza dispara primero cuando las dos flotas estén fijadas. Cada respuesta sigue sellada, y «Te toca» te avisa cuando es tu turno. Tu partida abierta espera en tu lista hasta que alguien participe, y puedes cerrarla ahí. Las invitaciones funcionan como antes."
+    }
+  },
+  {
     "version": "2026.10.30.1",
     "date": "2026-10-30",
     "notes": {
