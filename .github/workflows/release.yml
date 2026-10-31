@@ -29,20 +29,25 @@ jobs:
       # 1. Source
       # ------------------------------------------------------------------
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # ------------------------------------------------------------------
       # 2. Runtime: pnpm + Node 24
       # ------------------------------------------------------------------
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         # Version is read from packageManager field in package.json.
 
       - name: Set up Node 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
-          cache: "pnpm"
+          # No dependency cache here: this job builds what every household
+          # installs, so it resolves from the lockfile instead of restoring a
+          # cache another workflow wrote (setup-node's cache-poisoning
+          # guidance). ``package-manager-cache: false`` stops setup-node v5+
+          # from turning caching on by itself from ``packageManager``.
+          package-manager-cache: false
 
       # ------------------------------------------------------------------
       # 3. Install dependencies

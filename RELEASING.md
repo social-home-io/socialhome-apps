@@ -105,6 +105,49 @@ households already fetched; `latest` must keep pointing at a good catalog.
 A household that needs relief right away can turn the app off in
 **Apps → ⋯ → Turn off**; everything saved is kept.
 
+## Dependency updates
+
+[Dependabot](.github/dependabot.yml) keeps the tools current, the same way
+it does for the Social Home SPA:
+
+| Ecosystem | Directory | What moves |
+|---|---|---|
+| `npm` (pnpm) | `/` | every `package.json` in the workspace + the one `pnpm-lock.yaml` |
+| `github-actions` | `/` | `uses:` versions in `.github/workflows/` |
+
+Both run weekly on Monday with a 3-day `cooldown` (a release is only
+proposed once it is 3 days old) and group patch + minor bumps into one PR;
+each major is its own PR. They carry the `dependencies` label, so they stay
+out of the release notes.
+
+- **Patch/minor PRs auto-merge**:
+  [dependabot-automerge.yml](.github/workflows/dependabot-automerge.yml)
+  runs `gh pr merge --auto --squash`, so GitHub merges only after every
+  required check on `main` passes. This needs `main` protected with
+  **Build & test** as a required check, and **Allow auto-merge** on in the
+  repository settings — without a required check, auto-merge would merge
+  before CI ran.
+- **Majors wait for a human review.** Read the changelog; a green run alone
+  is not enough.
+- **A failing Dependabot PR is a real signal.** Find the root cause like any
+  other red CI; don't pin the old version to make it go away.
+- **Tools don't need an app version.** The tooling lives in the root
+  `package.json`, so a bump there passes the version guard. A change that
+  alters what an app ships (an app's own dependency, or a compiler/bundler
+  bump that changes `apps/*/dist/index.html`) does need the app's version
+  and CHANGELOG entry: compare the built bundles before and after.
+
+Bumped by hand instead: pnpm itself (`packageManager` in `package.json`,
+which CI reads) and the Node major in the workflows. pnpm stays on the 11
+line for now: pnpm 12 writes `pnpm-lock.yaml` as two YAML documents, and
+GitHub's dependency graph doesn't read that shape yet, so Dependabot alerts
+and security updates would stop for every package.
+
+TypeScript follows the SPA: `tsc` is the native TypeScript 7 compiler
+(`@typescript/native` → `typescript@7`), which type-checks and builds the
+SDK; `typescript` is aliased to `@typescript/typescript6` because
+typescript-eslint has no TypeScript 7 API yet.
+
 ## Who
 
 Publishing is a maintainer's decision: it puts code on every household.
