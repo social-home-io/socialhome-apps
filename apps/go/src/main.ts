@@ -487,14 +487,15 @@ function renderGame(): void {
   syncMarking(entry, st);
 
   const layout = make("div", { cls: "game-layout" });
-  layout.appendChild(boardEl(entry, st));
-  layout.appendChild(sidePanel(entry, st, name));
+  const panel = sidePanel(entry, st, name);
+  layout.append(panel.info, boardEl(entry, st), panel.lower);
   r.appendChild(layout);
   if (hadBoardFocus) focusPoint(ui.cursor);
 }
 
-function sidePanel(entry: GameEntry, st: GameState, name: string): HTMLElement {
-  const side = make("div", { cls: "side" });
+function sidePanel(entry: GameEntry, st: GameState, name: string): { info: HTMLElement; lower: HTMLElement } {
+  const side = make("div", { cls: "side info" });
+  const lower = make("div", { cls: "side lower" });
   const me = entry.myColor!;
   const them: Color = me === "b" ? "w" : "b";
 
@@ -518,8 +519,8 @@ function sidePanel(entry: GameEntry, st: GameState, name: string): HTMLElement {
     side.appendChild(resultCard(entry, st));
     const row = make("div", { cls: "row acts" });
     row.append(button(t("btn.rematch"), "primary", () => void rematch(entry)), button(t("btn.backToGames"), "", toLobby));
-    side.appendChild(row);
-    return side;
+    lower.appendChild(row);
+    return { info: side, lower };
   }
 
   const s = statusFor(entry);
@@ -537,6 +538,19 @@ function sidePanel(entry: GameEntry, st: GameState, name: string): HTMLElement {
     side.appendChild(bar);
   }
   if (ui.hint) side.appendChild(make("p", { cls: "hint small", text: ui.hint }));
+  // A 19 × 19 tap waiting for Place: right under the hint, above the board on a phone.
+  if (ui.preview !== null && isMyTurn(entry) && st.phase === "play") {
+    const row = make("div", { cls: "row acts" });
+    row.append(
+      button(t("btn.place", { point: pointName(st.size, ui.preview) }), "primary", () => void onPlace(entry, ui.preview!), { "data-place": "" }),
+      button(t("btn.cancel"), "ghost", () => {
+        ui.preview = null;
+        ui.hint = null;
+        renderGame();
+      }),
+    );
+    side.appendChild(row);
+  }
 
   const mine = isMyTurn(entry);
   const acts = make("div", { cls: "row acts" });
@@ -548,31 +562,22 @@ function sidePanel(entry: GameEntry, st: GameState, name: string): HTMLElement {
       const agrees = !!st.proposal && st.proposal.by !== me && sameEntry(st.proposal.dead, ui.marking ?? []);
       acts.append(button(agrees ? t("btn.agree") : t("btn.sendMarking"), "primary", () => void onMark(entry), { "data-mark": "" }));
       acts.append(button(t("btn.resume"), "", () => void onStep(entry, "resume")));
-      side.appendChild(acts);
-      side.appendChild(make("p", { cls: "muted small", text: t("count.resumeNote") }));
+      lower.appendChild(acts);
+      lower.appendChild(make("p", { cls: "muted small", text: t("count.resumeNote") }));
     }
   } else if (mine) {
-    if (ui.preview !== null) {
-      acts.append(
-        button(t("btn.place", { point: pointName(st.size, ui.preview) }), "primary", () => void onPlace(entry, ui.preview!), { "data-place": "" }),
-        button(t("btn.cancel"), "ghost", () => {
-          ui.preview = null;
-          renderGame();
-        }),
-      );
-    }
     acts.append(button(t("btn.pass"), "", () => void onStep(entry, "pass"), { "data-pass": "" }));
-    side.appendChild(acts);
+    lower.appendChild(acts);
   } else if (isAwaitingOpponent(entry)) {
     acts.append(button(t("btn.cancelInvite"), "ghost", () => void cancelInvite(entry)));
-    side.appendChild(acts);
+    lower.appendChild(acts);
   }
-  side.appendChild(
+  lower.appendChild(
     button(t("btn.resign"), "ghost danger resign", () => void onResign(entry)),
   );
-  side.appendChild(make("p", { cls: "muted small keys", text: t("game.keys") }));
-  if (st.n >= MAX_LOG - 1) side.appendChild(make("p", { cls: "muted small", text: t("illegal.long") }));
-  return side;
+  lower.appendChild(make("p", { cls: "muted small keys", text: t("game.keys") }));
+  if (st.n >= MAX_LOG - 1) lower.appendChild(make("p", { cls: "muted small", text: t("illegal.long") }));
+  return { info: side, lower };
 }
 
 function resultCard(entry: GameEntry, st: GameState): HTMLElement {
@@ -686,6 +691,7 @@ function boardEl(entry: GameEntry, st: GameState): HTMLElement {
       if (v.last) s.appendChild(svg("circle", { cx, cy, r: 0.2, class: `last-mark ${stone === BLACK ? "on-b" : "on-w"}` }));
     } else if (v.preview) {
       s.appendChild(svg("circle", { cx, cy, r: 0.47, class: `stone preview ${me === "b" ? "st-b" : "st-w"}` }));
+      s.appendChild(svg("circle", { cx, cy, r: 0.47, class: "preview-ring" }));
     }
   }
   wrap.appendChild(s);

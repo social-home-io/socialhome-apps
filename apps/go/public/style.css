@@ -118,6 +118,7 @@ dialog .btn.danger { background: var(--bad); color: var(--bg); border-color: tra
   border: 1.5px solid var(--stone-w-edge);
 }
 .swatch-b { background: var(--stone-b); border-color: var(--stone-b-edge); }
+:root[data-theme="dark"] .swatch-b { border-color: var(--muted); }
 .swatch-w { background: var(--stone-w); }
 .swatch-random { background: linear-gradient(90deg, var(--stone-b) 50%, var(--stone-w) 50%); }
 
@@ -150,7 +151,16 @@ dialog .btn.danger { background: var(--bad); color: var(--bg); border-color: tra
 .topbar .title { font-size: 20px; overflow-wrap: anywhere; }
 .status-card { max-width: 520px; }
 .status-card .big, .status .big { font-size: 18px; font-weight: 700; }
-.game-layout { display: grid; grid-template-columns: minmax(0, auto) minmax(260px, 340px); gap: 24px; align-items: start; justify-content: center; }
+/* The board takes what the frame's height allows (it never needs scrolling on a desktop). */
+.game-layout {
+  --board-max: min(620px, max(300px, calc(100vh - 140px)));
+  display: grid; grid-template-columns: minmax(0, var(--board-max)) minmax(240px, 320px);
+  grid-template-areas: "board info" "board lower"; grid-template-rows: auto 1fr;
+  gap: 12px 24px; align-items: start; justify-content: center;
+}
+.game-layout .info { grid-area: info; }
+.game-layout .lower { grid-area: lower; }
+.game-layout .board-wrap { grid-area: board; }
 .side { display: grid; gap: 12px; align-content: start; }
 .players { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .player {
@@ -180,19 +190,20 @@ table.score { border-collapse: collapse; width: 100%; margin-top: 6px; font-vari
 
 /* ---- The board ---- */
 .board-wrap {
-  position: relative; width: min(100%, 620px, max(300px, calc(100vh - 150px))); aspect-ratio: 1;
+  position: relative; width: 100%; aspect-ratio: 1;
   user-select: none; -webkit-user-select: none; touch-action: manipulation;
 }
 .board-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .bd-bg { fill: var(--board); }
 .bd-line line { stroke: var(--line); stroke-width: 0.04; stroke-linecap: square; }
 .bd-star { fill: var(--line); }
-.bd-label text { fill: var(--muted); font: 600 0.34px var(--font); }
+.bd-label text { fill: color-mix(in srgb, var(--text) 72%, var(--board)); font: 600 0.34px var(--font); }
 .stone { stroke-width: 0.05; }
 .st-b { fill: var(--stone-b); stroke: var(--stone-b-edge); }
 .st-w { fill: var(--stone-w); stroke: var(--stone-w-edge); }
 .stone.dead { opacity: 0.42; }
-.stone.preview { opacity: 0.5; stroke-dasharray: 0.12 0.08; }
+.stone.preview { opacity: 0.6; }
+.preview-ring { fill: none; stroke: var(--accent); stroke-width: 0.09; }
 .last-mark { fill: none; stroke-width: 0.07; }
 .last-mark.on-b, .dead-x.on-b { stroke: var(--stone-w); }
 .last-mark.on-w, .dead-x.on-w { stroke: var(--stone-b); }
@@ -232,13 +243,20 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
 /* ---- Phone ---- */
 @media (max-width: 700px) {
   body { padding: 10px 8px 20px; }
-  .game-layout { grid-template-columns: 1fr; gap: 12px; justify-items: center; }
+  .game-layout { grid-template-columns: 1fr; grid-template-areas: "info" "board" "lower"; gap: 10px; justify-items: center; }
   .board-wrap { width: 100%; }
-  .side { width: 100%; }
+  .side { width: 100%; gap: 8px; }
+  .players { grid-template-columns: 1fr 1fr; }
+  .player { padding: 6px 8px; gap: 0 8px; }
+  .player .pname { font-size: 14px; }
+  .player .caps { font-size: 12px; }
+  .status-card .big, .status .big { font-size: 16px; }
   .game { grid-template-columns: 1fr; }
   .game .acts { grid-column: 1; grid-row: auto; justify-content: stretch; }
   .game .acts .btn { flex: 1; }
   .keys { display: none; }
+  .choice-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .choice label { justify-content: center; text-align: center; padding: 4px 8px; }
 }
 
 /* The back arrow points back in the reading direction. */
