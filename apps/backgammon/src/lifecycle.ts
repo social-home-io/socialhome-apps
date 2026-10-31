@@ -21,7 +21,7 @@ import type { AppMessage, Contact, LaunchContext, PickedPerson, SessionTarget } 
 import { t } from "./i18n.js";
 import { other } from "./rules.js";
 import type { Color, WinKind } from "./rules.js";
-import { CHAIN_LENGTH, LINK_BYTES, buildChain, fromB64url, toB64url } from "./dice.js";
+import { CHAIN_LENGTH, LINK_BYTES, buildChain, bytesEqual, fromB64url, toB64url } from "./dice.js";
 import { replay } from "./game.js";
 import type { DiceSource, Entry, GameState, Setup } from "./game.js";
 import { diceSource, isClockDays, parseLog } from "./inbound.js";
@@ -120,6 +120,30 @@ export function stateOf(entry: GameEntry): GameState | null {
   const st = r ? r.state : null;
   cache.set(entry.log, { n, state: st });
   return st;
+}
+
+/**
+ * Another screen of this person answered the invite first (inbound.ts
+ * "other-screen"): take its saved copy when its seed is the one the other
+ * player holds (*myTip*). `null` while the store doesn't have that copy
+ * yet (the other screen saves it with its next step); this screen's own
+ * seed is never kept, so it can't overwrite the right one.
+ */
+export function adoptOwnCopy(entry: GameEntry, stored: GameEntry | null, myTip: Uint8Array): GameEntry | null {
+  if (!stored || stored.sessionId !== entry.sessionId || !stored.seed || !stored.setup || !entry.setup) return null;
+  if (stored.myColor !== entry.myColor || stored.setup.inviter !== entry.setup.inviter) return null;
+  if (stored.setup.cube !== entry.setup.cube || stored.setup.days !== entry.setup.days) return null;
+  const chain = chainOf(stored.seed);
+  if (!chain || !bytesEqual(chain[0], myTip)) return null;
+  return {
+    ...entry,
+    seed: stored.seed,
+    theirTip: stored.theirTip,
+    theirShown: stored.theirShown,
+    log: stored.log,
+    ...(stored.clockFrom ? { clockFrom: stored.clockFrom } : {}),
+    outOfStep: 0,
+  };
 }
 
 /** Seed the cache with a state we just built for *entry*'s log (no second replay). */

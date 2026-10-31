@@ -5,7 +5,7 @@
 
 import type { Color } from "./rules.js";
 import { buildChain } from "./dice.js";
-import { canDouble, replay } from "./game.js";
+import { autoEntry, canDouble, canSwitchAuto, replay } from "./game.js";
 import type { Entry, GameState, Setup } from "./game.js";
 import { buildMessage, diceSource, judgeInbound } from "./inbound.js";
 import type { InboundVerdict, LocalGame, Shown, WireMessage } from "./inbound.js";
@@ -106,6 +106,34 @@ export class Player {
   play(e: Entry): WireMessage {
     this.log = [...this.log, e];
     return this.message();
+  }
+
+  /** Several entries in one message (a switch of rolling without being asked, then a step). */
+  playAll(es: Entry[]): WireMessage {
+    this.log = [...this.log, ...es];
+    return this.message();
+  }
+
+  /**
+   * What the app sends for a person who wants to roll without being asked
+   * (*auto*): the switch first when the log doesn't say so yet and it may,
+   * then the step.
+   */
+  autoSteps(auto: boolean, opts: { double?: boolean; take?: boolean } = {}): Entry[] {
+    const st = this.state()!;
+    if (st.autoRoll[this.color!] !== auto && canSwitchAuto(st, this.color!)) {
+      const sw = autoEntry(this.color!, auto);
+      const after = this.clone();
+      after.log = [...this.log, sw];
+      return [sw, after.autoStep(opts)];
+    }
+    return [this.autoStep(opts)];
+  }
+
+  private clone(): Player {
+    const p = new Player(this.sid, this.role, this.seed);
+    Object.assign(p, { setup: this.setup, color: this.color, chain: this.chain, theirTip: this.theirTip, theirShown: this.theirShown, log: this.log });
+    return p;
   }
 }
 

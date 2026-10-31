@@ -1,7 +1,7 @@
 {
   "app_id": "go",
   "name": "Go",
-  "version": "2026.10.31.1",
+  "version": "2026.10.31.2",
   "description": "Play Go with someone in your household or a paired one: 9 × 9, 13 × 13 or 19 × 19, area scoring with komi, handicap stones and an optional clock. Every move is checked against the rules on both sides.",
   "entry": "index.html",
   "icon": "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%20role%3D%22img%22%20aria-label%3D%22Go%22%3E%0A%20%20%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22%23d9b26f%22%2F%3E%0A%20%20%3Cg%20stroke%3D%22%235b4421%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%3E%0A%20%20%20%20%3Cpath%20d%3D%22M12%2012V52M24%2012V52M36%2012V52M48%2012V52M12%2012H52M12%2024H52M12%2036H52M12%2048H52%22%2F%3E%0A%20%20%3C%2Fg%3E%0A%20%20%3Ccircle%20cx%3D%2224%22%20cy%3D%2224%22%20r%3D%228.5%22%20fill%3D%22%231b1b1d%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%2236%22%20cy%3D%2236%22%20r%3D%228.5%22%20fill%3D%22%231b1b1d%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%2236%22%20cy%3D%2224%22%20r%3D%228.5%22%20fill%3D%22%23f6f3ec%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%221.2%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%2248%22%20cy%3D%2236%22%20r%3D%228.5%22%20fill%3D%22%23f6f3ec%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%221.2%22%2F%3E%0A%3C%2Fsvg%3E%0A",

@@ -22,7 +22,21 @@ import sh, { ShError } from "@socialhome/app-sdk";
 import type { AppLook, AppMessage, Contact, PickedPerson } from "@socialhome/app-sdk";
 import { BAR, MAX_CUBE, OFF, other, flatten, nextSteps, targetsFrom, turnNeed, diceToPlay, without } from "./rules.js";
 import type { Board, Color, Step } from "./rules.js";
-import { applyEntry, boardAfter, canDouble, isTimeout, mustPass, passReason, passesTurn, resignBy, resignResult, timeoutOf } from "./game.js";
+import {
+  applyEntry,
+  autoEntry,
+  boardAfter,
+  canDouble,
+  canSwitchAuto,
+  isResign,
+  isTimeout,
+  mustPass,
+  passReason,
+  passesTurn,
+  resignBy,
+  resignResult,
+  timeoutOf,
+} from "./game.js";
 import type { Entry, GameState, Setup } from "./game.js";
 import { newSeed, toB64url } from "./dice.js";
 import { CLOCK_DAYS, buildMessage, catchUpFromOwnCopy, isBgMessage, isClockDays, judgeInbound } from "./inbound.js";
@@ -45,6 +59,7 @@ import {
   launchAction,
   localOf,
   ownSideOf,
+  adoptOwnCopy,
   parseEntry,
   personName,
   pickFailure,
@@ -61,6 +76,7 @@ import {
 } from "./lifecycle.js";
 import type { ColorChoice, ConfirmCopy, GameEntry } from "./lifecycle.js";
 import { groupGames } from "./lobby.js";
+import { prefSaver } from "./prefs.js";
 import {
   announceInbound,
   announceStep,
@@ -86,6 +102,11 @@ import type { MessageKey } from "./i18n.js";
 import { applyLook } from "./look.js";
 
 const client = sh as NonNullable<typeof sh>;
+/** Lobby choices: saved in order per key, the last change wins (prefs.ts). */
+const savePref = prefSaver(
+  (key, value) => client.store.set(key, value),
+  (key) => console.warn("backgammon.pref_save_failed", { key }),
+);
 
 type View = "lobby" | "game";
 
@@ -98,6 +119,8 @@ interface UI {
   colorChoice: ColorChoice;
   cube: boolean;
   days: number;
+  /** This person rolls without being asked (gives up doubling) in every game with the cube. */
+  autoRoll: boolean;
   /** Board: the focused place, the picked checker, the turn built so far (for log length `partialAt`). */
   cursor: number;
   selected: number | null;
@@ -118,6 +141,7 @@ const ui: UI = {
   colorChoice: "random",
   cube: true,
   days: 0,
+  autoRoll: false,
   cursor: 24,
   selected: null,
   partial: [],
@@ -136,6 +160,7 @@ const PREFIX = "game:";
 const PREF_COLOR = "pref:color";
 const PREF_CUBE = "pref:cube";
 const PREF_DAYS = "pref:days";
+const PREF_AUTO = "pref:autoroll";
 
 const writes = new Map<string, Promise<void>>();
 const queued = new Set<string>();
@@ -188,6 +213,8 @@ async function loadAll(): Promise<void> {
       ui.cube = value;
     } else if (key === PREF_DAYS && isClockDays(value)) {
       ui.days = value;
+    } else if (key === PREF_AUTO && typeof value === "boolean") {
+      ui.autoRoll = value;
     }
   }
 }
@@ -379,7 +406,7 @@ function renderLobby(): void {
   card.appendChild(
     choiceGroup(t("newGame.playAs"), "color", colors, ui.colorChoice, (v) => {
       ui.colorChoice = v;
-      void client.store.set(PREF_COLOR, v).catch(() => {});
+      void savePref(PREF_COLOR, v);
     }, checkerIcon),
   );
   card.appendChild(setupFields());
@@ -439,7 +466,7 @@ function setupFields(): HTMLElement {
   explainCube();
   cubeBox.addEventListener("change", () => {
     ui.cube = cubeBox.checked;
-    void client.store.set(PREF_CUBE, ui.cube).catch(() => {});
+    void savePref(PREF_CUBE, ui.cube);
     explainCube();
   });
   const cubeLabel = make("label", { cls: "switch", attrs: { for: "cube" } });
@@ -461,13 +488,42 @@ function setupFields(): HTMLElement {
   explainClock();
   cSel.addEventListener("change", () => {
     ui.days = Number(cSel.value);
-    void client.store.set(PREF_DAYS, ui.days).catch(() => {});
+    void savePref(PREF_DAYS, ui.days);
     explainClock();
   });
   cField.append(make("label", { text: t("newGame.clock"), attrs: { for: "clock" } }), cSel, cExplain);
 
+  cubeField.appendChild(autoField("auto-lobby", () => {}));
   pair.append(cubeField, cField);
   return pair;
+}
+
+/** "Roll without asking": one choice of this person's for every game with the cube. */
+function autoField(id: string, changed: () => void): HTMLElement {
+  const field = make("div", { cls: "field auto-field" });
+  const box = make("input", { attrs: { type: "checkbox", id, role: "switch", "aria-describedby": `${id}-explain` } });
+  box.checked = ui.autoRoll;
+  box.addEventListener("change", () => {
+    ui.autoRoll = box.checked;
+    void savePref(PREF_AUTO, ui.autoRoll);
+    changed();
+  });
+  const label = make("label", { cls: "switch", attrs: { for: id } });
+  label.append(box, make("span", { cls: "switch-track", attrs: { "aria-hidden": "true" } }), make("span", { text: t("auto.label") }));
+  field.append(label, make("p", { cls: "explain muted small", text: t("auto.explain"), attrs: { id: `${id}-explain` } }));
+  return field;
+}
+
+/** Switched in a game: say what happens, and roll now if we were being asked. */
+function onAutoChanged(entry: GameEntry): void {
+  say(t(ui.autoRoll ? "say.autoOn" : "say.autoOff"));
+  void withGame(entry.sessionId, async () => {
+    await autoAct(entry);
+    if (ui.active === entry.sessionId && ui.view === "game") {
+      renderGame();
+      document.getElementById("auto-game")?.focus();
+    }
+  });
 }
 
 function gameCard(entry: GameEntry): HTMLElement {
@@ -693,7 +749,7 @@ function sidePanel(entry: GameEntry, st: GameState, name: string): { info: HTMLE
     lower.appendChild(acts);
     const hint = ui.hint ?? (done ? t("hint.done") : ui.selected !== null ? t("hint.pickTarget") : t("hint.pickChecker"));
     lower.appendChild(make("p", { cls: "hint small", text: hint, attrs: { id: "turn-hint" } }));
-  } else if (canDouble(st) && st.toMove === me) {
+  } else if (canDouble(st) && st.toMove === me && !ui.autoRoll) {
     // Before the roll: roll, or double first (nobody knows the roll yet).
     acts.append(
       button(t("btn.roll"), "primary", () => void onRoll(entry), { "data-roll": "" }),
@@ -714,6 +770,7 @@ function sidePanel(entry: GameEntry, st: GameState, name: string): { info: HTMLE
   } else if (ui.hint) {
     lower.appendChild(make("p", { cls: "hint small", text: ui.hint }));
   }
+  if (entry.setup!.cube) lower.appendChild(autoField("auto-game", () => onAutoChanged(entry)));
   lower.appendChild(button(t("btn.resign"), "ghost danger resign", () => void onResign(entry)));
   lower.appendChild(fairDice());
   lower.appendChild(make("p", { cls: "muted small keys", text: t(entry.setup!.days > 0 ? "game.keysClock" : "game.keys") }));
@@ -1236,18 +1293,32 @@ async function retrySend(entry: GameEntry): Promise<void> {
   await withGame(entry.sessionId, () => sendState(entry));
 }
 
+/**
+ * Our step, after the switch of rolling without being asked when this
+ * person's choice differs from what the log says and the switch may go
+ * now (the first thing on our own turn; game.ts). Never before a double
+ * (that would give the cube up) or giving up the game.
+ */
+function withAutoSwitch(entry: GameEntry, st: GameState, e: Entry): Entry[] {
+  const me = entry.myColor;
+  if (!me || e === "double" || isResign(e) || isTimeout(e)) return [e];
+  if (st.autoRoll[me] === ui.autoRoll || !canSwitchAuto(st, me)) return [e];
+  return [autoEntry(me, ui.autoRoll), e];
+}
+
 /** Add our own step to the log, save it, show it, send it. */
 async function takeOwnStep(entry: GameEntry, e: Entry): Promise<boolean> {
   const st = stateOf(entry);
   const dice = diceOf(entry);
   if (!st || !dice) return false;
-  let next: GameState;
+  const entries = withAutoSwitch(entry, st, e);
+  let next: GameState = st;
   try {
-    next = applyEntry(st, e, dice);
+    for (const x of entries) next = applyEntry(next, x, dice);
   } catch {
     return false;
   }
-  entry.log = [...entry.log, e];
+  entry.log = [...entry.log, ...entries];
   remember(entry, next);
   entry.updatedAt = Date.now();
   // Their turn starts now, as far as this side can know.
@@ -1336,6 +1407,11 @@ async function autoAct(entry: GameEntry): Promise<void> {
   }
   if (st.phase === "dice") {
     await takeOwnStep(entry, "show");
+    return;
+  }
+  // This person rolls without being asked: no Roll or Double question (the switch goes with it).
+  if (st.phase === "ask" && st.mover === entry.myColor && ui.autoRoll) {
+    await takeOwnStep(entry, "roll");
     return;
   }
   if (st.phase === "play" && st.mover === entry.myColor && mustPass(st)) {
@@ -1493,7 +1569,10 @@ async function takeMessage(entry: GameEntry, payload: unknown): Promise<void> {
       entry.setup = v.setup;
       entry.myColor = v.myColor;
       entry.theirTip = toB64url(v.theirTip);
-      entry.seed = toB64url(newSeed());
+      // Another screen of ours may have answered already: answer with its seed, never a second one.
+      const saved = parseEntry(await client.store.get(PREFIX + entry.sessionId).catch(() => null));
+      const same = saved?.seed && saved.setup && saved.myColor === v.myColor && saved.theirTip === entry.theirTip;
+      entry.seed = same ? saved.seed! : toB64url(newSeed());
       chainOf(entry.seed);
       entry.heard = true;
       entry.outOfStep = 0;
@@ -1505,6 +1584,9 @@ async function takeMessage(entry: GameEntry, payload: unknown): Promise<void> {
       await sendState(entry);
       return;
     }
+    case "other-screen":
+      await adoptFromOtherScreen(entry, v.myTip, payload);
+      return;
     case "claim": {
       const st = stateOf(entry);
       if (!st || entry.myColor === null) return;
@@ -1569,6 +1651,37 @@ async function takeMessage(entry: GameEntry, payload: unknown): Promise<void> {
       return;
     }
   }
+}
+
+/** Waits before looking again for the copy of the screen whose answer the inviter took. */
+const ADOPT_RETRY_MS = [2000, 5000, 15000];
+
+/**
+ * Another screen of this person answered the invite first: take its saved
+ * copy (seed, log) and play on with it. That screen saves its copy with
+ * every step; if it hasn't yet, look again a few times, then show the
+ * calm "out of step" notice (opening the game again reloads it).
+ */
+async function adoptFromOtherScreen(entry: GameEntry, myTip: Uint8Array, payload: unknown, attempt = 0): Promise<void> {
+  const stored = parseEntry(await client.store.get(PREFIX + entry.sessionId).catch(() => null));
+  const adopted = adoptOwnCopy(entry, stored, myTip);
+  if (adopted) {
+    console.info("backgammon.adopted_other_screen", { session_id: entry.sessionId });
+    Object.assign(entry, adopted);
+    ui.games.set(entry.sessionId, entry);
+    resetBoardUi();
+    render();
+    await takeMessage(entry, payload);
+    return;
+  }
+  if (attempt < ADOPT_RETRY_MS.length) {
+    const wait = ADOPT_RETRY_MS[attempt];
+    setTimeout(() => void withGame(entry.sessionId, () => adoptFromOtherScreen(entry, myTip, payload, attempt + 1)), wait);
+    return;
+  }
+  console.warn("backgammon.inbound_refused", { session_id: entry.sessionId, reason: "other-screen" });
+  entry.outOfStep = (entry.outOfStep ?? 0) + 1;
+  if (ui.active === entry.sessionId) render();
 }
 
 function onInboundSession(msg: AppMessage): void {

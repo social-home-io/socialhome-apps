@@ -53,6 +53,7 @@ import {
 } from "./lifecycle.js";
 import type { ColorChoice, ConfirmCopy, GameEntry } from "./lifecycle.js";
 import { groupGames } from "./lobby.js";
+import { prefSaver } from "./prefs.js";
 import {
   announceInbound,
   announceOwn,
@@ -77,6 +78,11 @@ import type { MessageKey } from "./i18n.js";
 import { applyLook } from "./look.js";
 
 const client = sh as NonNullable<typeof sh>;
+/** Lobby choices: saved in order per key, the last change wins (prefs.ts). */
+const savePref = prefSaver(
+  (key, value) => client.store.set(key, value),
+  (key) => console.warn("go.pref_save_failed", { key }),
+);
 
 type View = "lobby" | "game";
 
@@ -359,7 +365,7 @@ function renderLobby(): void {
   card.appendChild(
     choiceGroup(t("newGame.size"), "size", sizes, ui.size, (v) => {
       ui.size = v;
-      void client.store.set(PREF_SIZE, v).catch(() => {});
+      void savePref(PREF_SIZE, v);
       // 9 × 9 takes at most 5 stones: the choice follows the board.
       if (ui.handicap > maxHandicap(v)) setHandicap(maxHandicap(v));
       fillHandicaps();
@@ -373,7 +379,7 @@ function renderLobby(): void {
   card.appendChild(
     choiceGroup(t("newGame.playAs"), "color", colors, ui.colorChoice, (v) => {
       ui.colorChoice = v;
-      void client.store.set(PREF_COLOR, v).catch(() => {});
+      void savePref(PREF_COLOR, v);
     }, stoneSwatch),
   );
   card.appendChild(setupFields());
@@ -427,7 +433,7 @@ function currentRules(): Rules {
 
 function setHandicap(n: number): void {
   ui.handicap = n;
-  void client.store.set(PREF_HANDICAP, n).catch(() => {});
+  void savePref(PREF_HANDICAP, n);
   const explain = document.getElementById("handicap-explain");
   if (explain) explain.textContent = handicapExplain(n);
 }
@@ -472,7 +478,7 @@ function setupFields(): HTMLElement {
   explainClock();
   cSel.addEventListener("change", () => {
     ui.days = Number(cSel.value);
-    void client.store.set(PREF_DAYS, ui.days).catch(() => {});
+    void savePref(PREF_DAYS, ui.days);
     explainClock();
   });
   cField.append(make("label", { text: t("newGame.clock"), attrs: { for: "clock" } }), cSel, cExplain);
@@ -1201,7 +1207,7 @@ function onInboundMessage(msg: AppMessage): void {
 }
 
 async function takeMessage(entry: GameEntry, payload: unknown): Promise<void> {
-  const local = () => ({ size: entry.size, myColor: entry.myColor, rules: rulesOf(entry), log: entry.log });
+  const local = () => ({ size: entry.size, myColor: entry.myColor, rules: rulesOf(entry), role: entry.role, log: entry.log });
   let v = judgeInbound(local(), payload);
   if (
     v.kind === "refuse" &&

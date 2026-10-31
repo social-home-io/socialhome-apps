@@ -38,7 +38,7 @@ import { other } from "./rules.js";
 import type { Color } from "./rules.js";
 import { CHAIN_LENGTH, DICE_SUITE, LINK_BYTES, bytesEqual, fromB64url, linksFrom, openingFor, rollFor, toB64url, verifyLink } from "./dice.js";
 import type { Opening } from "./dice.js";
-import { MAX_LOG, MAX_TURN_NUMBERS, actorOf, applyEntry, initialState, isResign, isTimeout, replay, sameEntry } from "./game.js";
+import { MAX_LOG, MAX_TURN_NUMBERS, actorOf, applyEntry, initialState, isAuto, isResign, isTimeout, replay, sameEntry } from "./game.js";
 import type { DiceSource, Entry, GameState, Setup } from "./game.js";
 
 /** The clock choices: days per move (0 = no clock). */
@@ -129,6 +129,12 @@ export type InboundVerdict =
   /** The invitee gets the inviter's setup and tip: answer with ours. */
   | { kind: "invite"; setup: Setup; myColor: Color; theirTip: Uint8Array }
   | { kind: "stale" }
+  /**
+   * The invitee's tip they hold isn't this screen's: another screen of the
+   * same person answered the invite first, with its own seed. This screen
+   * takes that screen's saved copy (lifecycle.ts `adoptOwnCopy`).
+   */
+  | { kind: "other-screen"; myTip: Uint8Array }
   | { kind: "claim" }
   | { kind: "claim-refused"; leftMs: number }
   | { kind: "unsupported" }
@@ -178,7 +184,22 @@ export function buildMessage(own: OwnSide, extras: MessageExtras = {}): WireMess
   return msg;
 }
 
-const WORDS = new Set(["open", "roll", "show", "double", "take", "drop", "resign-w", "resign-b", "timeout-w", "timeout-b"]);
+const WORDS = new Set([
+  "open",
+  "roll",
+  "show",
+  "double",
+  "take",
+  "drop",
+  "resign-w",
+  "resign-b",
+  "timeout-w",
+  "timeout-b",
+  "auto-w",
+  "auto-b",
+  "manual-w",
+  "manual-b",
+]);
 
 /** A clean entry from untrusted input, or `null`. */
 export function parseEntry(v: unknown): Entry | null {
@@ -242,8 +263,23 @@ export function checkShown(tip: Uint8Array, known: Shown | null, n: number, link
   return bytesEqual(linksFrom(k.n, k.link)[n], link);
 }
 
-/** The most entries one message may add: one step, then a resignation. */
-export const MAX_NEW = 2;
+/** The most entries one message may add: a switch of rolling without being asked, one step, then a resignation. */
+export const MAX_NEW = 3;
+
+/**
+ * The shapes one message may add: one step; a step, then the sender's
+ * resignation; and either of those after the sender switched rolling
+ * without being asked (the switch always travels with the step it comes
+ * before, so it is never news on its own).
+ */
+export function addedShapeOk(added: readonly Entry[]): boolean {
+  const rest = added.length > 0 && isAuto(added[0]) ? added.slice(1) : added;
+  if (rest.length === 0 || rest.some(isAuto)) return false;
+  if (rest.length < added.length && (isResign(rest[0]) || isTimeout(rest[0]))) return false;
+  if (rest.length === 1) return true;
+  // Running out of time is a step of its own.
+  return rest.length === 2 && isResign(rest[1]) && !isTimeout(rest[0]);
+}
 
 function parseTips(v: unknown): Partial<Record<Color, Uint8Array>> | null {
   if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
@@ -326,13 +362,20 @@ function judge(local: LocalGame, payload: unknown): InboundVerdict {
   const myChain = local.myChain;
   if (!myChain) return { kind: "refuse", reason: "setup" };
   // Our own tip, when they send it, must be ours; theirs never changes.
-  if (tips[me] && !bytesEqual(tips[me]!, myChain[0])) return { kind: "refuse", reason: "setup" };
+  if (tips[me] && !bytesEqual(tips[me]!, myChain[0])) {
+    // Two screens of one invitee can answer the same invite; the inviter keeps the first answer.
+    return local.role === "invitee" ? { kind: "other-screen", myTip: tips[me]! } : { kind: "refuse", reason: "setup" };
+  }
   const theirTip = tips[them];
   if (!theirTip) {
     // Only the inviter's own first message has no invitee tip: an echo of the setup.
     return local.role === "invitee" && history.length === 0 && !shown ? { kind: "stale" } : { kind: "refuse", reason: "setup" };
   }
-  if (local.theirTip && !bytesEqual(theirTip, local.theirTip)) return { kind: "refuse", reason: "setup" };
+  if (local.theirTip && !bytesEqual(theirTip, local.theirTip)) {
+    // A second answer to our invite (another screen of the invitee's): the first one stands.
+    const lateAnswer = local.role === "inviter" && history.length === 0 && shown?.n === 1 && claim === undefined && refused === undefined;
+    return lateAnswer ? { kind: "stale" } : { kind: "refuse", reason: "setup" };
+  }
   if (!tips[me]) return { kind: "refuse", reason: "setup" };
 
   const n = shown ? shown.n : 0;
@@ -373,8 +416,7 @@ function judge(local: LocalGame, payload: unknown): InboundVerdict {
   const r = replay(agreed, history, dice);
   if (!r) return { kind: "refuse", reason: "illegal" };
   if (r.actors.slice(ours.length).some((c) => c !== them)) return { kind: "refuse", reason: "wrong-player" };
-  // Two entries only as "a step, then they resigned". Running out of time is a step of its own.
-  if (added.length === 2 && (!isResign(added[1]) || isTimeout(added[0]))) return { kind: "refuse", reason: "too-many" };
+  if (!addedShapeOk(added)) return { kind: "refuse", reason: "too-many" };
   // Exactly the link their steps must show: not held back, not given away early.
   if (r.state.reveals[them] !== n) return { kind: "refuse", reason: "dice" };
   return { kind: "apply", setup: agreed, myColor: me, theirTip, theirShown: newest, log: history, state: r.state, added };
@@ -382,11 +424,13 @@ function judge(local: LocalGame, payload: unknown): InboundVerdict {
 
 /**
  * The logs part after `shared` entries: one side resigned while the other
- * made a step. The resignation wins the race and is valued where it was
- * made: the crossing step is dropped (so nobody can pick a step after
- * seeing the resignation to make it cost more), unless that step ended
- * the game by itself. Both resigning at once: the inviter's resignation
- * counts. Both sides reach the same log.
+ * made a step (or switched rolling without being asked, then stepped). The
+ * resignation wins the race and is valued where it was made: the crossing
+ * steps are dropped (so nobody can pick a step after seeing the
+ * resignation to make it cost more), unless those steps ended the game by
+ * themselves. Both resigned at once (one of them perhaps after a step of
+ * its own): the inviter's resignation counts, at the shared position.
+ * Both sides reach the same log.
  */
 function judgeResignRace(
   setup: Setup,
@@ -406,10 +450,16 @@ function judgeResignRace(
   const base = replay(setup, ours.slice(0, shared), dice);
   if (!base) return { kind: "refuse", reason: "rewrite" };
 
+  const resignOf = (who: Color): Entry => (who === "w" ? "resign-w" : "resign-b");
+  /** A tail as its steps and whether it ends with that player's resignation. */
+  const split = (tail: readonly Entry[], who: Color) =>
+    tail.length > 0 && tail[tail.length - 1] === resignOf(who)
+      ? { steps: tail.slice(0, -1), resigned: true }
+      : { steps: tail, resigned: false };
   const byOnly = (tail: readonly Entry[], who: Color): GameState | null => {
     let st = base.state;
     for (const e of tail) {
-      if (actorOf(st, e) !== who) return null;
+      if (isResign(e) || actorOf(st, e) !== who) return null;
       try {
         st = applyEntry(st, e, dice);
       } catch {
@@ -418,38 +468,30 @@ function judgeResignRace(
     }
     return st;
   };
-  const resignOf = (who: Color): Entry => (who === "w" ? "resign-w" : "resign-b");
-  const isOnly = (tail: readonly Entry[], e: Entry) => tail.length === 1 && tail[0] === e;
-  const theirResign = isOnly(theirTail, resignOf(them));
-  const ourResign = isOnly(ourTail, resignOf(me));
+  const mine = split(ourTail, me);
+  const yours = split(theirTail, them);
+  if (!mine.resigned && !yours.resigned) return { kind: "refuse", reason: "rewrite" };
+  // Only the player who had to act can have stepped.
+  if (mine.steps.length > 0 && yours.steps.length > 0) return { kind: "refuse", reason: "rewrite" };
+  const ourState = byOnly(mine.steps, me);
+  if (!ourState) return { kind: "refuse", reason: "rewrite" };
+  const theirState = byOnly(yours.steps, them);
+  if (!theirState) return { kind: "refuse", reason: "illegal" };
+  // Exactly the link their steps had to show.
+  if (theirState.reveals[them] !== n) return { kind: "refuse", reason: "dice" };
 
-  // Their resignation against our step, or both resigned and theirs counts (they invited).
-  if (theirResign && (ourResign ? setup.inviter === them : true)) {
-    const mine = byOnly(ourTail, me);
-    if (!mine) return { kind: "refuse", reason: "rewrite" };
-    if (base.state.reveals[them] !== n) return { kind: "refuse", reason: "dice" };
-    // Our step ended the game first: their resignation comes too late.
-    if (!ourResign && mine.phase === "over") return { kind: "stale" };
-    const merged = [...ours.slice(0, shared), theirTail[0]];
-    const r = replay(setup, merged, dice);
-    if (!r) return { kind: "refuse", reason: "rewrite" };
-    return { kind: "apply", setup, myColor: me, theirTip, theirShown: newest, log: merged, state: r.state, added: [theirTail[0]] };
+  let merged: Entry[];
+  if (ourState.phase === "over") merged = ours.slice(0, shared + mine.steps.length);
+  else if (theirState.phase === "over") merged = theirs.slice(0, shared + yours.steps.length);
+  else {
+    const resigner = mine.resigned && yours.resigned ? setup.inviter : mine.resigned ? me : them;
+    merged = [...ours.slice(0, shared), resignOf(resigner)];
   }
-
-  // Our resignation against their step (or both resigned and ours counts): ours stands, theirs drops.
-  if (ourResign && theirTail.length >= 1) {
-    const moved = byOnly(theirTail, them);
-    if (!moved) return { kind: "refuse", reason: "illegal" };
-    if (moved.reveals[them] !== n) return { kind: "refuse", reason: "dice" };
-    // Their step ended the game by itself before our resignation arrived: theirs stands.
-    if (!theirResign && theirTail.length === 1 && moved.phase === "over") {
-      const r = replay(setup, theirs, dice);
-      if (!r) return { kind: "refuse", reason: "illegal" };
-      return { kind: "apply", setup, myColor: me, theirTip, theirShown: newest, log: [...theirs], state: r.state, added: theirTail };
-    }
-    return { kind: "stale" };
-  }
-  return { kind: "refuse", reason: "rewrite" };
+  if (merged.length === ours.length && merged.every((e, i) => sameEntry(e, ours[i]))) return { kind: "stale" };
+  const r = replay(setup, merged, dice);
+  if (!r) return { kind: "refuse", reason: "rewrite" };
+  const added = merged.slice(shared).filter((_, i) => r.actors[shared + i] === them);
+  return { kind: "apply", setup, myColor: me, theirTip, theirShown: newest, log: merged, state: r.state, added };
 }
 
 /**

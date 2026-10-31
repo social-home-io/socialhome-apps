@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.31.2",
+    "date": "2026-10-31",
+    "notes": {
+      "en": "Resigning at the same moment as the other player now ends the game the same way on both screens: the inviter's resignation counts. Quick changes to board size, colour, handicap or clock for a new game are saved in the order you made them.",
+      "de": "Gebt ihr beide im selben Moment auf, endet das Spiel jetzt auf beiden Bildschirmen gleich: Die Aufgabe der einladenden Person zählt. Schnelle Änderungen an Brettgröße, Farbe, Vorgabe oder Uhr für ein neues Spiel werden in der Reihenfolge gespeichert, in der du sie machst.",
+      "nl": "Geven jullie allebei op hetzelfde moment op, dan eindigt het spel nu op beide schermen hetzelfde: de opgave van wie uitnodigde telt. Snelle wijzigingen aan bordgrootte, kleur, voorgift of klok voor een nieuw spel worden bewaard in de volgorde waarin je ze maakt.",
+      "fr": "Si vous abandonnez au même moment que l’autre joueur, la partie se termine désormais de la même façon sur les deux écrans : l’abandon de la personne qui a invité compte. Les changements rapides de taille du plateau, de couleur, de handicap ou de pendule pour une nouvelle partie sont enregistrés dans l’ordre où vous les faites.",
+      "es": "Si abandonáis los dos a la vez, la partida termina ahora igual en las dos pantallas: cuenta el abandono de quien invitó. Los cambios rápidos de tamaño del tablero, color, hándicap o reloj para una partida nueva se guardan en el orden en que los haces."
+    }
+  },
+  {
     "version": "2026.10.31.1",
     "date": "2026-10-31",
     "notes": {

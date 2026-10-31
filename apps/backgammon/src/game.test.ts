@@ -2,12 +2,17 @@ import { describe, expect, it } from "vitest";
 import { CHAIN_LENGTH, buildChain } from "./dice.js";
 import {
   IllegalMove,
+  MAX_AUTO_CHANGES,
   MAX_LOG,
   MAX_TURN,
   NO_DICE,
+  actorOf,
   applyEntry,
+  autoEntry,
   canDouble,
+  canSwitchAuto,
   initialState,
+  isAuto,
   mustPass,
   passReason,
   replay,
@@ -378,6 +383,118 @@ describe("a whole game with real dice", () => {
         expect(r.points).toBe(r.cube * { single: 1, gammon: 2, backgammon: 3 }[r.kind!]);
         // The same log replays to the same end.
         expect(replay(setup, log, dice)!.state.result).toEqual(r);
+      }
+    });
+  }
+});
+
+describe("rolling without being asked", () => {
+  it("the roller says it on its own turn; from its next turn its roll comes with the other player's move", () => {
+    const dice = fixed({ w: 4, b: 1 }, { 2: [3, 1], 3: [6, 5], 4: [2, 1] });
+    // White (inviter) won the opening: Black's turn 2 asks first, as usual.
+    let st = applyEntry(initialState(SETUP, dice), [24, 23, 13, 9], dice);
+    expect(st.phase).toBe("ask");
+    expect(canSwitchAuto(st, "b")).toBe(true);
+    expect(canSwitchAuto(st, "w")).toBe(false);
+    // Black gives up the cube now and rolls: the switch alone doesn't roll.
+    st = applyEntry(st, autoEntry("b", true), dice);
+    expect(st.autoRoll).toEqual({ w: false, b: true });
+    expect(st.phase).toBe("ask");
+    expect(canDouble(st)).toBe(false);
+    expect(reason(() => applyEntry(st, "double", dice))).toBe("cube");
+    // Once per turn, before anything else.
+    expect(canSwitchAuto(st, "b")).toBe(false);
+    expect(reason(() => applyEntry(st, autoEntry("b", false), dice))).toBe("phase");
+    st = applyEntry(applyEntry(st, "roll", dice), "show", dice);
+    st = applyEntry(st, [8, 5, 6, 5], dice); // Black, turn 2
+    expect(st.phase).toBe("ask"); // White still decides on the cube blind
+    st = applyEntry(applyEntry(st, "roll", dice), "show", dice);
+    expect(st.reveals.b).toBe(3); // Black's "show" for White's roll
+    st = applyEntry(st, autoTurn(st), dice); // White, turn 3
+    // Black rolls without being asked: White showed link 4 with its turn.
+    expect(st.reveals.w).toBe(4);
+    expect(st.phase).toBe("play");
+    expect(st.mover).toBe("b");
+    expect(st.roll).toEqual([2, 1]);
+  });
+
+  it("taking it back applies from the turn after (never to a roll already known)", () => {
+    const dice = fixed({ w: 4, b: 1 });
+    let st = applyEntry(initialState(SETUP, dice), [24, 23, 13, 9], dice);
+    st = applyEntry(applyEntry(applyEntry(st, autoEntry("b", true), dice), "roll", dice), "show", dice);
+    st = applyEntry(st, autoTurn(st), dice); // Black 2
+    st = applyEntry(applyEntry(st, "roll", dice), "show", dice);
+    st = applyEntry(st, autoTurn(st), dice); // White 3: shows link 4 at once
+    expect(st.phase).toBe("play");
+    // Black knows its roll and switches back: it still can't double this turn.
+    st = applyEntry(st, autoEntry("b", false), dice);
+    expect(st.phase).toBe("play");
+    expect(canDouble(st)).toBe(false);
+    st = applyEntry(st, autoTurn(st), dice); // Black 4
+    st = applyEntry(applyEntry(st, "roll", dice), "show", dice);
+    st = applyEntry(st, autoTurn(st), dice); // White 5: holds link 6 back again
+    expect(st.reveals.w).toBe(5);
+    expect(st.phase).toBe("ask");
+    expect(canDouble(st)).toBe(true);
+  });
+
+  it("only the player about to act, on its own turn, with the cube on, and only as a change", () => {
+    const dice = fixed({ w: 4, b: 1 });
+    const start = initialState(SETUP, dice);
+    // Before the opening the inviter may say it.
+    expect(canSwitchAuto(start, "w")).toBe(true);
+    expect(applyEntry(start, autoEntry("w", true), dice).autoRoll.w).toBe(true);
+    expect(reason(() => applyEntry(start, autoEntry("b", true), dice))).toBe("turn");
+    expect(reason(() => applyEntry(start, autoEntry("w", false), dice))).toBe("bad-entry");
+    expect(reason(() => applyEntry(initialState(NO_CUBE, dice), autoEntry("w", true), dice))).toBe("phase");
+    // Not while showing a link or answering a double.
+    let st = applyEntry(start, [24, 23, 13, 9], dice);
+    st = applyEntry(st, "roll", dice);
+    expect(st.phase).toBe("dice");
+    expect(reason(() => applyEntry(st, autoEntry("w", true), dice))).toBe("phase");
+    // At most MAX_AUTO_CHANGES switches each.
+    const worn = { ...start, autoChanges: { w: MAX_AUTO_CHANGES, b: 0 } };
+    expect(canSwitchAuto(worn, "w")).toBe(false);
+    expect(isAuto(autoEntry("b", false))).toBe(true);
+    expect(actorOf(start, "manual-b")).toBe("b");
+  });
+
+  for (const who of ["w", "b", "both"] as const) {
+    it(`a whole game with ${who} rolling without being asked: nobody ever knows a roll early`, () => {
+      for (const sid of ["a-1", "a-2", "a-3"]) {
+        const dice = allDice(sid);
+        let st = initialState(SETUP, dice);
+        const auto = (c: Color) => who === "both" || who === c;
+        let guard = 0;
+        let asked = 0;
+        let doubled = 0;
+        while (st.phase !== "over" && guard++ < 4000) {
+          const actor = st.toMove;
+          if (auto(actor) && !st.autoRoll[actor] && canSwitchAuto(st, actor)) st = applyEntry(st, autoEntry(actor, true), dice);
+          let e: Entry;
+          if (st.phase === "start") e = st.mover === "w" ? autoTurn(st) : "open";
+          else if (st.phase === "ask") e = st.turn % 5 === 0 && canDouble(st) && st.cube.value < 8 ? "double" : "roll";
+          else if (st.phase === "dice") e = "show";
+          else if (st.phase === "cube") e = "take";
+          else e = autoTurn(st);
+          if (st.phase === "ask" && st.mover && auto(st.mover)) asked++;
+          if (st.phase !== "start" && st.mover && st.turn > 1) {
+            const roller = st.mover;
+            const known = (c: Color) => sideDice(sid, c, st).roll(st.turn) !== null;
+            if (st.phase === "ask" || st.phase === "cube" || st.phase === "dice") expect(known(roller)).toBe(false);
+            expect(known(other(roller))).toBe(false);
+            if (st.phase === "play") expect(known(roller)).toBe(true);
+          }
+          if (e === "double") {
+            doubled++;
+            expect(auto(st.mover!)).toBe(false);
+          }
+          st = applyEntry(st, e, dice);
+        }
+        expect(st.phase).toBe("over");
+        // An auto roller is asked at most once: the turn before its switch was in the log.
+        expect(asked).toBeLessThanOrEqual(who === "both" ? 2 : 1);
+        if (who !== "both") expect(doubled).toBeGreaterThan(0);
       }
     });
   }
