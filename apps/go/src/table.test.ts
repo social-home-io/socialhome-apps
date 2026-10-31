@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { ShError } from "@socialhome/app-sdk";
 import type { AppMessage, GroupEvent, GroupMessage, GroupSession } from "@socialhome/app-sdk";
 import { buildMessage, judgeInbound } from "./inbound.js";
 import type { LocalGame } from "./inbound.js";
@@ -12,6 +13,8 @@ import {
   TABLE_SIZE,
   canCloseTable,
   classifyTableEvent,
+  isSentAfterFinish,
+  tableSendOptions,
   entryForTable,
   hasTableSetup,
   isWaitingForPlayer,
@@ -246,6 +249,9 @@ describe("classifyTableEvent", () => {
     expect(classifyTableEvent(ev({ type: "left", seat: 1 }), games(b))).toEqual({ kind: "gone", entry: b, reason: "left" });
     expect(classifyTableEvent(ev({ type: "removed", seat: 1 }), games(b))).toEqual({ kind: "gone", entry: b, reason: "left" });
     expect(classifyTableEvent(ev({ type: "ended" }), games(b))).toEqual({ kind: "gone", entry: b, reason: "ended" });
+    // Ended by the game's last message: that message is on its way (or held).
+    const finished = session({ state: "ended", endReason: "finished" });
+    expect(classifyTableEvent(ev({ type: "ended", session: finished }), games(b))).toEqual({ kind: "ignore" });
     expect(classifyTableEvent(ev({ type: "left", seat: 2 }), games(b))).toEqual({ kind: "mine-over", entry: b });
     expect(classifyTableEvent(ev({ type: "left", seat: 5 }), games(b))).toEqual({ kind: "ignore" });
   });
@@ -316,5 +322,19 @@ describe("parseSavedGame", () => {
     expect(bad({ role: "inviter" })).toBeNull();
     expect(bad({ table: { me: 2, them: 2 } })).toBeNull();
     expect(bad({ table: "t1" })).toBeNull();
+  });
+});
+
+describe("the game's last message ends the table", () => {
+  it("final on the message that ends the game, the turn when it passes", () => {
+    expect(tableSendOptions(2, true, false)).toEqual({ turn: 2 });
+    expect(tableSendOptions(2, false, false)).toEqual({});
+    expect(tableSendOptions(1, false, true)).toEqual({ final: true });
+  });
+
+  it("a finished game's send refused because the table ended needs no retry", () => {
+    expect(isSentAfterFinish(new ShError("group_closed", "x"), true)).toBe(true);
+    expect(isSentAfterFinish(new ShError("group_closed", "x"), false)).toBe(false);
+    expect(isSentAfterFinish(new ShError("group_busy", "x"), true)).toBe(false);
   });
 });

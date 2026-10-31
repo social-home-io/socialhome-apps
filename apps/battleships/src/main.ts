@@ -64,12 +64,15 @@ import { applyLook } from "./look.js";
 import type { TableAction } from "./table.js";
 import {
   classifyTableEvent,
+  endsTable,
   entryForTable,
   isPlayableTable,
+  isSentAfterFinish,
   isWaitingForPlayer,
   parseTableInfo,
   roleFitsSeat,
   routeTableMessage,
+  tableSendOptions,
   sealGoesOutOnLockIn,
   tablePassesTurn,
   updateFromTable,
@@ -1196,7 +1199,13 @@ function sendGame(entry: GameEntry, msg: unknown): Promise<unknown> {
   const table = entry.table;
   if (table) {
     if (table.them === null) return Promise.reject(new Error("nobody has taken the seat yet"));
-    return client.group.send(entry.sessionId, msg, tablePassesTurn(entry.game) ? { turn: table.them } : {});
+    const over = entry.game.outcome !== null;
+    return client.group
+      .send(entry.sessionId, msg, tableSendOptions(table.them, tablePassesTurn(entry.game), endsTable(entry.game)))
+      .catch((err: unknown) => {
+        if (isSentAfterFinish(err, over)) return null;
+        throw err;
+      });
   }
   return client.federation.send(entry.sessionId, targetFor(entry), msg, { turn: passesTurn(entry.game) });
 }

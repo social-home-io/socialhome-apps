@@ -276,6 +276,16 @@ in `manifest.json`:
 - **Answers to the host.** When many players answer at once (a quiz), send
   answers `{ to: [session.host] }` and let the host send one result to
   everyone. Each table has a send budget; a flood is refused `"group_busy"`.
+- **The game's last message ends the table.** Send it with
+  `{ final: true }` (SDK 1.10): Social Home ends the table as `finished`
+  right after delivering it — also to a closed app's mailbox — and the space
+  shows it under Finished. In a two-player game either player may; at a
+  bigger table only the host. The `ended` event can reach the other player
+  before that last message, so on a table that ended `"finished"` keep an
+  unfinished game and take `group.held` / the next messages first. A move
+  that crossed the last one (both resign at once) still arrives for a few
+  minutes. Nothing may be sent after a final message that must not be
+  replaced.
 - **Never trust the other players.** As for 1:1 games: check every message
   against your own copy, by the sender's seat (`from`), and work out results
   yourself.

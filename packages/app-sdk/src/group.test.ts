@@ -386,12 +386,27 @@ describe("group.send: to everyone, to chosen seats, the turn", () => {
     expect(await p).toBeNull();
   });
 
+  it("final: true marks the game's last message; final: false sends nothing extra", async () => {
+    const h = harness();
+    const p = h.client.group.send("t1", { mate: true }, { final: true });
+    expect(h.posted[0].params).toEqual({ id: "t1", data: { mate: true }, final: true });
+    h.reply({ seq: 7 });
+    expect(await p).toBe(7);
+    const q = h.client.group.send("t1", 1, { final: false });
+    expect(h.posted[1].params).toEqual({ id: "t1", data: 1 });
+    h.reply({ seq: null });
+    await q;
+  });
+
   it("refuses bad seats and turns without asking the host", async () => {
     const h = harness();
     for (const to of [[], [0], [1, 1], [1.5], ["2"], Array.from({ length: 30 }, (_, i) => i + 1)]) {
       await expect(h.client.group.send("t1", {}, { to: to as number[] })).rejects.toMatchObject({ code: "invalid" });
     }
     await expect(h.client.group.send("t1", {}, { turn: 0 })).rejects.toMatchObject({ code: "invalid" });
+    await expect(h.client.group.send("t1", {}, { final: "yes" as unknown as boolean })).rejects.toMatchObject({
+      code: "invalid",
+    });
     expect(h.posted).toHaveLength(0);
   });
 });

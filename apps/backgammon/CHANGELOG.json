@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.31.3",
+    "date": "2026-10-31",
+    "notes": {
+      "en": "An open game in a space now ends as soon as it's over: the last checker borne off, a refused double, a resignation or a time win moves it to Finished in the space for both of you, and the last move still reaches the other player, even when their Backgammon is closed.",
+      "de": "Eine offene Partie in einem Space endet jetzt, sobald sie vorbei ist: der letzte abgetragene Stein, ein abgelehntes Doppeln, Aufgabe oder ein Sieg auf Zeit verschiebt sie für euch beide unter „Beendet“ im Space, und der letzte Zug kommt trotzdem beim anderen an, auch wenn sein Backgammon geschlossen ist.",
+      "nl": "Een open partij in een space eindigt nu zodra hij voorbij is: de laatste afgespeelde schijf, een geweigerde verdubbeling, opgeven of winst op tijd zet hem voor jullie allebei bij Afgelopen in de space, en de laatste zet komt nog steeds bij de ander aan, ook als diens backgammon gesloten is.",
+      "fr": "Une partie ouverte dans un espace se termine maintenant dès qu’elle est finie : le dernier pion sorti, un videau refusé, un abandon ou une victoire au temps la fait passer dans Terminées de l’espace pour vous deux, et le dernier coup parvient quand même à l’autre, même si son backgammon est fermé.",
+      "es": "Una partida abierta en un espacio ahora termina en cuanto acaba: la última ficha sacada, un doblaje rechazado, una rendición o una victoria por tiempo la pasa a Terminadas en el espacio para los dos, y la última jugada sigue llegando a la otra persona, aunque tenga el backgammon cerrado."
+    }
+  },
+  {
     "version": "2026.10.31.2",
     "date": "2026-10-31",
     "notes": {

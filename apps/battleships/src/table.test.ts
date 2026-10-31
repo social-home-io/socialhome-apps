@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { ShError } from "@socialhome/app-sdk";
 import type { AppMessage, GroupEvent, GroupMessage, GroupSession } from "@socialhome/app-sdk";
-import { fire, hitsByMe, lockIn, phase, resign } from "./game.js";
+import { fire, hitsByMe, lockIn, newGame, phase, resign } from "./game.js";
 import { buildMessage, markSent, passesTurn, receive } from "./protocol.js";
 import type { Verdict } from "./protocol.js";
 import type { Fleet } from "./rules.js";
@@ -11,6 +12,9 @@ import { setLocale } from "./i18n.js";
 import {
   OPENER_SEAT,
   classifyTableEvent,
+  endsTable,
+  isSentAfterFinish,
+  tableSendOptions,
   entryForTable,
   isWaitingForPlayer,
   parseTableInfo,
@@ -359,6 +363,9 @@ describe("classifyTableEvent", () => {
     expect(classifyTableEvent(ev({ type: "left", seat: 1 }), games(b))).toEqual({ kind: "gone", entry: b, reason: "left" });
     expect(classifyTableEvent(ev({ type: "removed", seat: 1 }), games(b))).toEqual({ kind: "gone", entry: b, reason: "left" });
     expect(classifyTableEvent(ev({ type: "ended" }), games(b))).toEqual({ kind: "gone", entry: b, reason: "ended" });
+    // Ended by the game's last message: that message is on its way (or held).
+    const finished = session({ state: "ended", endReason: "finished" });
+    expect(classifyTableEvent(ev({ type: "ended", session: finished }), games(b))).toEqual({ kind: "ignore" });
     expect(classifyTableEvent(ev({ type: "left", seat: 2 }), games(b))).toEqual({ kind: "mine-over", entry: b });
     expect(classifyTableEvent(ev({ type: "left", seat: 5 }), games(b))).toEqual({ kind: "ignore" });
   });
@@ -410,5 +417,35 @@ describe("parseTableInfo", () => {
     expect(parseTableInfo({ me: 1, them: 1 })).toBeUndefined();
     expect(parseTableInfo({ me: 1, them: "2" })).toBeUndefined();
     expect(parseTableInfo({ me: 1.5, them: null })).toBeUndefined();
+  });
+});
+
+describe("the game's last message ends the table", () => {
+  it("final on the message that ends the game, the turn when it passes", () => {
+    expect(tableSendOptions(2, true, false)).toEqual({ turn: 2 });
+    expect(tableSendOptions(2, false, false)).toEqual({});
+    expect(tableSendOptions(1, false, true)).toEqual({ final: true });
+  });
+
+  it("a finished game's send refused because the table ended needs no retry", () => {
+    expect(isSentAfterFinish(new ShError("group_closed", "x"), true)).toBe(true);
+    expect(isSentAfterFinish(new ShError("group_closed", "x"), false)).toBe(false);
+    expect(isSentAfterFinish(new ShError("group_busy", "x"), true)).toBe(false);
+  });
+
+  it("our final ends the table only once the other side's end came", () => {
+    const g = newGame("t1", "challenger", [] as unknown as Fleet);
+    expect(endsTable(g)).toBe(false);
+    // We learn first — we lost, resigned or voided: theirs follows and ends it.
+    expect(endsTable({ ...g, outcome: { kind: "lost", how: "fleet" } })).toBe(false);
+    expect(endsTable({ ...g, outcome: { kind: "lost", how: "resign" } })).toBe(false);
+    expect(endsTable({ ...g, outcome: { kind: "void", reason: "answer", at: 3 } })).toBe(false);
+    // Their end came first: ours is the last.
+    expect(endsTable({ ...g, outcome: { kind: "won", how: "fleet" } })).toBe(true);
+    expect(endsTable({ ...g, outcome: { kind: "won", how: "resign" } })).toBe(true);
+    expect(endsTable({ ...g, outcome: { kind: "void", reason: "them" } })).toBe(true);
+    expect(
+      endsTable({ ...g, outcome: { kind: "lost", how: "fleet" }, theirReveal: { seed: "s", fleet: [] as unknown as Fleet } }),
+    ).toBe(true);
   });
 });

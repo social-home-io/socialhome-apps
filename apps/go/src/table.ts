@@ -33,13 +33,25 @@
  * open game has no invite to cancel and no session to close: the opener
  * closes the table instead, and "Invite sent" never shows for it.
  *
+ * **The game's end ends the table.** The message that ends the game (the
+ * second pass, a resignation, a time win) goes out with `final: true`
+ * (SDK 1.10): Social Home ends the table as `finished` right after
+ * delivering it — the space shows it under Finished — instead of keeping it
+ * "being played" for days. Its close can reach the other player before the
+ * message itself (or the message waits in a closed app's mailbox), so a table
+ * that ended `finished` while our game is still on keeps the game and waits
+ * for that message. Two endings that cross (both resign at once) both arrive:
+ * Social Home still passes on the players' messages for a few minutes after
+ * the end, and the judge settles them as in a 1:1 game.
+ *
  * **Never trust the other side.** A table message is taken only for a table
  * this person has a game at (the table Social Home delivered it for, never an
  * id inside the payload), only from the other player's seat, and then judged
  * exactly like a 1:1 message (inbound.ts).
  */
 
-import type { GroupEvent, GroupMessage, GroupPlayer, GroupSession } from "@socialhome/app-sdk";
+import { ShError } from "@socialhome/app-sdk";
+import type { GroupEvent, GroupMessage, GroupPlayer, GroupSendOptions, GroupSession } from "@socialhome/app-sdk";
 import { NO_RULES } from "./game.js";
 import type { Rules } from "./game.js";
 import type { Color, Size } from "./rules.js";
@@ -161,6 +173,23 @@ export function updateFromTable(entry: GameEntry, session: GroupSession): { chan
   return { changed, joined };
 }
 
+/**
+ * How a game's message goes out at its table: handing the other player's
+ * seat the turn when it does, and `final` on the message that ends the game.
+ */
+export function tableSendOptions(them: number, passTurn: boolean, over: boolean): GroupSendOptions {
+  return { ...(passTurn ? { turn: them } : {}), ...(over ? { final: true } : {}) };
+}
+
+/**
+ * A send refused because the table already ended — after the game ended on
+ * our board, that is our own last message being sent again (it went out the
+ * first time) or one that crossed the other player's: nothing to retry.
+ */
+export function isSentAfterFinish(err: unknown, over: boolean): boolean {
+  return over && err instanceof ShError && err.code === "group_closed";
+}
+
 /** Where a table message goes. */
 export type TableRoute =
   | { kind: "game"; entry: GameEntry }
@@ -214,7 +243,10 @@ export function classifyTableEvent(event: GroupEvent, games: ReadonlyMap<string,
       if (event.seat === table.them && !isOver(entry)) return { kind: "gone", entry, reason: "left" };
       return { kind: "ignore" };
     case "ended":
-      return isOver(entry) ? { kind: "ignore" } : { kind: "gone", entry, reason: "ended" };
+      if (isOver(entry)) return { kind: "ignore" };
+      // The game's last message ended it: the message is on its way (or held).
+      if (session.endReason === "finished") return { kind: "ignore" };
+      return { kind: "gone", entry, reason: "ended" };
     case "joined":
     case "started": {
       const wasWaiting = table.them === null;

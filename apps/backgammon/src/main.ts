@@ -55,6 +55,7 @@ import {
   isAwaitingOpponent,
   isMyTurn,
   isUnknownGame,
+  isOver,
   launchAction,
   ownSideOf,
   adoptOwnCopy,
@@ -105,10 +106,12 @@ import {
   entryForTable,
   handsTurn,
   isPlayableTable,
+  isSentAfterFinish,
   isWaitingForPlayer,
   judgeGame,
   parseSavedGame,
   routeTableMessage,
+  tableSendOptions,
   tableColor,
   tableRole,
   updateFromTable,
@@ -1293,7 +1296,11 @@ function sendGame(entry: GameEntry, msg: unknown, turn: boolean): Promise<unknow
   const table = entry.table;
   if (table) {
     if (table.them === null) return Promise.reject(new Error("nobody has taken the seat yet"));
-    return client.group.send(entry.sessionId, msg, turn ? { turn: table.them } : {});
+    const over = isOver(entry);
+    return client.group.send(entry.sessionId, msg, tableSendOptions(table.them, turn, over)).catch((err: unknown) => {
+      if (isSentAfterFinish(err, over)) return null;
+      throw err;
+    });
   }
   return client.federation.send(entry.sessionId, targetFor(entry), msg, { turn });
 }
