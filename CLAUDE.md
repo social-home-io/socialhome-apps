@@ -20,7 +20,8 @@ and the catalog tooling.
 | `scripts/build-catalog.mjs` | packs each `apps/*/dist/` into a tarball and writes `catalog.json` |
 | `scripts/catalog-lib.mjs` | manifest / changelog validation and catalog shape (schema 2) |
 | `scripts/check-versions.mjs` | CI guard: a change to an app or the SDK must bump its version |
-| `.github/workflows/` | `ci.yml` (every PR), `release-draft.yml` (every merge), `release.yml` (on publish) |
+| `.github/workflows/` | `ci.yml` (every PR), `release-draft.yml` (every merge), `release.yml` (on publish), `dependabot-automerge.yml` |
+| `.github/dependabot.yml` | weekly dependency PRs (npm workspace + Actions) |
 | `RELEASING.md` | versions, labels, when and how to release |
 
 `apps/chess` is the reference app: copy its structure for a new one.
@@ -112,6 +113,9 @@ Read `RELEASING.md`. The short version:
   `documentation`, `chore`, `skip-changelog`) and a title written for people.
 - Merges refresh a draft release; a maintainer publishes it. Agents never
   publish a release unless a maintainer asked for that specific release.
+- Dependabot opens weekly tooling PRs (`dependencies` label; RELEASING.md
+  "Dependency updates"). Patch/minor auto-merge on green; majors wait for a
+  human review, and a failing Dependabot PR is a real signal to root-cause.
 
 ## Working agreements
 

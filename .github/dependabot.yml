@@ -1,0 +1,45 @@
+# Dependabot version updates (RELEASING.md, "Dependency updates").
+#
+# Same shape as the socialhome repo: every ecosystem runs weekly on Monday,
+# waits 3 days after a release before proposing it (``cooldown``), and groups
+# patch + minor bumps into one PR per ecosystem; each major comes as its own
+# PR. Patch/minor PRs auto-merge once the required checks pass
+# (.github/workflows/dependabot-automerge.yml); majors wait for a human
+# review.
+#
+# PRs carry the ``dependencies`` label, which .github/release.yml drops from
+# the release notes (Dependabot is excluded as an author there too).
+#
+# Not covered here, bumped deliberately in a PR: pnpm itself (the
+# ``packageManager`` pin in package.json, which CI's pnpm/action-setup reads)
+# and the Node major in the workflows.
+version: 2
+updates:
+  # The whole pnpm workspace (root package.json + packages/* + apps/*) shares
+  # one pnpm-lock.yaml at the root; Dependabot's npm ecosystem detects pnpm
+  # from it and updates every workspace package from this one directory.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 3
+    labels:
+      - dependencies
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 3
+    labels:
+      - dependencies
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]

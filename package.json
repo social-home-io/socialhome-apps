@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Embedded JS extension apps for Social Home (SDK + apps + release catalog).",
   "license": "MPL-2.0",
-  "packageManager": "pnpm@11.4.0",
+  "packageManager": "pnpm@11.28.9",
   "scripts": {
     "build:sdk": "pnpm --filter @socialhome/app-sdk run build",
     "build:apps": "pnpm --filter \"./apps/*\" run build",
@@ -16,14 +16,15 @@
     "lint": "eslint \"packages/**/*.ts\" \"apps/**/*.ts\""
   },
   "devDependencies": {
-    "esbuild": "^0.28.0",
-    "typescript": "^6.0.3",
-    "vite": "^8.0.16",
-    "vitest": "^4.1.8",
     "@eslint/js": "^10.0.1",
-    "@typescript-eslint/eslint-plugin": "^8.60.1",
-    "@typescript-eslint/parser": "^8.60.1",
-    "eslint": "^10.4.1",
-    "globals": "^17.6.0"
+    "@typescript-eslint/eslint-plugin": "^8.72.1",
+    "@typescript-eslint/parser": "^8.72.1",
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
   }
 }
