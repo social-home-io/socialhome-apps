@@ -39,6 +39,12 @@ importers:
         specifier: ^5.0.5
         version: 5.0.5(vite@8.3.5(esbuild@0.28.2))
 
+  apps/backgammon:
+    dependencies:
+      '@socialhome/app-sdk':
+        specifier: workspace:*
+        version: link:../../packages/app-sdk
+
   apps/battleships:
     dependencies:
       '@socialhome/app-sdk':
