@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.10.31.1",
+    "date": "2026-10-31",
+    "notes": {
+      "en": "An open game in a space now ends as soon as it's over: once both fleets are shown, it moves to Finished in the space for both of you, and the last message still reaches the other player, even when their Battleships is closed.",
+      "de": "Eine offene Partie in einem Space endet jetzt, sobald sie vorbei ist: Sobald beide Flotten aufgedeckt sind, steht sie für euch beide unter „Beendet“ im Space, und die letzte Nachricht kommt trotzdem beim anderen an, auch wenn sein Schiffe versenken geschlossen ist.",
+      "nl": "Een open partij in een space eindigt nu zodra hij voorbij is: zodra beide vloten getoond zijn, staat hij voor jullie allebei bij Afgelopen in de space, en het laatste bericht komt nog steeds bij de ander aan, ook als diens zeeslag gesloten is.",
+      "fr": "Une partie ouverte dans un espace se termine maintenant dès qu’elle est finie : une fois les deux flottes dévoilées, elle passe dans Terminées de l’espace pour vous deux, et le dernier message parvient quand même à l’autre, même si sa bataille navale est fermée.",
+      "es": "Una partida abierta en un espacio ahora termina en cuanto acaba: cuando las dos flotas se han mostrado, pasa a Terminadas en el espacio para los dos, y el último mensaje sigue llegando a la otra persona, aunque tenga Hundir la flota cerrado."
+    }
+  },
+  {
     "version": "2026.10.31",
     "date": "2026-10-31",
     "notes": {

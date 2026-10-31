@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ShError } from "@socialhome/app-sdk";
 import type { GroupEvent, GroupMessage, GroupSession } from "@socialhome/app-sdk";
 import { applyMove, initialState } from "./chess.js";
 import { judgeInbound } from "./inbound.js";
@@ -8,10 +9,12 @@ import {
   OPENER_SEAT,
   classifyTableEvent,
   entryForTable,
+  isSentAfterFinish,
   isWaitingForPlayer,
   parseTableInfo,
   routeTableMessage,
   tableColor,
+  tableSendOptions,
   updateFromTable,
 } from "./table.js";
 
@@ -186,6 +189,19 @@ describe("classifyTableEvent", () => {
     expect(classifyTableEvent(ev({ type: "left", seat: 5 }), games(b))).toEqual({ kind: "ignore" });
   });
 
+  it("a table that ended finished keeps a game still on: its last move is on the way", () => {
+    const b = entryForTable(session())!;
+    const finished = session({ state: "ended", endReason: "finished" });
+    expect(classifyTableEvent(ev({ type: "ended", session: finished }), games(b))).toEqual({ kind: "ignore" });
+    // Closed any other way, the game stops.
+    const cancelled = session({ state: "ended", endReason: "cancelled" });
+    expect(classifyTableEvent(ev({ type: "ended", session: cancelled }), games(b))).toEqual({
+      kind: "gone",
+      entry: b,
+      reason: "ended",
+    });
+  });
+
   it("a finished game stays when the table ends or the other player leaves", () => {
     const b = entryForTable(session())!;
     b.state = { ...b.state, result: "white" };
@@ -224,5 +240,21 @@ describe("parseTableInfo", () => {
     expect(parseTableInfo({ me: 1, them: 1 })).toBeUndefined();
     expect(parseTableInfo({ me: 1, them: "2" })).toBeUndefined();
     expect(parseTableInfo({ me: 1.5, them: null })).toBeUndefined();
+  });
+});
+
+describe("the game's last message ends the table", () => {
+  it("final on the message that ends the game, the turn when it passes", () => {
+    expect(tableSendOptions(2, true, false)).toEqual({ turn: 2 });
+    expect(tableSendOptions(2, false, false)).toEqual({});
+    expect(tableSendOptions(2, false, true)).toEqual({ final: true });
+    expect(tableSendOptions(1, true, true)).toEqual({ turn: 1, final: true });
+  });
+
+  it("a finished game's send refused because the table ended needs no retry", () => {
+    expect(isSentAfterFinish(new ShError("group_closed", "x"), true)).toBe(true);
+    expect(isSentAfterFinish(new ShError("group_closed", "x"), false)).toBe(false);
+    expect(isSentAfterFinish(new ShError("group_busy", "x"), true)).toBe(false);
+    expect(isSentAfterFinish(new Error("x"), true)).toBe(false);
   });
 });

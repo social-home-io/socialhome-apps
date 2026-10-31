@@ -94,9 +94,11 @@ import {
   classifyTableEvent,
   entryForTable,
   isPlayableTable,
+  isSentAfterFinish,
   isWaitingForPlayer,
   parseTableInfo,
   routeTableMessage,
+  tableSendOptions,
   updateFromTable,
 } from "./table.js";
 
@@ -253,7 +255,13 @@ function sendGame(entry: GameEntry, payload: unknown, options: SendOptions = {})
   const table = entry.table;
   if (table) {
     if (table.them === null) return Promise.reject(new Error("nobody has taken the seat yet"));
-    return client.group.send(entry.sessionId, payload, options.turn ? { turn: table.them } : {});
+    const over = entry.state.result !== null;
+    return client.group
+      .send(entry.sessionId, payload, tableSendOptions(table.them, options.turn === true, over))
+      .catch((err: unknown) => {
+        if (isSentAfterFinish(err, over)) return null;
+        throw err;
+      });
   }
   return client.federation.send(entry.sessionId, targetForEntry(entry), payload, options);
 }
