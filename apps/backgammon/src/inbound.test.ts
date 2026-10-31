@@ -349,17 +349,68 @@ describe("the judge", () => {
     expect(q.state()!.result).toMatchObject({ winner: q.color, by: "resign" });
   });
 
-  it("settles a resignation crossing a step: the step first, then the resignation", () => {
+  it("settles a resignation crossing a step: the resignation wins, both sides agree", () => {
     const { a, b } = startGame({ seeds: [25, 26] });
     playOn(a, b, 3);
     const p = actorOf2(a, b);
     const q = opponent(p, a, b);
+    const before = q.log.length;
     const step = p.play(p.autoStep());
-    q.play(q.color === "w" ? "resign-w" : "resign-b"); // q resigns before the step arrives
-    const v = q.receive(step);
-    expect(v).toMatchObject({ kind: "apply" });
+    const resign = q.play(q.color === "w" ? "resign-w" : "resign-b"); // q resigns before the step arrives
+    expect(q.receive(step)).toEqual({ kind: "stale" });
+    expect(p.receive(resign)).toMatchObject({ kind: "apply" });
+    expect(p.log).toEqual(q.log);
+    expect(q.log.length).toBe(before + 1);
+    expect(p.state()!.result).toEqual(q.state()!.result);
     expect(q.state()!.result).toMatchObject({ winner: p.color, by: "resign" });
-    expect(q.log[q.log.length - 2]).toEqual(p.log[p.log.length - 1]);
+  });
+
+  it("a take sent after seeing the doubler's resignation can't raise its price", () => {
+    const { a, b } = startGame({ seeds: [7, 8] });
+    while (a.state()!.phase !== "ask") playOn(a, b, 1);
+    const p = actorOf2(a, b);
+    const q = opponent(p, a, b);
+    q.receive(p.play("double"));
+    const resign = p.play(p.color === "w" ? "resign-w" : "resign-b");
+    const take = q.play("take"); // q "races" a take against the resignation
+    expect(p.receive(take)).toEqual({ kind: "stale" });
+    expect(q.receive(resign)).toMatchObject({ kind: "apply" });
+    expect(p.log).toEqual(q.log);
+    expect(p.state()!.result!.cube).toBe(1);
+    expect(q.state()!.result).toEqual(p.state()!.result);
+  });
+
+  it("both resigning at once: the inviter's resignation counts on both sides", () => {
+    const { a, b } = startGame({ seeds: [29, 30], cube: false });
+    playOn(a, b, 3);
+    const ra = a.play(a.color === "w" ? "resign-w" : "resign-b");
+    const rb = b.play(b.color === "w" ? "resign-w" : "resign-b");
+    expect(a.receive(rb)).toEqual({ kind: "stale" });
+    expect(b.receive(ra)).toMatchObject({ kind: "apply" });
+    expect(a.log).toEqual(b.log);
+    expect(a.state()!.result).toEqual(b.state()!.result);
+    expect(a.state()!.result!.winner).toBe(b.color);
+  });
+
+  it("a step that ends the game stands against a late resignation", () => {
+    const { a, b } = startGame({ seeds: [31, 32], cube: false });
+    for (let i = 0; i < 4000 && a.state()!.phase !== "over"; i++) {
+      const p = actorOf2(a, b);
+      const q = opponent(p, a, b);
+      const st = p.state()!;
+      const win = st.phase === "play" && st.board[p.color!][0] >= 11;
+      const msg = p.play(p.autoStep());
+      if (win && p.state()!.phase === "over") {
+        const late = q.play(q.color === "w" ? "resign-w" : "resign-b");
+        expect(q.receive(msg)).toMatchObject({ kind: "apply" });
+        expect(p.receive(late)).toEqual({ kind: "stale" });
+        expect(q.state()!.result).toEqual(p.state()!.result);
+        expect(p.state()!.result!.by).not.toBe("resign");
+        return;
+      }
+      q.receive(msg);
+    }
+    throw new Error("no winning step found");
   });
 
   it("time claims: only with a clock, on the receiver's turn; a refusal is capped", () => {

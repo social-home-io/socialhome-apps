@@ -381,9 +381,12 @@ function judge(local: LocalGame, payload: unknown): InboundVerdict {
 }
 
 /**
- * The logs part after `shared` entries. Fine only when one side's tail is
- * just a resignation and the other's is one step of the other player made
- * meanwhile: the result is that step, then the resignation.
+ * The logs part after `shared` entries: one side resigned while the other
+ * made a step. The resignation wins the race and is valued where it was
+ * made: the crossing step is dropped (so nobody can pick a step after
+ * seeing the resignation to make it cost more), unless that step ended
+ * the game by itself. Both resigning at once: the inviter's resignation
+ * counts. Both sides reach the same log.
  */
 function judgeResignRace(
   setup: Setup,
@@ -416,25 +419,35 @@ function judgeResignRace(
     return st;
   };
   const resignOf = (who: Color): Entry => (who === "w" ? "resign-w" : "resign-b");
+  const isOnly = (tail: readonly Entry[], e: Entry) => tail.length === 1 && tail[0] === e;
+  const theirResign = isOnly(theirTail, resignOf(them));
+  const ourResign = isOnly(ourTail, resignOf(me));
 
-  // They resigned while we made our step: ours first, then theirs.
-  if (theirTail.length === 1 && theirTail[0] === resignOf(them) && byOnly(ourTail, me)) {
+  // Their resignation against our step, or both resigned and theirs counts (they invited).
+  if (theirResign && (ourResign ? setup.inviter === them : true)) {
+    const mine = byOnly(ourTail, me);
+    if (!mine) return { kind: "refuse", reason: "rewrite" };
     if (base.state.reveals[them] !== n) return { kind: "refuse", reason: "dice" };
-    const merged = [...ours, theirTail[0]];
+    // Our step ended the game first: their resignation comes too late.
+    if (!ourResign && mine.phase === "over") return { kind: "stale" };
+    const merged = [...ours.slice(0, shared), theirTail[0]];
     const r = replay(setup, merged, dice);
-    if (!r) return { kind: "stale" };
+    if (!r) return { kind: "refuse", reason: "rewrite" };
     return { kind: "apply", setup, myColor: me, theirTip, theirShown: newest, log: merged, state: r.state, added: [theirTail[0]] };
   }
 
-  // We resigned while they made their step: theirs first, then our resignation.
-  if (ourTail.length === 1 && ourTail[0] === resignOf(me) && theirTail.length === 1) {
+  // Our resignation against their step (or both resigned and ours counts): ours stands, theirs drops.
+  if (ourResign && theirTail.length >= 1) {
     const moved = byOnly(theirTail, them);
     if (!moved) return { kind: "refuse", reason: "illegal" };
     if (moved.reveals[them] !== n) return { kind: "refuse", reason: "dice" };
-    const merged = moved.phase === "over" ? [...theirs] : [...theirs, ourTail[0]];
-    const r = replay(setup, merged, dice);
-    if (!r) return { kind: "refuse", reason: "illegal" };
-    return { kind: "apply", setup, myColor: me, theirTip, theirShown: newest, log: merged, state: r.state, added: theirTail };
+    // Their step ended the game by itself before our resignation arrived: theirs stands.
+    if (!theirResign && theirTail.length === 1 && moved.phase === "over") {
+      const r = replay(setup, theirs, dice);
+      if (!r) return { kind: "refuse", reason: "illegal" };
+      return { kind: "apply", setup, myColor: me, theirTip, theirShown: newest, log: [...theirs], state: r.state, added: theirTail };
+    }
+    return { kind: "stale" };
   }
   return { kind: "refuse", reason: "rewrite" };
 }
