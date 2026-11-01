@@ -87,11 +87,18 @@ other sessions may share the machine.
   and compute results (win, draw, check) yourself. Route by the session
   Social Home delivered, not an id inside the payload. Show a calm notice
   for a refused message; never crash. (Chess: `src/inbound.ts`.)
+- **The SDK is modular (2.0): an app's bundle carries only what it uses.**
+  Group games and engines join the client with `withGroups` / `withDraw`
+  (`@socialhome/app-sdk/group`, `/draw`). A new SDK feature goes into its own
+  module (`packages/app-sdk/src/<name>.ts`, a `with<Name>(client)`, a subpath
+  in `exports`), never onto `SocialHomeClient` — otherwise every app's bundle
+  changes, every app needs a bump and every household gets an update for
+  nothing. `src/modules.test.ts` guards it.
 - Ask only for the capabilities you need (`storage`, `people`,
   `federation`); Social Home enforces them.
 - **Group games** (SDK ≥ 1.9, `players` / `tables` / `late_join` in the
   manifest; README "Group games"): players are seats, never usernames; open
-  tables only with `sh.group.open()`; route by the table id and the sender's
+  tables only with `client.group.open()` (`withGroups`, SDK 2.0); route by the table id and the sender's
   seat; send state (a closed app gets each player's latest message); have
   many-player answers go to the host's seat, not to everyone; check
   `ctx.groups` and fall back to 1:1 on `groups_not_supported`.
@@ -116,6 +123,10 @@ Read `RELEASING.md`. The short version:
   `YYYY.M.D[.N]`) and adds the matching `CHANGELOG.json` entry in all shipped
   languages. A PR that changes the SDK bumps its semver, and bumps every app
   whose built bundle changes with it. CI enforces all of it.
+- A version with nothing anyone notices (a newer SDK, a build-tool bump)
+  marks its CHANGELOG entry `"quiet": true`: Social Home lists it under the
+  Apps page's Updates without a "Needs you" row. Never on a version that
+  changes how the app looks or plays, its `capabilities` or its `engines`.
 - Every PR has one label (`enhancement`, `bug`, `security`, `breaking`,
   `documentation`, `chore`, `skip-changelog`) and a title written for people.
 - Merges refresh a draft release; a maintainer publishes it. Agents never

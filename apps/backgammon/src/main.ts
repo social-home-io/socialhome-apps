@@ -19,6 +19,7 @@
  */
 
 import sh, { ShError } from "@socialhome/app-sdk";
+import { withGroups } from "@socialhome/app-sdk/group";
 import type { AppLook, AppMessage, Contact, GroupEvent, GroupMessage, GroupSession, PickedPerson } from "@socialhome/app-sdk";
 import { BAR, MAX_CUBE, OFF, other, flatten, nextSteps, targetsFrom, turnNeed, diceToPlay, without } from "./rules.js";
 import type { Board, Color, Step } from "./rules.js";
@@ -120,7 +121,7 @@ import {
 } from "./table.js";
 import type { TableAction } from "./table.js";
 
-const client = sh as NonNullable<typeof sh>;
+const client = withGroups(sh as NonNullable<typeof sh>);
 /** Lobby choices: saved in order per key, the last change wins (prefs.ts). */
 const savePref = prefSaver(
   (key, value) => client.store.set(key, value),

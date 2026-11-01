@@ -21,6 +21,8 @@
  */
 
 import { sh, DRAW_WISH_MAX_CHARS } from "@socialhome/app-sdk";
+import { withDraw } from "@socialhome/app-sdk/draw";
+import { withGroups } from "@socialhome/app-sdk/group";
 import type { AppContext, DrawSettings, DrawStatus, GroupEvent, GroupMessage, GroupSession } from "@socialhome/app-sdk";
 import { createAnnouncer } from "./announcer.js";
 import { errorKey } from "./errors.js";
@@ -66,7 +68,7 @@ import {
 } from "./view.js";
 import type { Phase } from "./view.js";
 
-const client = sh!;
+const client = withDraw(withGroups(sh!));
 
 type Route = { kind: "home" } | { kind: "new" } | { kind: "table"; id: string };
 type Confirm = { kind: "again"; id: string } | { kind: "without"; id: string; seats: number[]; names: string[] };

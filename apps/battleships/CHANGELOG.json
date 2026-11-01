@@ -1,5 +1,17 @@
 [
   {
+    "version": "2026.11.1.2",
+    "date": "2026-11-01",
+    "quiet": true,
+    "notes": {
+      "en": "A smaller download: the game now brings only the parts of Social Home it uses. Nothing changes in how you play.",
+      "de": "Ein kleinerer Download: Das Spiel bringt jetzt nur noch die Teile von Social Home mit, die es nutzt. Am Spielen ändert sich nichts.",
+      "nl": "Een kleinere download: het spel bevat nu alleen de delen van Social Home die het gebruikt. Aan het spelen verandert niets.",
+      "fr": "Un téléchargement plus léger : le jeu n’embarque plus que les parties de Social Home qu’il utilise. Rien ne change dans votre façon de jouer.",
+      "es": "Una descarga más pequeña: el juego ahora solo trae las partes de Social Home que usa. No cambia nada en cómo juegas."
+    }
+  },
+  {
     "version": "2026.11.1.1",
     "date": "2026-11-01",
     "notes": {
@@ -13,6 +25,7 @@
   {
     "version": "2026.11.1",
     "date": "2026-11-01",
+    "quiet": true,
     "notes": {
       "en": "A small update under the hood, for the newest Social Home. Nothing changes in how you play.",
       "de": "Eine kleine Aktualisierung im Hintergrund für das neueste Social Home. Am Spielen ändert sich nichts.",

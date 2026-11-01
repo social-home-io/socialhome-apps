@@ -15,6 +15,7 @@
  */
 
 import sh, { ShError } from "@socialhome/app-sdk";
+import { withGroups } from "@socialhome/app-sdk/group";
 import type { AppLook, AppMessage, Contact, GroupEvent, GroupMessage, GroupSession, PickedPerson } from "@socialhome/app-sdk";
 import { CELLS, SHIPS, canPlace, cellName, cryptoRng, isLegalFleet, parseFleet, placementCells, randomFleet, shipMap, withShip } from "./rules.js";
 import type { Fleet, Placement } from "./rules.js";
@@ -80,7 +81,7 @@ import {
   updateFromTable,
 } from "./table.js";
 
-const client = sh as NonNullable<typeof sh>;
+const client = withGroups(sh as NonNullable<typeof sh>);
 const rng = cryptoRng();
 
 type View = "lobby" | "place" | "game";

@@ -250,6 +250,26 @@ describe("validateChangelog", () => {
   });
 });
 
+describe("quiet changelog entries", () => {
+  it("accepts quiet: true and carries it into the catalog", () => {
+    const cl = [entry({ quiet: true }), entry({ version: "2026.10.28", date: "2026-10-28" })];
+    expect(() => validateChangelog(cl, "2026.10.29")).not.toThrow();
+    const e = buildEntry({ manifest: manifest(), changelog: cl, bundleUrl: "u", bundleSha256: "0".repeat(64), bundleSize: 1 });
+    expect(e.changelog[0].quiet).toBe(true);
+    expect(e.changelog[1]).not.toHaveProperty("quiet");
+  });
+
+  it("rejects anything but true", () => {
+    bad(() => validateChangelog([entry({ quiet: false })], "2026.10.29"), "quiet must be true");
+    bad(() => validateChangelog([entry({ quiet: "yes" })], "2026.10.29"), "quiet must be true");
+    bad(() => validateChangelog([entry({ quiet: 1 })], "2026.10.29"), "quiet must be true");
+  });
+
+  it("still needs notes: the Updates card shows them", () => {
+    bad(() => validateChangelog([entry({ quiet: true, notes: { de: "x" } })], "2026.10.29"), "notes.en is required");
+  });
+});
+
 describe("permissionsFor", () => {
   it("maps capabilities to the three plain-word permissions, federation implying people", () => {
     expect(permissionsFor(["storage", "federation"])).toEqual(["storage", "people", "federation"]);

@@ -47,6 +47,27 @@ app's version and CHANGELOG entry too, even though no file of the app
 changed; an SDK change that leaves every bundle as it was needs only the SDK
 bump. Locally: `pnpm build && node scripts/check-versions.mjs origin/main`.
 
+**Keep SDK changes out of other apps' bundles.** Since SDK 2.0 group games
+and engines are separate modules (`withGroups`, `withDraw`), so adding to one
+changes only the apps that use it. New SDK features go into their own module
+(README "SDK quickstart"); a change to the core client (`src/index.ts`,
+`src/shared.ts`) still reaches every app.
+
+**Quiet versions.** When a bump changes nothing anyone notices — the SDK or a
+build tool changed the bundle, the app looks and plays the same — mark its
+`CHANGELOG.json` entry `"quiet": true` (notes still in every language, e.g.
+"A small update under the hood. Nothing changes in how you play."). Social
+Home (2026.11+) then lists the update under the Apps page's **Updates** only,
+without a "Needs you" row for the admins; an admin still taps Update. It
+stays quiet only when every version since the household's is quiet and no
+new permission is asked for. The guard refuses `quiet` on a version that
+changes `capabilities` or `engines`; never use it for a fix or feature
+people would notice. An older Social Home ignores the field.
+
+Editing a past entry (e.g. marking it quiet) changes `CHANGELOG.json`, which
+the guard counts as a change to what the app ships, so it needs a bump of
+its own — do it only together with one that's due anyway.
+
 `CHANGELOG.json` rules (the catalog build enforces them): newest first, one
 entry per version, `notes.en` required plus every language the app ships,
 ≤ 500 characters per note, words from the
