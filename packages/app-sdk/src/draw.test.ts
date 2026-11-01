@@ -78,12 +78,12 @@ describe("parseDrawStatus (never trusts the shape)", () => {
       has_result: true,
       is_host: false,
       waiting_for: [{ seats: [2] }],
-      false_complaints: [{ seats: [3] }],
+      blamed: [{ seats: [3] }],
     });
     expect(st?.hasResult).toBe(true);
     expect(st?.isHost).toBe(false);
     expect(st?.waitingFor).toEqual([{ seats: [2] }]);
-    expect(st?.falseComplaints).toEqual([{ seats: [3] }]);
+    expect(st?.blamed).toEqual([{ seats: [3] }]);
   });
 
   it.each([
@@ -169,9 +169,22 @@ describe("sh.engines.draw", () => {
   });
 
   it("parseEngines keeps only well-formed, distinct names", () => {
-    expect(parseEngines(["draw", "draw", "Bad Name", 3, "x".repeat(40), "quiz"])).toEqual(["draw", "quiz"]);
+    expect(parseEngines(["draw", "draw", "Bad Name", 3, "x".repeat(40), "gift-draw", "quiz_2"])).toEqual(["draw", "quiz_2"]);
     expect(parseEngines("draw")).toBeUndefined();
-    expect(parseEngines(Array.from({ length: 40 }, (_, i) => `e${i}`))).toHaveLength(16);
+    expect(parseEngines(Array.from({ length: 40 }, (_, i) => `e${i}`))).toHaveLength(8);
+  });
+
+  it("configure is a patch: null clears a field", async () => {
+    const h = harness();
+    const p = h.client.engines.draw.configure("t1", { day: null, pairs: null, name: null });
+    expect(h.posted[0].params.settings).toEqual({ day: null, pairs: null, name: null });
+    h.reply(status());
+    await p;
+  });
+
+  it("blamed homes are read; the old falseComplaints name is not", () => {
+    expect(parseDrawStatus(status({ blamed: [{ seats: [2, 3] }] }))?.blamed).toEqual([{ seats: [2, 3] }]);
+    expect(parseDrawStatus(status({ falseComplaints: [{ seats: [2] }] }))).not.toHaveProperty("falseComplaints");
   });
 
   it("configure sends only the fields given", async () => {

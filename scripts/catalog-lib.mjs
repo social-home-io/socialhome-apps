@@ -36,11 +36,14 @@ export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 30;
 
 /** Engines an app may declare (`"engines": ["draw"]`, SDK 1.11): work Social
- * Home does itself at a table. Social Home refuses an engine call from an app
- * that didn't declare it (`engine_not_declared`). `draw` is the gift draw
- * (Social Home v_78), for tables of 3–30 people. */
+ * Home does itself at a table (Social Home's docs/protocol/app-engines.md).
+ * Social Home refuses an engine call from an app that didn't declare it
+ * (`engine_not_declared`). Up to 8 distinct ids `[a-z][a-z0-9_]{0,31}`; like
+ * Social Home, an id it doesn't know yet (a newer engine) is kept. `draw` is
+ * the gift draw (Social Home v_78), for tables of 3–30 people. */
 export const KNOWN_ENGINES = Object.freeze(["draw"]);
 export const MAX_ENGINES = 8;
+const ENGINE_ID_RE = /^[a-z][a-z0-9_]{0,31}$/;
 export const DRAW_MIN_PLAYERS = 3;
 
 /** Age ratings Social Home accepts (`installed_apps.min_age`). */
@@ -221,7 +224,9 @@ function validateGroupFields(where, m) {
     if (!Array.isArray(e)) fail(where, "engines must be a list");
     if (e.length > MAX_ENGINES) fail(where, `engines has ${e.length} entries, at most ${MAX_ENGINES}`);
     for (const name of e) {
-      if (!KNOWN_ENGINES.includes(name)) fail(where, `unknown engine ${JSON.stringify(name)} (known: ${KNOWN_ENGINES.join(", ")})`);
+      if (typeof name !== "string" || !ENGINE_ID_RE.test(name)) {
+        fail(where, `engine ${JSON.stringify(name)} is not an engine id ([a-z][a-z0-9_]{0,31})`);
+      }
     }
     if (new Set(e).size !== e.length) fail(where, "engines has duplicates");
     if (e.length && m.tables !== true) fail(where, "engines need tables: true");
@@ -318,6 +323,9 @@ export function buildEntry({ manifest, changelog, bundleUrl, bundleSha256, bundl
   // yet ("Games allowed here" lists only such apps); `late_join` only matters
   // once installed, so it stays in the manifest.
   if (m.tables === true) entry.tables = true;
+  // Engines (SDK 1.11): Social Home's consent dialog says what each does
+  // before the app is installed, so the catalog carries them.
+  if (Array.isArray(m.engines) && m.engines.length > 0) entry.engines = [...m.engines];
   entry.changelog = (changelog ?? []).slice(0, MAX_CHANGELOG_ENTRIES);
   return entry;
 }

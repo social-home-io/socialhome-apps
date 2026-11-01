@@ -193,13 +193,24 @@ describe("validateManifest: group games (players / tables / late_join)", () => {
     bad(() => validateManifest(manifest({ late_join: true })), "late_join needs tables: true");
   });
 
+  it("the catalog carries engines (for the consent dialog), only when declared", () => {
+    const base = { bundleUrl: "https://x/a.tgz", bundleSha256: "a".repeat(64), bundleSize: 1 };
+    const withE = buildEntry({ manifest: manifest({ players: { min: 3, max: 30 }, tables: true, engines: ["draw"] }), changelog: null, ...base });
+    expect(withE.engines).toEqual(["draw"]);
+    expect(buildEntry({ manifest: manifest(), changelog: null, ...base })).not.toHaveProperty("engines");
+    expect(buildEntry({ manifest: manifest({ engines: [] }), changelog: null, ...base })).not.toHaveProperty("engines");
+  });
+
   it("accepts the draw engine at a table of 3 or more, and bounds engines", () => {
     expect(() => validateManifest(group({ engines: ["draw"] }))).not.toThrow();
     expect(() => validateManifest(group({ engines: [] }))).not.toThrow();
     bad(() => validateManifest(group({ engines: "draw" })), "engines must be a list");
     bad(() => validateManifest(group({ engines: ["draw", "draw"] })), "engines has duplicates");
-    bad(() => validateManifest(group({ engines: ["quiz"] })), 'unknown engine "quiz"');
-    bad(() => validateManifest(group({ engines: Array(9).fill("draw") })), "at most 8");
+    expect(() => validateManifest(group({ engines: ["draw", "quiz_2"] }))).not.toThrow(); // a newer engine is kept
+    bad(() => validateManifest(group({ engines: ["gift-draw"] })), "not an engine id");
+    bad(() => validateManifest(group({ engines: ["Draw"] })), "not an engine id");
+    bad(() => validateManifest(group({ engines: [3] })), "not an engine id");
+    bad(() => validateManifest(group({ engines: Array.from({ length: 9 }, (_, i) => `e${i}`) })), "at most 8");
     bad(() => validateManifest(manifest({ engines: ["draw"] })), "engines need tables: true");
     bad(() => validateManifest(group({ engines: ["draw"], players: { min: 2, max: 8 } })), "players.min of at least 3");
   });

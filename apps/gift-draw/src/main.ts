@@ -50,13 +50,14 @@ import {
   canEditDetails,
   chipOf,
   drawBlock,
-  falseComplaints,
+  blamedHomes,
   homesCount,
   isOurTable,
   listOrder,
   livePairs,
   namesOf,
   oneHousehold,
+  twoHouseholds,
   organiserName,
   phaseOf,
   progressOf,
@@ -194,8 +195,10 @@ function about(people?: ReturnType<typeof seatedPeople>): HTMLElement {
     el("summary", {}, t("about.title")),
     el("p", {}, t("about.how")),
     el("p", {}, t("about.oneHome")),
+    el("p", {}, t("about.twoHomes")),
     el("p", {}, t("about.limits")),
     people && oneHousehold(people) && people.length >= 3 ? el("p", { class: "callout" }, t("about.oneHomeNow")) : null,
+    people && twoHouseholds(people) ? el("p", { class: "callout" }, t("about.twoHomesNow")) : null,
   );
 }
 
@@ -328,7 +331,6 @@ async function createDraw(): Promise<void> {
         name: cleanLine(d.name, NAME_MAX),
         budget: cleanLine(d.budget, BUDGET_MAX),
         day: d.day || null,
-        pairs: [],
       });
       state.status.set(table.id, st);
       if (d.wish.trim()) state.status.set(table.id, await client.engines.draw.setWishes(table.id, d.wish));
@@ -424,8 +426,8 @@ function tableScreen(id: string): HTMLElement {
   } else if (ph === "failed") {
     out.append(el("h2", { class: "title" }, t("failed.title")), el("p", { class: "lead" }, isHost ? t("failed.fix") : t("failed.wait", { name: organiserName(table) })));
   }
-  for (const names of falseComplaints(table, st)) {
-    out.append(el("p", { class: "callout" }, t("complaint", { names: list(names) })));
+  for (const names of blamedHomes(table, st)) {
+    out.append(el("p", { class: "callout" }, t("blamed", { names: list(names) })));
   }
 
   // Who started it, and the details.
@@ -678,22 +680,15 @@ async function saveDetailsNow(id: string): Promise<void> {
   const day = cur ? cur.day || null : base?.day ?? null;
   if (day && isPastDay(day, todayIso())) return say(t("field.dayPast"), true);
   await act(async () => {
-    state.status.set(id, await client.engines.draw.configure(id, withSettings(id, { name, budget, day })));
+    state.status.set(id, await client.engines.draw.configure(id, { name, budget, day }));
     state.detailsDraft.delete(id);
     await share(id);
   }, t("det.saved"));
 }
 
-/** The whole settings with *patch* applied: Social Home replaces the
- *  settings on every configure, so a field left out would be emptied. */
-function withSettings(id: string, patch: Partial<DrawSettings>): DrawSettings {
-  const cur = state.status.get(id)?.settings ?? { name: "", budget: "", day: null, pairs: [] };
-  return { name: cur.name, budget: cur.budget, day: cur.day, pairs: cur.pairs, ...patch };
-}
-
 async function setPairs(id: string, pairs: Pair[]): Promise<void> {
   await act(async () => {
-    state.status.set(id, await client.engines.draw.configure(id, withSettings(id, { pairs })));
+    state.status.set(id, await client.engines.draw.configure(id, { pairs }));
     await share(id);
   });
 }
@@ -713,7 +708,7 @@ async function drawNames(id: string, pairs: Pair[]): Promise<void> {
     const st = state.status.get(id);
     // Pairs of someone who left go before the names are drawn.
     const saved = st?.settings?.pairs ?? [];
-    if (saved.length !== pairs.length) state.status.set(id, await client.engines.draw.configure(id, withSettings(id, { pairs })));
+    if (saved.length !== pairs.length) state.status.set(id, await client.engines.draw.configure(id, { pairs }));
     state.status.set(id, await client.engines.draw.start(id));
   });
   focus("back");

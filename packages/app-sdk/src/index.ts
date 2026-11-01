@@ -900,9 +900,9 @@ export const ENGINE_BRIDGE = Object.freeze({
   }),
 });
 
-const ENGINE_NAME = /^[a-z][a-z0-9_-]{0,31}$/;
+const ENGINE_NAME = /^[a-z][a-z0-9_]{0,31}$/;
 /** The most engines a context may list. */
-const ENGINES_MAX = 16;
+const ENGINES_MAX = 8;
 
 /** Read the context's engine list without trusting its shape (`undefined`
  *  when it isn't a list). */
@@ -943,17 +943,18 @@ export interface DrawSettings {
   pairs: [number, number][];
 }
 
-/** The settings for `engines.draw.configure`. Social Home replaces the
- *  settings with these: a field left out is emptied, so send them all. */
+/** A change to the settings for `engines.draw.configure` — a patch: only
+ *  the fields given change, and `null` clears one (no name, no budget, no
+ *  day, no pairs). */
 export interface DrawSettingsInput {
-  name?: string;
-  budget?: string;
+  name?: string | null;
+  budget?: string | null;
   day?: string | null;
-  pairs?: [number, number][];
+  pairs?: [number, number][] | null;
 }
 
-/** The seats of one household the draw waits for, or that stopped a round
- *  without proof. */
+/** The seats of one household: one the draw waits for, or one blamed for
+ *  breaking a round. */
 export interface DrawHome {
   seats: number[];
 }
@@ -968,7 +969,8 @@ export interface DrawStatus {
   state: DrawState;
   /** Why it failed: `"rules"` (the pairs never fit) or `"too_few"`. */
   reason?: string;
-  /** The round of the current draw (rounds repeat when a home complains). */
+  /** The round of the current draw (a round is redone when a home proves
+   *  something went wrong). */
   round: number;
   /** How often the names were drawn again after a reveal. */
   again: number;
@@ -978,8 +980,9 @@ export interface DrawStatus {
   done?: number;
   /** Organiser only, after an hour: the homes the draw waits for. */
   waitingFor?: DrawHome[];
-  /** Organiser only: homes that stopped a round without proof. */
-  falseComplaints?: DrawHome[];
+  /** Organiser only: homes that broke a round — stopped it without proof,
+   *  or sent a key nobody could seal to. */
+  blamed?: DrawHome[];
   /** The settings — `null` until the organiser saved them (or, for
    *  everyone else, until the names are drawn). */
   settings: DrawSettings | null;
@@ -1083,8 +1086,8 @@ export function parseDrawStatus(v: unknown): DrawStatus | undefined {
   if (isInt(done, 0, GROUP_SEAT_MAX)) out.done = done;
   const waiting = parseHomes(field(v, "waitingFor", "waiting_for"));
   if (waiting && waiting.length > 0) out.waitingFor = waiting;
-  const complaints = parseHomes(field(v, "falseComplaints", "false_complaints"));
-  if (complaints && complaints.length > 0) out.falseComplaints = complaints;
+  const blamed = parseHomes(v["blamed"]);
+  if (blamed && blamed.length > 0) out.blamed = blamed;
   return out;
 }
 
@@ -1097,16 +1100,16 @@ export function parseDrawEvent(v: unknown): DrawEvent | undefined {
   return { type: "status", id, status };
 }
 
-/** Check a `draw.configure` settings change before anything is sent. */
+/** Check a `draw.configure` patch before anything is sent (`null` clears a field). */
 function checkSettingsInput(s: unknown): Record<string, unknown> {
   if (!isRecord(s)) throw new ShError("invalid", "settings must be an object.");
   const out: Record<string, unknown> = {};
   if (s["name"] !== undefined) {
-    if (!oneLine(s["name"], DRAW_NAME_MAX)) throw new ShError("invalid", `name: one line, at most ${DRAW_NAME_MAX} characters.`);
+    if (s["name"] !== null && !oneLine(s["name"], DRAW_NAME_MAX)) throw new ShError("invalid", `name: one line, at most ${DRAW_NAME_MAX} characters.`);
     out["name"] = s["name"];
   }
   if (s["budget"] !== undefined) {
-    if (!oneLine(s["budget"], DRAW_BUDGET_MAX)) throw new ShError("invalid", `budget: one line, at most ${DRAW_BUDGET_MAX} characters.`);
+    if (s["budget"] !== null && !oneLine(s["budget"], DRAW_BUDGET_MAX)) throw new ShError("invalid", `budget: one line, at most ${DRAW_BUDGET_MAX} characters.`);
     out["budget"] = s["budget"];
   }
   if (s["day"] !== undefined) {
@@ -1114,8 +1117,10 @@ function checkSettingsInput(s: unknown): Record<string, unknown> {
     out["day"] = s["day"];
   }
   if (s["pairs"] !== undefined) {
-    if (!isPairs(s["pairs"])) throw new ShError("invalid", "pairs must be different seats, each in one pair at most.");
-    out["pairs"] = s["pairs"].map(([a, b]) => [a, b]);
+    const pairs = s["pairs"];
+    if (pairs === null) out["pairs"] = null;
+    else if (!isPairs(pairs)) throw new ShError("invalid", "pairs must be different seats, each in one pair at most.");
+    else out["pairs"] = pairs.map(([a, b]) => [a, b]);
   }
   return out;
 }
@@ -1713,9 +1718,8 @@ export class SocialHomeClient {
     draw: {
       /**
        * Organiser only, before the names are drawn (or after a draw gave up):
-       * save the settings. Social Home **replaces** them with what you send —
-       * a field left out becomes empty (no name, no day, no pairs) — so send
-       * all four each time. Other
+       * change the settings. A **patch**: only the fields given change, and
+       * `null` clears one. Other
        * households get them only when the names are drawn, so share them
        * with `sh.group.send` if people should see them before.
        */

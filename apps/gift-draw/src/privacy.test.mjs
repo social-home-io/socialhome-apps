@@ -45,9 +45,11 @@ describe("the sandbox", () => {
 });
 
 describe("settings", () => {
-  it("always sends all four settings: Social Home replaces them on every configure", () => {
+  it("changes only the fields it means to: configure is a patch", () => {
     const calls = [...main.matchAll(/engines\.draw\.configure\(([^;]*?)\)\)?;/gs)].map((m) => m[1]);
     expect(calls.length).toBeGreaterThanOrEqual(4);
-    for (const c of calls) expect(c).toMatch(/withSettings\(|name:[\s\S]*budget:[\s\S]*day:[\s\S]*pairs:/);
+    expect(main).not.toMatch(/withSettings/);
+    // Adding or removing a pair sends the pairs alone.
+    expect(calls.filter((c) => /\{ pairs \}/.test(c)).length).toBe(2);
   });
 });

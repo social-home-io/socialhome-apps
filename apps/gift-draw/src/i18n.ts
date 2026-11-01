@@ -59,8 +59,10 @@ const en = {
   "about.title": "About the gift draw",
   "about.how": "Social Home draws the names. Every home taking part mixes them once, so no home, not even that of the person who started the draw, can tell who drew whom. You see your name in Social Home, not in this app: the app never learns it.",
   "about.oneHome": "When everyone is in one household, that household's Social Home holds every part of the draw, so whoever runs it could find out who drew whom.",
+  "about.twoHomes": "With only two households, each household's Social Home can largely work out who gives to whom.",
   "about.limits": "Up to 30 people. The names are drawn from the home of the person who started the draw. A wish list has up to 500 characters.",
   "about.oneHomeNow": "Everyone here is in one household: whoever runs its Social Home could find out who drew whom.",
+  "about.twoHomesNow": "Everyone here is in two households: each one's Social Home could largely work out who gives to whom.",
 
   // New gift draw
   "new.title": "New gift draw",
@@ -128,7 +130,7 @@ const en = {
   "waiting.confirm": "Draw without {names}? They can't come back to this gift draw.",
   "waiting.yes": "Draw without them",
   "waiting.only": "Only you see this, because you started the draw.",
-  "complaint": "The home of {names} stopped a draw without a reason. Nothing changed.",
+  "blamed": "The home of {names} broke a round: it stopped it without a reason, or sent a key that didn't work. The names are drawn again. If it keeps happening, you can draw without them.",
 
   // Ready
   "ready.title": "Your name is ready",
@@ -222,8 +224,10 @@ const de: Catalog = {
   "about.title": "Über Wichteln",
   "about.how": "Social Home zieht die Namen. Jeder Haushalt, der mitmacht, mischt sie einmal, also kann kein Haushalt, auch nicht der der Person, die das Wichteln gestartet hat, sehen, wer wen gezogen hat. Deinen Namen siehst du in Social Home, nicht in dieser App: Die App erfährt ihn nie.",
   "about.oneHome": "Sind alle in einem Haushalt, hat das Social Home dieses Haushalts alle Teile der Auslosung, also könnte die Person, die es betreut, herausfinden, wer wen gezogen hat.",
+  "about.twoHomes": "Bei nur zwei Haushalten kann das Social Home jedes Haushalts weitgehend herausfinden, wer wen beschenkt.",
   "about.limits": "Bis zu 30 Personen. Die Namen werden vom Haushalt der Person gezogen, die das Wichteln gestartet hat. Eine Wunschliste hat bis zu 500 Zeichen.",
   "about.oneHomeNow": "Alle hier sind in einem Haushalt: Wer sein Social Home betreut, könnte herausfinden, wer wen gezogen hat.",
+  "about.twoHomesNow": "Alle hier sind in zwei Haushalten: Das Social Home jedes Haushalts könnte weitgehend herausfinden, wer wen beschenkt.",
 
   "new.title": "Neues Wichteln",
   "new.lead": "Alle ziehen einen Namen. Niemand, auch du nicht, sieht die ganze Liste.",
@@ -288,7 +292,7 @@ const de: Catalog = {
   "waiting.confirm": "Ohne {names} auslosen? Sie können nicht zu diesem Wichteln zurück.",
   "waiting.yes": "Ohne sie auslosen",
   "waiting.only": "Nur du siehst das, weil du die Auslosung gestartet hast.",
-  "complaint": "Der Haushalt von {names} hat eine Auslosung ohne Grund angehalten. Es hat sich nichts geändert.",
+  "blamed": "Der Haushalt von {names} hat eine Runde abgebrochen: ohne Grund angehalten oder einen Schlüssel geschickt, der nicht funktioniert. Die Namen werden neu gezogen. Passiert das immer wieder, kannst du ohne sie auslosen.",
 
   "ready.title": "Dein Los ist da",
   "ready.body": "Social Home zeigt dir, wen du beschenkst. Diese App sieht es nie.",
@@ -375,8 +379,10 @@ const nl: Catalog = {
   "about.title": "Over lootjes trekken",
   "about.how": "Social Home trekt de lootjes. Elk huishouden dat meedoet, schudt ze één keer, dus geen enkel huishouden, ook niet dat van wie de trekking startte, kan zien wie wie heeft getrokken. Je lootje zie je in Social Home, niet in deze app: de app komt het nooit te weten.",
   "about.oneHome": "Zit iedereen in één huishouden, dan heeft de Social Home van dat huishouden alle delen van de trekking, dus wie die beheert, zou kunnen achterhalen wie wie heeft getrokken.",
+  "about.twoHomes": "Met maar twee huishoudens kan de Social Home van elk huishouden grotendeels achterhalen wie wie heeft getrokken.",
   "about.limits": "Tot 30 mensen. De lootjes worden getrokken vanuit het huishouden van wie de trekking startte. Een verlanglijstje heeft tot 500 tekens.",
   "about.oneHomeNow": "Iedereen hier zit in één huishouden: wie de Social Home ervan beheert, zou kunnen achterhalen wie wie heeft getrokken.",
+  "about.twoHomesNow": "Iedereen hier zit in twee huishoudens: de Social Home van elk ervan zou grotendeels kunnen achterhalen wie wie heeft getrokken.",
 
   "new.title": "Nieuwe trekking",
   "new.lead": "Iedereen trekt één lootje. Niemand, ook jij niet, ziet de hele lijst.",
@@ -441,7 +447,7 @@ const nl: Catalog = {
   "waiting.confirm": "Zonder {names} trekken? Ze kunnen niet meer terug in deze trekking.",
   "waiting.yes": "Zonder hen trekken",
   "waiting.only": "Alleen jij ziet dit, omdat jij de trekking hebt gestart.",
-  "complaint": "Het huishouden van {names} heeft een trekking zonder reden gestopt. Er is niets veranderd.",
+  "blamed": "Het huishouden van {names} heeft een ronde verstoord: zonder reden gestopt, of een sleutel gestuurd die niet werkt. De lootjes worden opnieuw getrokken. Blijft dat gebeuren, dan kun je zonder hen trekken.",
 
   "ready.title": "Je lootje is er",
   "ready.body": "Social Home laat je zien wie je hebt getrokken. Deze app ziet het nooit.",
@@ -528,8 +534,10 @@ const fr: Catalog = {
   "about.title": "À propos du Père Noël secret",
   "about.how": `Social Home fait le tirage. Chaque foyer participant mélange les noms une fois, donc aucun foyer, pas même celui de la personne qui a lancé le tirage, ne peut savoir qui a tiré qui. Vous voyez votre nom dans Social Home, pas dans cette app${NB}: l’app ne l’apprend jamais.`,
   "about.oneHome": "Quand tout le monde est dans un seul foyer, le Social Home de ce foyer détient toutes les parties du tirage, donc la personne qui le gère pourrait savoir qui a tiré qui.",
+  "about.twoHomes": "Avec seulement deux foyers, le Social Home de chaque foyer peut en grande partie savoir qui offre à qui.",
   "about.limits": "Jusqu’à 30 personnes. Les noms sont tirés depuis le foyer de la personne qui a lancé le tirage. Une liste de souhaits compte jusqu’à 500 caractères.",
   "about.oneHomeNow": `Tout le monde ici est dans un seul foyer${NB}: la personne qui gère son Social Home pourrait savoir qui a tiré qui.`,
+  "about.twoHomesNow": `Tout le monde ici est dans deux foyers${NB}: le Social Home de chacun pourrait en grande partie savoir qui offre à qui.`,
 
   "new.title": "Nouveau Père Noël secret",
   "new.lead": "Chacun tire un nom. Personne, pas même vous, ne voit toute la liste.",
@@ -594,7 +602,7 @@ const fr: Catalog = {
   "waiting.confirm": `Tirer au sort sans {names}${NB}? Ces personnes ne pourront pas revenir dans ce Père Noël secret.`,
   "waiting.yes": "Tirer au sort sans eux",
   "waiting.only": "Personne d’autre ne voit ceci, parce que vous avez lancé le tirage.",
-  "complaint": "Le foyer de {names} a arrêté un tirage sans raison. Rien n’a changé.",
+  "blamed": "Le foyer de {names} a interrompu une manche : il l’a arrêtée sans raison, ou a envoyé une clé qui ne fonctionne pas. Le tirage est refait. Si cela se reproduit, vous pouvez tirer au sort sans eux.",
 
   "ready.title": "Votre tirage est prêt",
   "ready.body": "Social Home vous montre à qui vous offrez un cadeau. Cette app ne le voit jamais.",
@@ -681,8 +689,10 @@ const es: Catalog = {
   "about.title": "Sobre el amigo invisible",
   "about.how": "Social Home hace el sorteo. Cada hogar que participa mezcla los nombres una vez, así que ningún hogar, ni siquiera el de quien creó el sorteo, puede saber quién le regala a quién. Ves tu nombre en Social Home, no en esta app: la app nunca lo sabe.",
   "about.oneHome": "Cuando todos están en un mismo hogar, el Social Home de ese hogar tiene todas las partes del sorteo, así que quien lo gestiona podría averiguar quién le regala a quién.",
+  "about.twoHomes": "Con solo dos hogares, el Social Home de cada hogar puede averiguar en gran parte quién le regala a quién.",
   "about.limits": "Hasta 30 personas. Los nombres se sortean desde el hogar de quien creó el sorteo. Una lista de deseos tiene hasta 500 caracteres.",
   "about.oneHomeNow": "Todos aquí están en un mismo hogar: quien gestiona su Social Home podría averiguar quién le regala a quién.",
+  "about.twoHomesNow": "Todos aquí están en dos hogares: el Social Home de cada uno podría averiguar en gran parte quién le regala a quién.",
 
   "new.title": "Nuevo amigo invisible",
   "new.lead": "Cada persona saca un nombre. Nadie, ni siquiera tú, ve la lista completa.",
@@ -747,7 +757,7 @@ const es: Catalog = {
   "waiting.confirm": "¿Sortear sin {names}? No podrán volver a este amigo invisible.",
   "waiting.yes": "Sortear sin ellos",
   "waiting.only": "Solo tú ves esto, porque tú creaste el sorteo.",
-  "complaint": "El hogar de {names} paró un sorteo sin motivo. No ha cambiado nada.",
+  "blamed": "El hogar de {names} estropeó una ronda: la paró sin motivo o envió una clave que no funciona. Se vuelve a sortear. Si sigue pasando, puedes sortear sin ellos.",
 
   "ready.title": "Ya tienes tu amigo invisible",
   "ready.body": "Social Home te muestra a quién le regalas. Esta app nunca lo ve.",

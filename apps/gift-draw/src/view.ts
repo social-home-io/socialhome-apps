@@ -85,6 +85,13 @@ export function oneHousehold(people: readonly Person[]): boolean {
   return people.length > 0 && homesCount(people) === 1;
 }
 
+/** Whether everyone in the draw lives in exactly two households: each
+ *  household's server can largely work out the circle (the About text's
+ *  second limit). */
+export function twoHouseholds(people: readonly Person[]): boolean {
+  return homesCount(people) === 2;
+}
+
 /** The names at *seats* (anyone at the table, seated or not), in that order. */
 export function namesOf(table: GroupSession, seats: readonly number[]): string[] {
   const bySeat = new Map(table.players.map((p) => [p.seat, p.name]));
@@ -139,10 +146,11 @@ export function waitingHomes(table: GroupSession, status: DrawStatus): { seats: 
     .filter((h) => h.names.length > 0);
 }
 
-/** Organiser only: homes that stopped a round without proof. */
-export function falseComplaints(table: GroupSession, status: DrawStatus): string[][] {
+/** Organiser only: homes blamed for breaking a round (stopped it without
+ *  proof, or sent a key nobody could seal to), by their people's names. */
+export function blamedHomes(table: GroupSession, status: DrawStatus): string[][] {
   if (!status.isHost) return [];
-  return (status.falseComplaints ?? []).map((h) => namesOf(table, h.seats)).filter((n) => n.length > 0);
+  return (status.blamed ?? []).map((h) => namesOf(table, h.seats)).filter((n) => n.length > 0);
 }
 
 /** The chip on a gift draw in the list. */

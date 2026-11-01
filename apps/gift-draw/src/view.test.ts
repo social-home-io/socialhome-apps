@@ -3,13 +3,14 @@ import {
   canEditDetails,
   chipOf,
   drawBlock,
-  falseComplaints,
+  blamedHomes,
   homesCount,
   isOurTable,
   listOrder,
   livePairs,
   namesOf,
   oneHousehold,
+  twoHouseholds,
   organiserName,
   phaseOf,
   progressOf,
@@ -62,6 +63,11 @@ describe("the people", () => {
     expect(oneHousehold(seatedPeople(table()))).toBe(false);
     expect(oneHousehold([])).toBe(false);
   });
+
+  it("knows when everyone is in two households (the About text's second limit)", () => {
+    expect(twoHouseholds(seatedPeople(table({ players: [ANNA, BEN, LENA] })))).toBe(true);
+    expect(twoHouseholds(seatedPeople(table()))).toBe(false);
+  });
 });
 
 describe("details and pairs", () => {
@@ -95,7 +101,7 @@ describe("details and pairs", () => {
 });
 
 describe("while names are drawn (the organiser only)", () => {
-  const drawing = status({ state: "drawing", done: 2, waitingFor: [{ seats: [2, 3] }], falseComplaints: [{ seats: [4] }] });
+  const drawing = status({ state: "drawing", done: 2, waitingFor: [{ seats: [2, 3] }], blamed: [{ seats: [4] }] });
 
   it("shows progress in homes", () => {
     expect(progressOf(drawing, 3)).toEqual({ done: 2, of: 3 });
@@ -108,8 +114,8 @@ describe("while names are drawn (the organiser only)", () => {
     expect(waitingHomes(table(), drawing)).toEqual([{ seats: [2, 3], names: ["Ben", "Lena"] }]);
     expect(waitingHomes(table(), { ...drawing, isHost: false })).toEqual([]);
     expect(waitingHomes(table(), { ...drawing, state: "ready" })).toEqual([]);
-    expect(falseComplaints(table(), drawing)).toEqual([["Cleo"]]);
-    expect(falseComplaints(table(), { ...drawing, isHost: false })).toEqual([]);
+    expect(blamedHomes(table(), drawing)).toEqual([["Cleo"]]);
+    expect(blamedHomes(table(), { ...drawing, isHost: false })).toEqual([]);
   });
 });
 
