@@ -35,6 +35,14 @@ export const MAX_URL_CHARS = 500;
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 30;
 
+/** Engines an app may declare (`"engines": ["draw"]`, SDK 1.11): work Social
+ * Home does itself at a table. Social Home refuses an engine call from an app
+ * that didn't declare it (`engine_not_declared`). `draw` is the gift draw
+ * (Social Home v_78), for tables of 3–30 people. */
+export const KNOWN_ENGINES = Object.freeze(["draw"]);
+export const MAX_ENGINES = 8;
+export const DRAW_MIN_PLAYERS = 3;
+
 /** Age ratings Social Home accepts (`installed_apps.min_age`). */
 export const VALID_MIN_AGES = Object.freeze([0, 13, 16, 18]);
 
@@ -207,6 +215,19 @@ function validateGroupFields(where, m) {
   }
   if (m.late_join === true && m.tables !== true) {
     fail(where, "late_join needs tables: true");
+  }
+  if ("engines" in m) {
+    const e = m.engines;
+    if (!Array.isArray(e)) fail(where, "engines must be a list");
+    if (e.length > MAX_ENGINES) fail(where, `engines has ${e.length} entries, at most ${MAX_ENGINES}`);
+    for (const name of e) {
+      if (!KNOWN_ENGINES.includes(name)) fail(where, `unknown engine ${JSON.stringify(name)} (known: ${KNOWN_ENGINES.join(", ")})`);
+    }
+    if (new Set(e).size !== e.length) fail(where, "engines has duplicates");
+    if (e.length && m.tables !== true) fail(where, "engines need tables: true");
+    if (e.includes("draw") && !(m.players && m.players.min >= DRAW_MIN_PLAYERS)) {
+      fail(where, `the draw engine needs players.min of at least ${DRAW_MIN_PLAYERS}`);
+    }
   }
 }
 

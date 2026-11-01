@@ -192,6 +192,17 @@ describe("validateManifest: group games (players / tables / late_join)", () => {
     bad(() => validateManifest(manifest({ players: { min: 3, max: 8 } })), "needs tables: true");
     bad(() => validateManifest(manifest({ late_join: true })), "late_join needs tables: true");
   });
+
+  it("accepts the draw engine at a table of 3 or more, and bounds engines", () => {
+    expect(() => validateManifest(group({ engines: ["draw"] }))).not.toThrow();
+    expect(() => validateManifest(group({ engines: [] }))).not.toThrow();
+    bad(() => validateManifest(group({ engines: "draw" })), "engines must be a list");
+    bad(() => validateManifest(group({ engines: ["draw", "draw"] })), "engines has duplicates");
+    bad(() => validateManifest(group({ engines: ["quiz"] })), 'unknown engine "quiz"');
+    bad(() => validateManifest(group({ engines: Array(9).fill("draw") })), "at most 8");
+    bad(() => validateManifest(manifest({ engines: ["draw"] })), "engines need tables: true");
+    bad(() => validateManifest(group({ engines: ["draw"], players: { min: 2, max: 8 } })), "players.min of at least 3");
+  });
 });
 
 describe("validateChangelog", () => {

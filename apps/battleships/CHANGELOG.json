@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.11.1",
+    "date": "2026-11-01",
+    "notes": {
+      "en": "A small update under the hood, for the newest Social Home. Nothing changes in how you play.",
+      "de": "Eine kleine Aktualisierung im Hintergrund für das neueste Social Home. Am Spielen ändert sich nichts.",
+      "nl": "Een kleine update achter de schermen, voor de nieuwste Social Home. Aan het spelen verandert niets.",
+      "fr": "Une petite mise à jour en coulisses, pour le Social Home le plus récent. Rien ne change dans votre façon de jouer.",
+      "es": "Una pequeña actualización interna para el Social Home más reciente. No cambia nada en cómo juegas."
+    }
+  },
+  {
     "version": "2026.10.31.1",
     "date": "2026-10-31",
     "notes": {

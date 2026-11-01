@@ -57,6 +57,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/app-sdk
 
+  apps/gift-draw:
+    dependencies:
+      '@socialhome/app-sdk':
+        specifier: workspace:*
+        version: link:../../packages/app-sdk
+
   apps/go:
     dependencies:
       '@socialhome/app-sdk':
