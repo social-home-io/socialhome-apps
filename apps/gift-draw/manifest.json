@@ -1,0 +1,50 @@
+{
+  "app_id": "gift-draw",
+  "name": "Gift draw",
+  "version": "2026.11.1",
+  "description": "Draw names for a gift exchange with up to 30 people from your household, paired ones or a space. Social Home draws the names, so nobody, not even whoever started it, sees who gives to whom. With wish lists, a budget, the exchange day and couples kept apart.",
+  "entry": "index.html",
+  "icon": "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%20role%3D%22img%22%20aria-label%3D%22Gift%20draw%22%3E%0A%20%20%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22%238b3a5b%22%2F%3E%0A%20%20%3Crect%20x%3D%2213%22%20y%3D%2227%22%20width%3D%2238%22%20height%3D%2225%22%20rx%3D%223%22%20fill%3D%22%23f2b23e%22%2F%3E%0A%20%20%3Crect%20x%3D%2210%22%20y%3D%2220%22%20width%3D%2244%22%20height%3D%2210%22%20rx%3D%223%22%20fill%3D%22%23f6c75f%22%2F%3E%0A%20%20%3Crect%20x%3D%2229%22%20y%3D%2220%22%20width%3D%226%22%20height%3D%2232%22%20fill%3D%22%23c8402f%22%2F%3E%0A%20%20%3Cpath%20d%3D%22M32%2020c-3-7-12-9-13-4-1%204%207%205%2013%204zM32%2020c3-7%2012-9%2013-4%201%204-7%205-13%204z%22%20fill%3D%22none%22%20stroke%3D%22%23c8402f%22%20stroke-width%3D%223%22%20stroke-linejoin%3D%22round%22%2F%3E%0A%3C%2Fsvg%3E%0A",
+  "capabilities": [
+    "storage",
+    "people",
+    "federation"
+  ],
+  "min_age": 0,
+  "languages": [
+    "en",
+    "de",
+    "nl",
+    "fr",
+    "es"
+  ],
+  "players": {
+    "min": 3,
+    "max": 30
+  },
+  "tables": true,
+  "late_join": false,
+  "engines": [
+    "draw"
+  ],
+  "homepage": "https://github.com/social-home-io/socialhome-apps/tree/main/apps/gift-draw",
+  "min_core_version": "2026.11.1",
+  "i18n": {
+    "de": {
+      "name": "Wichteln",
+      "description": "Wichteln mit bis zu 30 Personen aus deinem Haushalt, gekoppelten Haushalten oder einem Space. Social Home zieht die Namen, also sieht niemand, auch nicht, wer es gestartet hat, wer wen beschenkt. Mit Wunschlisten, Budget und Bescherung, und Paare ziehen sich nicht gegenseitig."
+    },
+    "nl": {
+      "name": "Lootjes trekken",
+      "description": "Lootjes trekken met tot 30 mensen uit je eigen huishouden, gekoppelde huishoudens of een space. Social Home trekt de lootjes, dus niemand, ook niet wie het heeft gestart, ziet wie wie heeft. Met verlanglijstjes, budget en cadeaudag, en paren trekken elkaar niet."
+    },
+    "fr": {
+      "name": "Père Noël secret",
+      "description": "Un Père Noël secret jusqu’à 30 personnes de votre foyer, de foyers jumelés ou d’un espace. Social Home fait le tirage : personne, pas même qui l’a lancé, ne voit qui offre à qui. Avec listes de souhaits, budget, jour de l’échange, et les paires ne tombent pas l’une sur l’autre."
+    },
+    "es": {
+      "name": "Amigo invisible",
+      "description": "Un amigo invisible con hasta 30 personas de tu hogar, de hogares vinculados o de un espacio. Social Home hace el sorteo: nadie, ni siquiera quien lo creó, ve quién regala a quién. Con listas de deseos, presupuesto, día del intercambio y parejas que no se regalan entre sí."
+    }
+  }
+}

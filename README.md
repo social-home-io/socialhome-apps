@@ -50,6 +50,7 @@ Every app lives under `apps/<app_id>/` and must contain a `manifest.json`
 | `players` | no | Group games: `{ "min": 3, "max": 8 }` — how many players a game takes, `2 ≤ min ≤ max ≤ 30` (default `{2, 2}`). Anything but `{2, 2}` needs `tables: true`. A table opened by picking people seats at most 10, whatever `max` says. |
 | `tables` | no | `true`: the app can be played as a **table** — a group game ([below](#group-games-socialhomeapp-sdk-19)). Without it the app keeps 1:1 invites only. |
 | `late_join` | no | `true`: a game being played still takes people while it has a free seat (default `false`). Needs `tables: true`. |
+| `engines` | no | Work Social Home does for the app at a table, e.g. `["draw"]` (the gift draw, [below](#engines-the-gift-draw-socialhomeapp-sdk-111)). Up to 8 distinct ids `[a-z][a-z0-9_]{0,31}`; needs `tables: true`; `draw` needs `players.min` ≥ 3. Social Home refuses an engine an app didn't declare. |
 
 An app can't set `publisher`: the catalog sets it (`"Social Home"` for every app in this repo).
 
@@ -397,6 +398,61 @@ The bridge messages behind these calls are listed in one place,
 `GROUP_BRIDGE` in `packages/app-sdk/src/index.ts`; Social Home's side is
 `docs/protocol/app-groups.md` ("HTTP, WebSocket and the app bridge").
 
+### Engines: the gift draw (`@socialhome/app-sdk` 1.11)
+
+An **engine** is work Social Home does itself at a table, so that no app
+(and no household) has to be trusted with it. The first is `draw`, the gift
+draw (Social Home v_78): every person draws one other person to give a gift
+to, couples the organiser lists don't draw each other, and **the app never
+learns whom anybody gives to** — Social Home shows it in its own sheet.
+
+Declare the engine in `manifest.json` (Social Home refuses the calls of an
+app that doesn't, `engine_not_declared`); the draw needs a table of 3–30:
+
+```json
+{ "players": { "min": 3, "max": 30 }, "tables": true, "engines": ["draw"] }
+```
+
+```ts
+const ctx = await sh.context({ pullHeld: true });
+if (!ctx.engines?.includes('draw')) { /* an older Social Home */ }
+
+const d = sh.engines.draw;
+await d.configure(table.id, { name: 'Wichteln 2026', budget: 'about 20 €', day: '2026-12-24', pairs: [[2, 3]] });
+await d.setWishes(table.id, 'Crime novels, good tea');   // ≤ 500 characters, the card ≤ 1 KiB
+await d.start(table.id);                                 // organiser: Draw names (starts the table)
+const st = await d.status(table.id);                     // { state: gathering | drawing | ready | failed, … }
+if (st.hasResult) await d.reveal(table.id);              // Social Home's own sheet; resolves with nothing
+await d.start(table.id, { again: true });                // organiser, after the reveal, before the day
+d.onEvent((e) => show(e.status));                        // { type: 'status', id, status }
+```
+
+| Call | What it does |
+|---|---|
+| `engines.draw.configure(id, {name?, budget?, day?, pairs?})` | Organiser, before Draw names (or after a draw gave up). A **patch**: only the fields given change; `null` clears one. Name ≤ 80, budget ≤ 40 characters, one line each; `day` `YYYY-MM-DD` or `null`; `pairs` of different seats, nobody in two. Other households get the settings only when the names are drawn — share them with `sh.group.send` to show them before. |
+| `engines.draw.setWishes(id, text)` | The person's wish list. After the reveal it reaches their giver, at most 5 times. |
+| `engines.draw.start(id, {again?})` | Organiser: Draw names (at least 3 seated); `again` after the reveal (at most 10 times, until the exchange day). |
+| `engines.draw.status(id)` | `{id, state, reason?, round, again, of, done?, waitingFor?, blamed?, settings, wish, hasResult, isHost}` — never a result. |
+| `engines.draw.reveal(id)` | Opens Social Home's result sheet; resolves with nothing. |
+| `engines.draw.onEvent(cb)` | The draw's new state. |
+
+"Draw without them" for a home the draw waits for (`status.waitingFor`) is
+`sh.group.remove(id, seat)` for each of its seats; a household that broke
+two rounds is named there at once, and a removal once the circle is known
+counts as a Draw again. `status.blamed` (shown to everyone at the table)
+names homes that broke a round: stopped it without proof, or sent a key
+nobody could seal to. `status.reason` for a failed draw is `rules`,
+`too_few` or `broken` (someone's home kept breaking the draw — the
+organiser can try again later; starting afresh counts as a Draw again).
+What the draw does and doesn't guarantee is in Social Home's
+`docs/protocol/app-engines.md`. Don't close the table
+before the exchange day: the names go with it. Refusals: `not_host`,
+`host_elsewhere`, `state`, `too_few`, `pairs`, `settings`, `wish_too_long`,
+`wish_updates`, `household_too_old`, `again_limit`, `past_day`,
+`no_result`, `engine_not_supported`, `engine_not_declared`, `unknown_method`,
+`invalid`, `unavailable`, `permission_denied`. The bridge names
+are in `ENGINE_BRIDGE` (`packages/app-sdk/src/index.ts`).
+
 ### Language, light/dark and colours (`@socialhome/app-sdk` 1.6)
 
 Social Home tells your app how to look, and an app in the catalog must follow the person's **language** and **light/dark** (the colours are a recommendation). `context()` carries:
@@ -525,6 +581,7 @@ requires `app_id`, `name`, `latest_version`, `description`, `bundle_url` and
 | `publisher` | always `"Social Home"`, shown as "From Social Home". The catalog isn't signed yet; the trust is the HTTPS release plus the sha256 pin. |
 | `changelog` | newest 5 entries of `CHANGELOG.json` (`[]` without one) |
 | `players` | `{min, max}` from `manifest.json`, only when the app sets it (group games, "2–8 players") |
+| `engines` | from `manifest.json`, only when the app declares any — Social Home's consent dialog says what each one does before the app is installed |
 
 `scripts/build-catalog.mjs` fails the build (and CI) on a manifest or changelog
 that breaks these rules, and on limits Social Home enforces when reading the
@@ -564,6 +621,15 @@ Read `apps/chess/` alongside `packages/app-sdk/src/index.ts` when writing a new 
 - Every message carries the whole game (`protocol.ts`); the receiver accepts at
   most one new step on top of its own log and rebuilds score, turn and winner
   itself. Nothing is sent after a game's final message (it carries the reveal).
+
+## The Gift draw app
+
+`apps/gift-draw/` sets a gift draw up and shows where it is; Social Home
+draws the names (`sh.engines.draw`). The organiser shares the details with
+the table (`share.ts`, taken only from the organiser's seat) until Social
+Home has them; the app keeps only those details and an unsent form
+(`persist.ts`), never a result (`privacy.test.mjs`), and never closes a
+gift draw.
 
 ## Security model
 
