@@ -292,16 +292,11 @@ function newScreen(): HTMLElement {
     oninput: (e: Event) => { state.draft.day = (e.target as HTMLInputElement).value; keep(); },
   });
   day.value = d.day;
+  // Not a <form>: the sandbox (no allow-forms) blocks form submission
+  // before a submit event could be handled.
   return el(
-    "form",
-    {
-      class: "screen",
-      novalidate: true,
-      onsubmit: (e: Event) => {
-        e.preventDefault();
-        void createDraw();
-      },
-    },
+    "section",
+    { class: "screen" },
     backButton(),
     el("h2", { class: "title" }, t("new.title")),
     el("p", { class: "lead" }, t("new.lead")),
@@ -313,7 +308,7 @@ function newScreen(): HTMLElement {
     el(
       "div",
       { class: "actions" },
-      el("button", { type: "submit", class: "btn pri lg block-m", id: "new-send", disabled: state.busy }, t("new.send")),
+      button(t("new.send"), () => void createDraw(), { class: "btn pri lg block-m", id: "new-send" }),
       button(t("btn.cancel"), () => go({ kind: "home" }), { class: "btn ghost" }),
     ),
     about(),
@@ -333,6 +328,7 @@ async function createDraw(): Promise<void> {
         name: cleanLine(d.name, NAME_MAX),
         budget: cleanLine(d.budget, BUDGET_MAX),
         day: d.day || null,
+        pairs: [],
       });
       state.status.set(table.id, st);
       if (d.wish.trim()) state.status.set(table.id, await client.engines.draw.setWishes(table.id, d.wish));
@@ -369,7 +365,8 @@ function tableScreen(id: string): HTMLElement {
   const people = seatedPeople(table);
   const isHost = status?.isHost ?? table.isHost;
 
-  out.append(el("p", { class: "small muted kicker" }, titleOf(id)));
+  // The draw's name above the heading — unless the heading is the name.
+  if (ph !== "gathering") out.append(el("p", { class: "small muted kicker" }, titleOf(id)));
 
   switch (ph) {
     case "invited":
@@ -681,15 +678,22 @@ async function saveDetailsNow(id: string): Promise<void> {
   const day = cur ? cur.day || null : base?.day ?? null;
   if (day && isPastDay(day, todayIso())) return say(t("field.dayPast"), true);
   await act(async () => {
-    state.status.set(id, await client.engines.draw.configure(id, { name, budget, day }));
+    state.status.set(id, await client.engines.draw.configure(id, withSettings(id, { name, budget, day })));
     state.detailsDraft.delete(id);
     await share(id);
   }, t("det.saved"));
 }
 
+/** The whole settings with *patch* applied: Social Home replaces the
+ *  settings on every configure, so a field left out would be emptied. */
+function withSettings(id: string, patch: Partial<DrawSettings>): DrawSettings {
+  const cur = state.status.get(id)?.settings ?? { name: "", budget: "", day: null, pairs: [] };
+  return { name: cur.name, budget: cur.budget, day: cur.day, pairs: cur.pairs, ...patch };
+}
+
 async function setPairs(id: string, pairs: Pair[]): Promise<void> {
   await act(async () => {
-    state.status.set(id, await client.engines.draw.configure(id, { pairs }));
+    state.status.set(id, await client.engines.draw.configure(id, withSettings(id, { pairs })));
     await share(id);
   });
 }
@@ -709,7 +713,7 @@ async function drawNames(id: string, pairs: Pair[]): Promise<void> {
     const st = state.status.get(id);
     // Pairs of someone who left go before the names are drawn.
     const saved = st?.settings?.pairs ?? [];
-    if (saved.length !== pairs.length) state.status.set(id, await client.engines.draw.configure(id, { pairs }));
+    if (saved.length !== pairs.length) state.status.set(id, await client.engines.draw.configure(id, withSettings(id, { pairs })));
     state.status.set(id, await client.engines.draw.start(id));
   });
   focus("back");
@@ -777,6 +781,8 @@ function onDrawStatus(st: DrawStatus): void {
   state.status.set(st.id, st);
   state.statusFailed.delete(st.id);
   if (before?.state !== st.state || before.hasResult !== st.hasResult) {
+    // A notice about the last step ("Wish list saved.") is stale now.
+    if (!state.notice?.error) state.notice = null;
     if (st.state === "ready" && st.hasResult) announcer.announce(t("ann.ready"));
     else if (st.state === "drawing") announcer.announce(t("ann.drawing"));
     else if (st.state === "failed") announcer.announce(t("ann.failed"));

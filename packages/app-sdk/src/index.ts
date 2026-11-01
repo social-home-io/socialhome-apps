@@ -943,7 +943,8 @@ export interface DrawSettings {
   pairs: [number, number][];
 }
 
-/** The settings to change with `draw.configure` (left out = unchanged). */
+/** The settings for `engines.draw.configure`. Social Home replaces the
+ *  settings with these: a field left out is emptied, so send them all. */
 export interface DrawSettingsInput {
   name?: string;
   budget?: string;
@@ -1712,7 +1713,9 @@ export class SocialHomeClient {
     draw: {
       /**
        * Organiser only, before the names are drawn (or after a draw gave up):
-       * save the settings — fields left out stay as they are. Other
+       * save the settings. Social Home **replaces** them with what you send —
+       * a field left out becomes empty (no name, no day, no pairs) — so send
+       * all four each time. Other
        * households get them only when the names are drawn, so share them
        * with `sh.group.send` if people should see them before.
        */

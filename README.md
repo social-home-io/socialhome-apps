@@ -428,7 +428,7 @@ d.onEvent((e) => show(e.status));                        // { type: 'status', id
 
 | Call | What it does |
 |---|---|
-| `engines.draw.configure(id, {name?, budget?, day?, pairs?})` | Organiser, before Draw names (or after a draw gave up). Name ≤ 80, budget ≤ 40 characters, one line each; `day` `YYYY-MM-DD` or `null`; `pairs` of different seats, nobody in two. Other households get the settings only when the names are drawn — share them with `sh.group.send` to show them before. |
+| `engines.draw.configure(id, {name, budget, day, pairs})` | Organiser, before Draw names (or after a draw gave up). Social Home **replaces** the settings with what you send (a field left out is emptied), so send all four. Name ≤ 80, budget ≤ 40 characters, one line each; `day` `YYYY-MM-DD` or `null`; `pairs` of different seats, nobody in two. Other households get the settings only when the names are drawn — share them with `sh.group.send` to show them before. |
 | `engines.draw.setWishes(id, text)` | The person's wish list. After the reveal it reaches their giver, at most 5 times. |
 | `engines.draw.start(id, {again?})` | Organiser: Draw names (at least 3 seated); `again` after the reveal (at most 10 times, until the exchange day). |
 | `engines.draw.status(id)` | `{id, state, reason?, round, again, of, done?, waitingFor?, falseComplaints?, settings, wish, hasResult, isHost}` — never a result. |

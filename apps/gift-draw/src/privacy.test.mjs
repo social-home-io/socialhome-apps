@@ -37,3 +37,17 @@ describe("the app never stores or shows a result", () => {
     }
   });
 });
+
+describe("the sandbox", () => {
+  it("uses no <form>: the frame has no allow-forms, so a submit never fires", () => {
+    for (const [file, src] of sources) expect(src, file).not.toMatch(/el\("form"|type: "submit"|onsubmit/);
+  });
+});
+
+describe("settings", () => {
+  it("always sends all four settings: Social Home replaces them on every configure", () => {
+    const calls = [...main.matchAll(/engines\.draw\.configure\(([^;]*?)\)\)?;/gs)].map((m) => m[1]);
+    expect(calls.length).toBeGreaterThanOrEqual(4);
+    for (const c of calls) expect(c).toMatch(/withSettings\(|name:[\s\S]*budget:[\s\S]*day:[\s\S]*pairs:/);
+  });
+});
