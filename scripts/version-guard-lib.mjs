@@ -37,6 +37,13 @@ export function compareSemver(a, b) {
   return 0;
 }
 
+/** The same entries, in any order (a missing list counts as empty). */
+function sameSet(a, b) {
+  const x = new Set(Array.isArray(a) ? a : []);
+  const y = new Set(Array.isArray(b) ? b : []);
+  return x.size === y.size && [...x].every((v) => y.has(v));
+}
+
 /**
  * The apps whose built bundle (`apps/<id>/dist/`) differs between the PR's
  * merge base and its head — both built the same way. A change outside an app
@@ -108,6 +115,18 @@ export function checkVersions({
         `apps/${id}: add a CHANGELOG.json entry for ${version} at the top ` +
           `(notes in every language the app ships; ≤ 500 characters each)`,
       );
+    }
+    // A quiet version (no "Needs you" row in Social Home) can't be one that
+    // asks for more: new permissions or a new engine need the admin's eyes.
+    if (top && top.version === version && top.quiet === true && base) {
+      for (const key of ["capabilities", "engines"]) {
+        if (!sameSet(base[key], head[key])) {
+          problems.push(
+            `apps/${id}: ${version} changes "${key}", so its CHANGELOG entry can't be quiet ` +
+              `(quiet is for a version nobody notices; remove "quiet": true)`,
+          );
+        }
+      }
     }
   }
 

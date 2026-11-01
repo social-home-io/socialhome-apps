@@ -86,6 +86,23 @@ decrease, `date` is `YYYY-MM-DD`, `notes.en` is required and every note is
 ≤ 500 characters. The catalog carries the newest 5 entries. When you bump the
 manifest version, add its entry at the top (the build warns if you don't).
 
+**`"quiet": true`** marks a version nobody notices: a maintenance build (a
+newer SDK, a smaller bundle, a build-tool bump) with nothing changed in how
+the app looks or plays. Social Home then lists the update under the Apps
+page's **Updates** only, without a "Needs you" row for the household's
+admins — still installed only when an admin taps Update. Only when *every*
+version since the one a household has is quiet (and no new permission is
+asked for) does Social Home stay quiet; one ordinary entry in between and the
+admins hear about it as usual. The notes are still required (the Updates
+card shows them). The version guard refuses `quiet` on a version that
+changes `capabilities` or `engines`. Only `true` is accepted; leave it out
+otherwise.
+
+```json
+{ "version": "2026.11.1.1", "date": "2026-11-01", "quiet": true,
+  "notes": { "en": "A smaller download … Nothing changes in how you play.", "de": "…" } }
+```
+
 The app's built bundle (`apps/<app_id>/dist/`) must be self-contained: `manifest.json`, `index.html`, `app.js`, `style.css`, and any icons — no external CDN dependencies at runtime. Social Home serves the bundle locally after install.
 
 ---
@@ -119,6 +136,30 @@ RELEASE_TAG=ci-dry-run pnpm catalog
 ---
 
 ## SDK quickstart
+
+**Only what an app uses lands in its bundle** (SDK 2.0). The client from
+`@socialhome/app-sdk` carries what every app needs — `context`, `store`,
+`people`, `federation`, `onMessage` / `onSession` / `onContextChange`.
+Group games and engines are their own modules, added to the client at
+start-up only by the apps that use them:
+
+```ts
+import sh from '@socialhome/app-sdk';
+import { withGroups } from '@socialhome/app-sdk/group';  // client.group (tables)
+import { withDraw } from '@socialhome/app-sdk/draw';      // client.engines.draw (the gift draw)
+
+const client = withDraw(withGroups(sh!));                 // once, before context()
+```
+
+So a new SDK feature never changes the bundle of an app that doesn't use it,
+and never makes Social Home offer that app an update for nothing (CI's
+version guard compares the bundles, RELEASING.md). Types, parsers and
+`ShError` still come from `@socialhome/app-sdk` (the modules re-export from
+there too); `sideEffects: false` lets the bundler drop what an app doesn't
+import. A new feature goes into its own module (`packages/app-sdk/src/<name>.ts`
+with a `with<Name>(client)` and a subpath in `package.json` `exports`) — never
+onto `SocialHomeClient` itself. `src/modules.test.ts` bundles small apps and
+fails if a module leaks into an app that doesn't use it.
 
 ```ts
 import { sh, parseSessionPayload } from '@socialhome/app-sdk';
@@ -262,13 +303,13 @@ in `manifest.json`:
 
 - **People are seats.** A player is `{ seat, name, household, isLocal, state }`
   — never a username. Show names as plain text.
-- **Social Home asks, the app never opens anything itself.** `sh.group.open()`
+- **Social Home asks, the app never opens anything itself.** `client.group.open()`
   shows Social Home's sheet; the person picks who to play with (up to 10
   players, them included) and taps Send. Invitees get "Anna invited you and 3
   others" in Needs you; **Join** opens your app with `launch.group`.
-- **The host person starts** (`sh.group.start`) once `min` are seated; a table
+- **The host person starts** (`client.group.start`) once `min` are seated; a table
   of two starts by itself when the second seat fills.
-- **Send to everyone, or to chosen seats.** `sh.group.send(id, data)` reaches
+- **Send to everyone, or to chosen seats.** `client.group.send(id, data)` reaches
   every player; `{ to: [seats] }` reaches only those seats, sealed so nobody
   else — not even the host's household — can read it (hidden hands, a
   whisper, an answer). Your own message is not echoed back: apply it yourself.
@@ -292,28 +333,30 @@ in `manifest.json`:
   yourself.
 
 ```ts
-import { sh, ShError, type GroupSession } from '@socialhome/app-sdk';
+import sh, { ShError, type GroupSession } from '@socialhome/app-sdk';
+import { withGroups } from '@socialhome/app-sdk/group';
 
-const ctx = await sh.context({ pullHeld: true });
+const client = withGroups(sh!);                        // SDK 2.0: once, at start-up
+const ctx = await client.context({ pullHeld: true });
 if (!ctx.groups) {
   // An older Social Home: offer 1:1 games only.
-  // Every sh.group call is refused "groups_not_supported".
+  // Every client.group call is refused "groups_not_supported".
 }
 
 // Join / Play opened the app for a table: show its lobby or the game.
 if (ctx.launch?.group) show(ctx.launch.group);
 
 // The tables the person has a place at, then what waited while the app was closed.
-for (const table of await sh.group.list()) remember(table);
-for (const msg of await sh.group.held()) apply(msg);   // each player's latest, oldest seq first
+for (const table of await client.group.list()) remember(table);
+for (const msg of await client.group.held()) apply(msg);   // each player's latest, oldest seq first
 
 // "New game": Social Home's sheet asks who to play with.
-const table = await sh.group.open();                   // null when they cancel ("unavailable" before
+const table = await client.group.open();                   // null when they cancel ("unavailable" before
                                                        // Social Home's group sheet ships)
 if (!table) return;
 
 // Everything that happens at your tables.
-sh.group.onEvent((e) => {
+client.group.onEvent((e) => {
   switch (e.type) {
     case 'message':      apply(e); break;              // { id, seq, from, data, direct, turn? }
     case 'joined':       /* e.seat sat down */ break;
@@ -328,17 +371,17 @@ sh.group.onEvent((e) => {
 });
 
 // The host starts once enough players are seated.
-if (table.isHost) await sh.group.start(table.id);     // "group_too_few" before
+if (table.isHost) await client.group.start(table.id);     // "group_too_few" before
 
 // To everyone, and hand seat 2 the turn ("Your turn" while their app is closed).
 // Resolves with the seq when your household is the host's, else null.
-await sh.group.send(table.id, { board, next: 2 }, { turn: 2 });
+await client.group.send(table.id, { board, next: 2 }, { turn: 2 });
 // Only to the host's seat (an answer), sealed.
-await sh.group.send(table.id, { answer: 'b' }, { to: [table.host ?? 1] });
+await client.group.send(table.id, { answer: 'b' }, { to: [table.host ?? 1] });
 
-await sh.group.remove(table.id, 3);                    // host only; they can't come back
-await sh.group.leave(table.id);
-await sh.group.close(table.id);                        // host only: ends it for everyone
+await client.group.remove(table.id, 3);                    // host only; they can't come back
+await client.group.leave(table.id);
+await client.group.close(table.id);                        // host only: ends it for everyone
 ```
 
 | Call | What it does |
@@ -385,17 +428,17 @@ Battleships, and in Backgammon the first commitment of the fair dice (they
 play Black; the opening roll still decides who starts). Both sides work it
 out from their own seat, so nothing about it travels and nobody waits for
 the opener's app. Settings are fixed at a table (a message with any other
-setup is refused), moves go `sh.group.send(id, state, { turn: theirSeat })`,
+setup is refused), moves go `client.group.send(id, state, { turn: theirSeat })`,
 and an incoming message is routed only by the table id Social Home delivered
 and the other player's seat, then judged exactly like a 1:1 move.
 
 Set `min_core_version` to the first Social Home release with group games for
-apps (the release that ships the `sh.group` bridge): an older Social Home
+apps (the release that ships the `client.group` bridge): an older Social Home
 ignores `players` / `tables` / `late_join` and runs the app 1:1 only
 (`ctx.groups` is `undefined`).
 
 The bridge messages behind these calls are listed in one place,
-`GROUP_BRIDGE` in `packages/app-sdk/src/index.ts`; Social Home's side is
+`GROUP_BRIDGE` in `packages/app-sdk/src/group.ts`; Social Home's side is
 `docs/protocol/app-groups.md` ("HTTP, WebSocket and the app bridge").
 
 ### Engines: the gift draw (`@socialhome/app-sdk` 1.11)
@@ -414,10 +457,13 @@ app that doesn't, `engine_not_declared`); the draw needs a table of 3–30:
 ```
 
 ```ts
-const ctx = await sh.context({ pullHeld: true });
+import { withDraw } from '@socialhome/app-sdk/draw';  // SDK 2.0
+
+const client = withDraw(withGroups(sh!));             // once, at start-up
+const ctx = await client.context({ pullHeld: true });
 if (!ctx.engines?.includes('draw')) { /* an older Social Home */ }
 
-const d = sh.engines.draw;
+const d = client.engines.draw;
 await d.configure(table.id, { name: 'Wichteln 2026', budget: 'about 20 €', day: '2026-12-24', pairs: [[2, 3]] });
 await d.setWishes(table.id, 'Crime novels, good tea');   // ≤ 500 characters, the card ≤ 1 KiB
 await d.start(table.id);                                 // organiser: Draw names (starts the table)
@@ -429,7 +475,7 @@ d.onEvent((e) => show(e.status));                        // { type: 'status', id
 
 | Call | What it does |
 |---|---|
-| `engines.draw.configure(id, {name?, budget?, day?, pairs?})` | Organiser, before Draw names (or after a draw gave up). A **patch**: only the fields given change; `null` clears one. Name ≤ 80, budget ≤ 40 characters, one line each; `day` `YYYY-MM-DD` or `null`; `pairs` of different seats, nobody in two. Other households get the settings only when the names are drawn — share them with `sh.group.send` to show them before. |
+| `engines.draw.configure(id, {name?, budget?, day?, pairs?})` | Organiser, before Draw names (or after a draw gave up). A **patch**: only the fields given change; `null` clears one. Name ≤ 80, budget ≤ 40 characters, one line each; `day` `YYYY-MM-DD` or `null`; `pairs` of different seats, nobody in two. Other households get the settings only when the names are drawn — share them with `client.group.send` to show them before. |
 | `engines.draw.setWishes(id, text)` | The person's wish list. After the reveal it reaches their giver, at most 5 times. |
 | `engines.draw.start(id, {again?})` | Organiser: Draw names (at least 3 seated); `again` after the reveal (at most 10 times, until the exchange day). |
 | `engines.draw.status(id)` | `{id, state, reason?, round, again, of, done?, waitingFor?, blamed?, settings, wish, hasResult, isHost}` — never a result. |
@@ -437,7 +483,7 @@ d.onEvent((e) => show(e.status));                        // { type: 'status', id
 | `engines.draw.onEvent(cb)` | The draw's new state. |
 
 "Draw without them" for a home the draw waits for (`status.waitingFor`) is
-`sh.group.remove(id, seat)` for each of its seats; a household that broke
+`client.group.remove(id, seat)` for each of its seats; a household that broke
 two rounds is named there at once, and a removal once the circle is known
 counts as a Draw again. `status.blamed` (shown to everyone at the table)
 names homes that broke a round: stopped it without proof, or sent a key
@@ -451,7 +497,7 @@ before the exchange day: the names go with it. Refusals: `not_host`,
 `wish_updates`, `household_too_old`, `again_limit`, `past_day`,
 `no_result`, `engine_not_supported`, `engine_not_declared`, `unknown_method`,
 `invalid`, `unavailable`, `permission_denied`. The bridge names
-are in `ENGINE_BRIDGE` (`packages/app-sdk/src/index.ts`).
+are in `ENGINE_BRIDGE` (`packages/app-sdk/src/draw.ts`).
 
 ### Language, light/dark and colours (`@socialhome/app-sdk` 1.6)
 
@@ -579,7 +625,7 @@ requires `app_id`, `name`, `latest_version`, `description`, `bundle_url` and
 | `permissions` | from `capabilities` (table above) |
 | `min_age`, `languages`, `i18n`, `homepage`, `min_core_version` | from `manifest.json` (`min_age` defaults to `0`, `languages` to `["en"]`) |
 | `publisher` | always `"Social Home"`, shown as "From Social Home". The catalog isn't signed yet; the trust is the HTTPS release plus the sha256 pin. |
-| `changelog` | newest 5 entries of `CHANGELOG.json` (`[]` without one) |
+| `changelog` | newest 5 entries of `CHANGELOG.json` (`[]` without one), each with `quiet: true` when the entry has it — an update Social Home lists under Updates without a "Needs you" row |
 | `players` | `{min, max}` from `manifest.json`, only when the app sets it (group games, "2–8 players") |
 | `engines` | from `manifest.json`, only when the app declares any — Social Home's consent dialog says what each one does before the app is installed |
 
@@ -625,7 +671,7 @@ Read `apps/chess/` alongside `packages/app-sdk/src/index.ts` when writing a new 
 ## The Gift draw app
 
 `apps/gift-draw/` sets a gift draw up and shows where it is; Social Home
-draws the names (`sh.engines.draw`). The organiser shares the details with
+draws the names (`client.engines.draw`). The organiser shares the details with
 the table (`share.ts`, taken only from the organiser's seat) until Social
 Home has them; the app keeps only those details and an unsent form
 (`persist.ts`), never a result (`privacy.test.mjs`), and never closes a

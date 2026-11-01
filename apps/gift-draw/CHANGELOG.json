@@ -1,5 +1,17 @@
 [
   {
+    "version": "2026.11.1.2",
+    "date": "2026-11-01",
+    "quiet": true,
+    "notes": {
+      "en": "A small update under the hood. Nothing changes in how your gift draw works.",
+      "de": "Eine kleine Aktualisierung im Hintergrund. Am Wichteln ändert sich nichts.",
+      "nl": "Een kleine update achter de schermen. Aan het lootjes trekken verandert niets.",
+      "fr": "Une petite mise à jour en coulisses. Rien ne change pour votre Père Noël secret.",
+      "es": "Una pequeña actualización interna. No cambia nada en tu amigo invisible."
+    }
+  },
+  {
     "version": "2026.11.1.1",
     "date": "2026-11-01",
     "notes": {

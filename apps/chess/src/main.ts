@@ -14,6 +14,7 @@
  */
 
 import sh, { ShError } from "@socialhome/app-sdk";
+import { withGroups } from "@socialhome/app-sdk/group";
 import type {
   AppLook,
   AppMessage,
@@ -106,7 +107,7 @@ import {
 // The SDK singleton is non-null in the browser / iframe and `null` outside it
 // (e.g. the Node test runner importing the pure helpers below). `client` is
 // only dereferenced from `main()`, which is gated on a real browser context.
-const client = sh as NonNullable<typeof sh>;
+const client = withGroups(sh as NonNullable<typeof sh>);
 
 // ---------------------------------------------------------------------------
 // Types

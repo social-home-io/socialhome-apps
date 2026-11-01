@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createClient,
+  withDraw,
   ENGINE_BRIDGE,
   parseEngines,
   parseDrawEvent,
@@ -24,7 +25,7 @@ function makeHarness() {
       handler = null;
     },
   } as unknown as Window;
-  const client = createClient(parent, selfWin);
+  const client = withDraw(createClient(parent, selfWin));
   const fromHost = (data: unknown) => handler?.({ source: parent, data } as MessageEvent);
   const fromRogue = (data: unknown) => handler?.({ source: {} as Window, data } as MessageEvent);
   const reply = (result: unknown, i = posted.length - 1) => fromHost({ id: posted[i].id, ok: true, result });

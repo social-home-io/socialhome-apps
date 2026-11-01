@@ -238,8 +238,12 @@ function validateGroupFields(where, m) {
 
 /**
  * Validate a parsed CHANGELOG.json: a list, newest first, of
- * `{version, date, notes: {en, de?, …}}`. Every entry must be ≤ the
- * manifest version. Throws CatalogError.
+ * `{version, date, notes: {en, de?, …}, quiet?: true}`. Every entry must be
+ * ≤ the manifest version. `quiet: true` marks a version nobody notices — a
+ * maintenance build (a smaller bundle, a newer SDK) with nothing changed in
+ * how the app looks or plays: Social Home then lists it under the Apps
+ * page's Updates only, without a "Needs you" row. Only `true` is accepted;
+ * leave it out otherwise. Throws CatalogError.
  * @param {unknown} changelog
  * @param {string} manifestVersion
  * @param {string} where
@@ -250,7 +254,7 @@ export function validateChangelog(changelog, manifestVersion, where = "CHANGELOG
   changelog.forEach((e, i) => {
     const at = `${where}[${i}]`;
     if (!isPlainObject(e)) fail(at, "must be an object");
-    const extra = Object.keys(e).filter((k) => !["version", "date", "notes"].includes(k));
+    const extra = Object.keys(e).filter((k) => !["version", "date", "notes", "quiet"].includes(k));
     if (extra.length) fail(at, `unknown field(s): ${extra.join(", ")}`);
     if (!parseCalver(e.version)) fail(at, `version "${e.version}" is not CalVer YYYY.M.D[.N]`);
     if (typeof e.date !== "string" || !DATE_RE.test(e.date) || Number.isNaN(Date.parse(`${e.date}T00:00:00Z`))) {
@@ -263,6 +267,7 @@ export function validateChangelog(changelog, manifestVersion, where = "CHANGELOG
       fail(at, `version ${e.version} must be older than the entry before it (${prev}); newest first, no duplicates`);
     }
     prev = e.version;
+    if ("quiet" in e && e.quiet !== true) fail(at, "quiet must be true, or left out");
     if (!isPlainObject(e.notes)) fail(at, "notes must be an object of locale → text");
     if (!(BASE_LOCALE in e.notes)) fail(at, `notes.${BASE_LOCALE} is required`);
     const locales = Object.keys(e.notes);

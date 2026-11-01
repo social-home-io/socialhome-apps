@@ -154,3 +154,47 @@ describe("bundles that changed without a file of the app (SDK, build tools)", ()
     expect(problems.join("\n")).toMatch(/apps\/chess: this PR changes what the app ships/);
   });
 });
+
+describe("quiet versions", () => {
+  const quiet = (version) => [{ ...changelog(version)[0], quiet: true }];
+  const caps = ["storage", "people", "federation"];
+
+  it("passes a quiet bump that keeps permissions and engines", () => {
+    expect(
+      check({
+        baseManifests: { chess: { version: "2026.10.30", capabilities: caps } },
+        headManifests: { chess: { version: "2026.10.31", capabilities: [...caps].reverse() } },
+        headChangelogs: { chess: quiet("2026.10.31") },
+      }),
+    ).toEqual([]);
+  });
+
+  it("refuses a quiet version that asks for a new permission", () => {
+    const problems = check({
+      baseManifests: { chess: { version: "2026.10.30", capabilities: ["storage"] } },
+      headManifests: { chess: { version: "2026.10.31", capabilities: caps } },
+      headChangelogs: { chess: quiet("2026.10.31") },
+    });
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('changes "capabilities"');
+  });
+
+  it("refuses a quiet version that adds an engine", () => {
+    const problems = check({
+      baseManifests: { chess: { version: "2026.10.30", capabilities: caps } },
+      headManifests: { chess: { version: "2026.10.31", capabilities: caps, engines: ["draw"] } },
+      headChangelogs: { chess: quiet("2026.10.31") },
+    });
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('changes "engines"');
+  });
+
+  it("the same change without quiet passes", () => {
+    expect(
+      check({
+        baseManifests: { chess: { version: "2026.10.30", capabilities: ["storage"] } },
+        headManifests: { chess: { version: "2026.10.31", capabilities: caps } },
+      }),
+    ).toEqual([]);
+  });
+});

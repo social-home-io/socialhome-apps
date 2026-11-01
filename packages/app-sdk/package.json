@@ -1,11 +1,26 @@
 {
   "name": "@socialhome/app-sdk",
-  "version": "1.11.0",
+  "version": "2.0.0",
   "type": "module",
   "license": "MPL-2.0",
   "main": "dist/index.js",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./group": {
+      "types": "./dist/group.d.ts",
+      "default": "./dist/group.js"
+    },
+    "./draw": {
+      "types": "./dist/draw.d.ts",
+      "default": "./dist/draw.js"
+    }
+  },
   "files": ["dist"],
   "scripts": {
     "build": "tsc -p tsconfig.json",

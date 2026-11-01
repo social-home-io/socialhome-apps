@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createClient,
+  withGroups,
   GROUP_BRIDGE,
   parseGroupEvent,
   parseGroupMessage,
@@ -25,7 +26,7 @@ function makeHarness() {
       handler = null;
     },
   } as unknown as Window;
-  const client = createClient(parent, selfWin);
+  const client = withGroups(createClient(parent, selfWin));
   const fromHost = (data: unknown) => handler?.({ source: parent, data } as MessageEvent);
   const fromRogue = (data: unknown) => handler?.({ source: {} as Window, data } as MessageEvent);
   const reply = (result: unknown, i = posted.length - 1) => fromHost({ id: posted[i].id, ok: true, result });

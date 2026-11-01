@@ -28,16 +28,30 @@
  * Source validation: every inbound message whose source is not `window.parent`
  * is silently discarded so a rogue third-party frame cannot inject fake replies.
  * The SDK never has, and never exposes, the user's auth token.
+ *
+ * **Only what an app uses lands in its bundle.** The client here carries the
+ * calls every app needs (context, store, people, federation). Group games and
+ * engines live in their own modules and join the client only when the app
+ * asks for them — {@link withGroups} (`@socialhome/app-sdk/group`) and
+ * {@link withDraw} (`@socialhome/app-sdk/draw`) — so a new feature there
+ * never changes the bundle of an app that doesn't use it (and never forces
+ * that app a version bump). New features go into such a module, never onto
+ * {@link SocialHomeClient} itself.
  */
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
+import {
+  CALL_TIMEOUT_MS,
+  isRecord,
+  PICK_TIMEOUT_MS,
+  toShError,
+  type Permission,
+  type Unsubscribe,
+} from "./shared.js";
+import { parseGroupSession, type GroupSession } from "./group.js";
 
-/** Narrow an unknown value to a string-keyed record. */
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return v !== null && typeof v === "object";
-}
+export { ShError, toShError, type Permission, type ShErrorCode, type Unsubscribe } from "./shared.js";
+export * from "./group.js";
+export * from "./draw.js";
 
 /** Pending RPC call waiting for a host reply. */
 interface PendingCall {
@@ -76,14 +90,6 @@ export interface LaunchContext {
    */
   group?: GroupSession;
 }
-
-/**
- * What the household agreed to when an admin added the app, in plain words:
- * `storage` (saves its own data), `people` (lets you pick people to play
- * with) and `federation` (sends to other households; implies `people`).
- * A call outside them is refused with {@link ShError.code} `"permission_denied"`.
- */
-export type Permission = "storage" | "people" | "federation";
 
 /**
  * The eight colours Social Home hands an app, each a plain `#rrggbb` /
@@ -216,7 +222,7 @@ export interface AppContext extends AppLook {
    */
   launch?: LaunchContext;
   /**
-   * `true` when this Social Home hosts group games — the `sh.group` calls
+   * `true` when this Social Home hosts group games — the `group` calls ({@link withGroups})
    * work (SDK 1.9). `undefined` on an older Social Home: offer 1:1 games
    * only. (Opening a table also needs `tables: true` in the manifest.)
    */
@@ -224,7 +230,7 @@ export interface AppContext extends AppLook {
   /**
    * The engines this Social Home runs for this app (SDK 1.11) — work Social
    * Home does itself at a table, such as `"draw"` (the gift draw, Social
-   * Home v_78: `sh.engines.draw`). Only engines the app declares in its
+   * Home v_78: `engines.draw`, {@link withDraw}). Only engines the app declares in its
    * manifest (`"engines": ["draw"]`) are listed. `undefined` on an older
    * Social Home: check `ctx.engines?.includes("draw")`.
    */
@@ -389,113 +395,6 @@ export function parseHeldMessages(v: unknown): HeldMessage[] {
   return out;
 }
 
-/**
- * Why the host refused a call — {@link ShError.code}. Unknown codes may appear
- * in later Social Home versions; treat them as a plain failure.
- *
- * - `"permission_denied"` — outside the app's permissions ({@link ShError.permission} says which).
- * - `"use_people_pick"` — `federation.openSession` is gone: invites go through `people.pick`.
- * - `"busy"` — an invite sheet is already open.
- * - `"too_soon"` — the sheet just closed; try again after {@link ShError.retryAfterMs}.
- * - `"unknown_session"` — `federation.send` to a game Social Home doesn't know
- *   for that person (not opened through the sheet, not taken in with Play,
- *   or quiet for more than 90 days) — offer `people.pick({purpose: "continue"})`.
- * - `"invalid"` — `people.pick({purpose: "continue"})` without `sessionId` or `suggest`.
- * - `"unavailable"` — this host can't show the invite sheet.
- * - `"unknown_method"` — an older Social Home without the call.
- * - `"groups_not_supported"` — a `sh.group` call on a Social Home without
- *   group games: offer 1:1 games instead.
- * - Group games (`sh.group`): `"group_not_found"` (no place at that table),
- *   `"group_not_host"` (only the host may), `"group_closed"` (the table
- *   ended, or you aren't seated), `"group_full"`, `"group_too_few"` (fewer
- *   than `min` seated), `"group_seat"` (a `to` / `turn` seat isn't seated,
- *   or is your own), `"group_busy"` (the table's send budget is spent; try
- *   again after {@link ShError.retryAfterMs}), `"too_large"` (over 64 KiB),
- *   `"cant_join"` (the household keeps the person out — no reason given).
- * - Engines (`sh.engines`, SDK 1.11): `"engine_not_supported"` (an older
- *   Social Home, or one without that engine), `"engine_not_declared"` (the
- *   manifest doesn't list the engine). The gift draw (`sh.engines.draw`):
- *   `"not_host"` (only the person who started it),
- *   `"host_elsewhere"` (the draw passed to another household's person:
- *   v1 draws only from the household it started in), `"state"` (not now —
- *   e.g. settings while names are being drawn), `"too_few"` (fewer than
- *   three people), `"pairs"` (the pairs don't fit the people), `"settings"`
- *   (a setting Social Home refused), `"wish_too_long"`, `"wish_updates"`
- *   (five changes after the reveal used up), `"household_too_old"`
- *   (someone's home needs a newer Social Home), `"again_limit"`,
- *   `"past_day"` (the exchange day is over), `"no_result"`.
- * - `"error"` — anything else (`message` says what).
- */
-export type ShErrorCode =
-  | "permission_denied"
-  | "use_people_pick"
-  | "busy"
-  | "too_soon"
-  | "unknown_session"
-  | "invalid"
-  | "unavailable"
-  | "unknown_method"
-  | "groups_not_supported"
-  | "group_not_found"
-  | "group_not_host"
-  | "group_closed"
-  | "group_full"
-  | "group_too_few"
-  | "group_seat"
-  | "group_busy"
-  | "too_large"
-  | "cant_join"
-  | "engine_not_supported"
-  | "engine_not_declared"
-  | "not_host"
-  | "host_elsewhere"
-  | "state"
-  | "too_few"
-  | "pairs"
-  | "settings"
-  | "wish_too_long"
-  | "wish_updates"
-  | "household_too_old"
-  | "again_limit"
-  | "past_day"
-  | "no_result"
-  | "error"
-  | (string & {});
-
-/** A refused call. An `Error`, so existing `catch` blocks keep working. */
-export class ShError extends Error {
-  readonly code: ShErrorCode;
-  /** On `"permission_denied"`: the permission the call needed. */
-  readonly permission?: Permission;
-  /** On `"too_soon"`: how long until the sheet may open again. */
-  readonly retryAfterMs?: number;
-
-  constructor(
-    code: ShErrorCode,
-    message: string,
-    extra: { permission?: Permission; retryAfterMs?: number } = {},
-  ) {
-    super(message);
-    this.name = "ShError";
-    this.code = code;
-    if (extra.permission !== undefined) this.permission = extra.permission;
-    if (extra.retryAfterMs !== undefined) this.retryAfterMs = extra.retryAfterMs;
-  }
-}
-
-/** Read a host error reply (a string from older hosts, `{code, message, …}` since 2026.10). */
-export function toShError(v: unknown): ShError {
-  if (typeof v === "string") return new ShError("error", v);
-  if (!isRecord(v)) return new ShError("error", "Unknown error from host");
-  const code = typeof v["code"] === "string" && v["code"] ? v["code"] : "error";
-  const message = typeof v["message"] === "string" && v["message"] ? v["message"] : code;
-  const p = v["permission"];
-  const permission = p === "storage" || p === "people" || p === "federation" ? p : undefined;
-  const r = v["retryAfterMs"];
-  const retryAfterMs = typeof r === "number" && Number.isFinite(r) && r >= 0 ? r : undefined;
-  return new ShError(code, message, { permission, retryAfterMs });
-}
-
 /** Options for `people.pick`. */
 export interface PickOptions {
   /**
@@ -544,362 +443,6 @@ export function parsePicked(v: unknown): PickedPerson[] {
   return out;
 }
 
-/** Unsubscribe function returned by the `on*` subscription methods. */
-export type Unsubscribe = () => void;
-
-// ---------------------------------------------------------------------------
-// Group games (tables) — SDK 1.9, Social Home v_76
-// ---------------------------------------------------------------------------
-
-/**
- * The bridge contract for group games, in one place (Social Home's
- * `docs/protocol/app-groups.md`, "the app bridge"). App → host calls are
- * `{id, method, params}` like every other call:
- *
- * | Method | `params` | `result` |
- * |---|---|---|
- * | `group.open` | `{suggest?: SessionTarget[]}` | a {@link GroupSession}, or `null` (cancelled) |
- * | `group.list` | — | `GroupSession[]` |
- * | `group.get` | `{id}` | `GroupSession` |
- * | `group.start` | `{id}` | `GroupSession` |
- * | `group.send` | `{id, data, to?: number[], turn?: number, final?: true}` | `{seq: number \| null}` |
- * | `group.leave` | `{id}` | `{ok: true}` |
- * | `group.remove` | `{id, seat}` | `GroupSession` |
- * | `group.close` | `{id}` | `{ok: true}` |
- * | `group.held` | — | `GroupEvent[]` (`message` events, oldest `seq` first) |
- *
- * Host → app: `{type: "group:event", event}` with a {@link GroupEvent}. The
- * host works out joined / left / … by comparing the table's snapshots.
- * `app.context` adds `groups: true` when the host serves these calls, and
- * `launch: {sessionId, group}` when Join / Play opened the app for a table.
- */
-export const GROUP_BRIDGE = Object.freeze({
-  open: "group.open",
-  list: "group.list",
-  get: "group.get",
-  start: "group.start",
-  send: "group.send",
-  leave: "group.leave",
-  remove: "group.remove",
-  close: "group.close",
-  held: "group.held",
-  /** `type` of every host → app group push. */
-  event: "group:event",
-});
-
-/** The most players any table seats (Social Home's hard ceiling). */
-export const GROUP_MAX_PLAYERS = 30;
-/** The most players at a table opened by picking people (host included). */
-export const GROUP_PICK_MAX_PLAYERS = 10;
-const GROUP_SEAT_MAX = 999;
-const GROUP_NAME_MAX = 80;
-const GROUP_SEEN_MAX = 1024;
-
-/** Where a table is: waiting for players, being played, or over. */
-export type GroupState = "lobby" | "playing" | "ended";
-
-/**
- * Why a table ended — {@link GroupSession.endReason}. Unknown values may
- * appear in later Social Home versions: treat them as a plain end.
- */
-export type GroupEndReason =
-  | "finished"
-  | "cancelled"
-  | "expired"
-  | "host_gone"
-  | "app_removed"
-  | "closed_by_moderator"
-  | (string & {});
-
-/**
- * The person's own place at a table: `invited` (hasn't answered), `joining`
- * (Join sent, the host's household hasn't seated them yet), `seated`, `left`
- * or `removed`.
- */
-export type GroupMyState = "invited" | "joining" | "seated" | "left" | "removed" | (string & {});
-
-/**
- * One seat at a table. **People are seats, never usernames**: an app gets a
- * seat number, a name and a household name — show them as plain text.
- */
-export interface GroupPlayer {
-  seat: number;
-  name: string;
-  /** Their household's name; `null` for your own household. */
-  household: string | null;
-  /** In the same household as the person using the app. */
-  isLocal: boolean;
-  state: "seated" | "left" | "removed";
-}
-
-/** A table (a group game) as the person using the app sees it. */
-export interface GroupSession {
-  /** The table's id — use it for every `sh.group` call. */
-  id: string;
-  appId?: string;
-  state: GroupState;
-  /** Only when `state` is `"ended"`. */
-  endReason?: GroupEndReason;
-  /** The space the table was opened in (space tables, a later Social Home). */
-  spaceId?: string;
-  /** Their seat; `null` until the host's household seated them. */
-  me: number | null;
-  myState: GroupMyState;
-  /** The host person's seat (`null` while unknown). */
-  host: number | null;
-  /** The person using the app is the host (may Start, Remove, Close). */
-  isHost: boolean;
-  /** Players needed to start / most players. */
-  min: number;
-  max: number;
-  /** A game being played still takes people. */
-  lateJoin: boolean;
-  /** The last message number the host's household handed out, when known. */
-  seq?: number;
-  /** The host's words for the table (≤ 80 characters, one line). */
-  note?: string;
-  /** Everyone who sat down (seated, left or removed), by seat. */
-  players: GroupPlayer[];
-}
-
-/**
- * A message at a table. `from` is the sender's seat, `seq` the host
- * household's number for it (every player sees the same order; a gap is a
- * message meant for others). `direct` is `true` for a message sent to chosen
- * seats only — sealed so no other household could read it. `held` marks one
- * that waited while the app was closed.
- */
-export interface GroupMessage {
-  id: string;
-  seq: number;
-  from: number;
-  data: unknown;
-  direct: boolean;
-  held?: true;
-}
-
-/**
- * What `sh.group.onEvent` hears:
- *
- * - `message` — a player's message ({@link GroupMessage}).
- * - `joined` / `left` / `removed` — someone took, left or lost a seat. When
- *   `seat` is **your own** (`session.me`), your place is over: forget the
- *   table (you left on another device, were removed, the game started
- *   without you, or your household keeps you apart from someone who sat down).
- * - `started` — the host started the game (no more joins unless `lateJoin`).
- * - `host-changed` — the host left a game being played; `session.host` is the new one.
- * - `ended` — the table is over (`session.endReason`).
- *
- * `session` is the table after the change. Unknown `type`s from a later
- * Social Home are not passed on.
- */
-export type GroupEvent =
-  | ({ type: "message" } & GroupMessage)
-  | { type: "joined" | "left" | "removed"; id: string; seat: number; session: GroupSession }
-  | { type: "started" | "host-changed" | "ended"; id: string; session: GroupSession };
-
-/** Options for `sh.group.open`. */
-export interface GroupOpenOptions {
-  /** People to show ticked in the sheet (a rematch); the person still taps Send.
-   *  At most {@link GROUP_PICK_MAX_PLAYERS} − 1. */
-  suggest?: SessionTarget[];
-}
-
-/** Options for `sh.group.send`. */
-export interface GroupSendOptions {
-  /** Only these seats get it (sealed to their households). Leave out to send
-   *  to everyone. Never your own seat. */
-  to?: number[];
-  /** This message hands that seat the turn: while their app is closed Social
-   *  Home shows them "Your turn". */
-  turn?: number;
-  /**
-   * The game's last message (a win, a draw, a resignation, a claimed
-   * timeout): Social Home ends the table right after this message — as
-   * `ended` with `endReason: "finished"`, shown under Finished in the space —
-   * and still delivers it to everyone, also to a closed app's mailbox. Only
-   * while the table is being played; at a table of more than two only the
-   * host may (`"group_not_host"`). A Social Home without it (before group
-   * play shipped `final`) sends it as an ordinary message: the table stays open.
-   */
-  final?: boolean;
-}
-
-const GROUP_ID = /^[A-Za-z0-9_-]{1,128}$/;
-const GROUP_STATES: readonly string[] = ["lobby", "playing", "ended"];
-const PLAYER_STATES: readonly string[] = ["seated", "left", "removed"];
-
-function isInt(v: unknown, min: number, max: number): v is number {
-  return typeof v === "number" && Number.isInteger(v) && v >= min && v <= max;
-}
-
-function optText(v: unknown, max: number): string | undefined {
-  return typeof v === "string" && v && [...v].length <= max ? v : undefined;
-}
-
-function isGroupId(v: unknown): v is string {
-  return typeof v === "string" && GROUP_ID.test(v);
-}
-
-/** A field in the bridge's camelCase, or core's snake_case. */
-function field(v: Record<string, unknown>, camel: string, snake: string): unknown {
-  return camel in v ? v[camel] : v[snake];
-}
-
-/**
- * Read a table as the host sends it without trusting its shape: `undefined`
- * when it isn't a table; a player that isn't a well-formed seat is left out.
- * Reads the bridge's camelCase and core's snake_case view alike.
- */
-export function parseGroupSession(v: unknown): GroupSession | undefined {
-  if (!isRecord(v)) return undefined;
-  const id = field(v, "id", "session_id");
-  const state = v["state"];
-  const min = v["min"];
-  const max = v["max"];
-  if (!isGroupId(id) || typeof state !== "string" || !GROUP_STATES.includes(state)) return undefined;
-  if (!isInt(min, 2, GROUP_MAX_PLAYERS) || !isInt(max, min, GROUP_MAX_PLAYERS)) return undefined;
-  const players: GroupPlayer[] = [];
-  const seats = new Set<number>();
-  const raw = Array.isArray(v["players"]) ? v["players"] : [];
-  for (const p of raw.slice(0, GROUP_MAX_PLAYERS * 2)) {
-    if (!isRecord(p)) continue;
-    const seat = p["seat"];
-    const ps = p["state"];
-    if (!isInt(seat, 1, GROUP_SEAT_MAX) || seats.has(seat)) continue;
-    if (typeof ps !== "string" || !PLAYER_STATES.includes(ps)) continue;
-    const name = optText(p["name"], GROUP_NAME_MAX);
-    if (name === undefined) continue;
-    seats.add(seat);
-    players.push({
-      seat,
-      name,
-      household: optText(p["household"], GROUP_NAME_MAX) ?? null,
-      isLocal: field(p, "isLocal", "is_local") === true,
-      state: ps as GroupPlayer["state"],
-    });
-  }
-  players.sort((a, b) => a.seat - b.seat);
-  const host = v["host"];
-  const me = v["me"];
-  const out: GroupSession = {
-    id,
-    state: state as GroupState,
-    me: isInt(me, 1, GROUP_SEAT_MAX) ? me : null,
-    myState: optText(field(v, "myState", "my_state"), 40) ?? "joining",
-    host: isInt(host, 1, GROUP_SEAT_MAX) ? host : null,
-    isHost: field(v, "isHost", "is_host") === true,
-    min,
-    max,
-    lateJoin: field(v, "lateJoin", "late_join") === true,
-    players,
-  };
-  const appId = optText(field(v, "appId", "app_id"), 40);
-  if (appId) out.appId = appId;
-  const endReason = optText(field(v, "endReason", "end_reason"), 40);
-  if (state === "ended" && endReason) out.endReason = endReason;
-  const spaceId = optText(field(v, "spaceId", "space_id"), 128);
-  if (spaceId) out.spaceId = spaceId;
-  const seq = v["seq"];
-  if (isInt(seq, 0, Number.MAX_SAFE_INTEGER)) out.seq = seq;
-  const note = optText(v["note"], GROUP_NAME_MAX);
-  if (note) out.note = note;
-  return out;
-}
-
-/** Read a list of tables (bad rows left out). */
-export function parseGroupSessions(v: unknown): GroupSession[] {
-  if (!Array.isArray(v)) return [];
-  const out: GroupSession[] = [];
-  for (const row of v) {
-    const g = parseGroupSession(row);
-    if (g) out.push(g);
-  }
-  return out;
-}
-
-/**
- * Read a message at a table without trusting its shape (`undefined` when it
- * isn't one). Reads core's spelling too (`session_id`, `from_seat`).
- */
-export function parseGroupMessage(v: unknown): GroupMessage | undefined {
-  if (!isRecord(v)) return undefined;
-  const id = v["id"] ?? v["session_id"];
-  const seq = v["seq"];
-  const from = v["from"] ?? v["from_seat"];
-  if (!isGroupId(id) || !isInt(seq, 1, Number.MAX_SAFE_INTEGER) || !isInt(from, 1, GROUP_SEAT_MAX)) {
-    return undefined;
-  }
-  const msg: GroupMessage = { id, seq, from, data: v["data"], direct: v["direct"] === true };
-  if (v["held"] === true) msg.held = true;
-  return msg;
-}
-
-/** Read one event the host pushed (`undefined` when malformed or unknown). */
-export function parseGroupEvent(v: unknown): GroupEvent | undefined {
-  if (!isRecord(v)) return undefined;
-  const type = v["type"];
-  if (type === "message") {
-    const msg = parseGroupMessage(v);
-    return msg ? { type, ...msg } : undefined;
-  }
-  const session = parseGroupSession(v["session"]);
-  const id = v["id"];
-  if (!session || !isGroupId(id) || session.id !== id) return undefined;
-  switch (type) {
-    case "joined":
-    case "left":
-    case "removed": {
-      const seat = v["seat"];
-      return isInt(seat, 1, GROUP_SEAT_MAX) ? { type, id, seat, session } : undefined;
-    }
-    case "started":
-    case "host-changed":
-    case "ended":
-      return { type, id, session };
-    default:
-      return undefined;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// The gift draw — SDK 1.11, Social Home v_78
-// ---------------------------------------------------------------------------
-
-/**
- * The bridge contract for engines — work Social Home does itself at a
- * table, which an app declares in its manifest (`"engines": ["draw"]`) and
- * asks for (Social Home's `docs/protocol/app-groups.md`). The names live
- * here only, so they are easy to align with Social Home.
- *
- * The gift draw (`draw`, Social Home v_78) — every call takes the table's
- * `id` and needs the `people` permission:
- *
- * | Method | `params` | `result` |
- * |---|---|---|
- * | `engine.draw.configure` | `{id, settings: {name?, budget?, day?, pairs?}}` | {@link DrawStatus} |
- * | `engine.draw.setWishes` | `{id, text}` | `DrawStatus` |
- * | `engine.draw.start` | `{id, again?: true}` | `DrawStatus` |
- * | `engine.draw.status` | `{id}` | `DrawStatus` |
- * | `engine.draw.reveal` | `{id}` | `null` — Social Home shows the result in its own sheet |
- *
- * Host → app: `{type: "engine:event", engine: "draw", event: {type: "status", id, status}}`.
- * `app.context` lists `engines: ["draw"]` when the host serves these calls
- * for the app. **No call ever returns whom anybody gives to.**
- */
-export const ENGINE_BRIDGE = Object.freeze({
-  /** `type` of every host → app engine push. */
-  event: "engine:event",
-  draw: Object.freeze({
-    name: "draw",
-    configure: "engine.draw.configure",
-    setWishes: "engine.draw.setWishes",
-    start: "engine.draw.start",
-    status: "engine.draw.status",
-    reveal: "engine.draw.reveal",
-  }),
-});
-
 const ENGINE_NAME = /^[a-z][a-z0-9_]{0,31}$/;
 /** The most engines a context may list. */
 const ENGINES_MAX = 8;
@@ -914,227 +457,6 @@ export function parseEngines(v: unknown): string[] | undefined {
   }
   return out;
 }
-
-/** People in one draw. */
-export const DRAW_MIN_PEOPLE = 3;
-export const DRAW_MAX_PEOPLE = GROUP_MAX_PLAYERS;
-/** A draw with any pair needs at least this many people. */
-export const DRAW_MIN_PEOPLE_WITH_PAIRS = 4;
-/** A wish list's length, in characters (the whole card must also fit 1 KiB). */
-export const DRAW_WISH_MAX_CHARS = 500;
-/** How often a wish list may change after the reveal. */
-export const DRAW_WISH_UPDATES_MAX = 5;
-/** How often the organiser may draw again. */
-export const DRAW_AGAIN_MAX = 10;
-/** The draw's name and budget, in characters (one line each). */
-export const DRAW_NAME_MAX = 80;
-export const DRAW_BUDGET_MAX = 40;
-
-/** Where a draw is: people gather, names are being drawn, everyone has
- *  their name, or it couldn't be drawn ({@link DrawStatus.reason}). */
-export type DrawState = "gathering" | "drawing" | "ready" | "failed";
-
-/** The organiser's settings. `pairs` are seats who must not draw each other. */
-export interface DrawSettings {
-  name: string;
-  budget: string;
-  /** The exchange day, `YYYY-MM-DD`, or `null`. */
-  day: string | null;
-  pairs: [number, number][];
-}
-
-/** A change to the settings for `engines.draw.configure` — a patch: only
- *  the fields given change, and `null` clears one (no name, no budget, no
- *  day, no pairs). */
-export interface DrawSettingsInput {
-  name?: string | null;
-  budget?: string | null;
-  day?: string | null;
-  pairs?: [number, number][] | null;
-}
-
-/** The seats of one household: one the draw waits for, or one blamed for
- *  breaking a round. */
-export interface DrawHome {
-  seats: number[];
-}
-
-/**
- * A draw as the person using the app sees it — never whom anybody gives to.
- * `hasResult` says whether they have a name to see: `sh.engines.draw.reveal(id)`
- * shows it in Social Home's own sheet.
- */
-export interface DrawStatus {
-  id: string;
-  state: DrawState;
-  /** Why it failed: `"rules"` (the pairs never fit), `"too_few"`, or
-   *  `"broken"` (someone's home kept breaking the draw; the organiser can
-   *  try again later). Treat another value as a plain failure. */
-  reason?: string;
-  /** The round of the current draw (a round is redone when a home proves
-   *  something went wrong). */
-  round: number;
-  /** How often the names were drawn again after a reveal. */
-  again: number;
-  /** People in the draw. */
-  of: number;
-  /** Organiser only: how many homes are through the current step. */
-  done?: number;
-  /** Organiser only, after an hour: the homes the draw waits for. */
-  waitingFor?: DrawHome[];
-  /** Homes that broke a round — stopped it without proof, or sent a key
-   *  nobody could seal to — as each household proved itself. Shown to
-   *  everyone at the table. */
-  blamed?: DrawHome[];
-  /** The settings — `null` until the organiser saved them (or, for
-   *  everyone else, until the names are drawn). */
-  settings: DrawSettings | null;
-  /** The person's own wish list. */
-  wish: string;
-  hasResult: boolean;
-  /** The person started this draw (the organiser). */
-  isHost: boolean;
-}
-
-/** What `sh.engines.draw.onEvent` hears: the draw's new state. */
-export interface DrawEvent {
-  type: "status";
-  id: string;
-  status: DrawStatus;
-}
-
-const DRAW_STATES: readonly string[] = ["gathering", "drawing", "ready", "failed"];
-const DRAW_DAY = /^\d{4}-\d{2}-\d{2}$/;
-
-function isDrawDay(v: unknown): v is string {
-  if (typeof v !== "string" || !DRAW_DAY.test(v)) return false;
-  const d = new Date(`${v}T00:00:00Z`);
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
-}
-
-function oneLine(v: unknown, max: number): v is string {
-  return typeof v === "string" && [...v].length <= max && !/[\r\n]/.test(v);
-}
-
-function isPairs(v: unknown): v is [number, number][] {
-  if (!Array.isArray(v) || v.length > Math.floor(DRAW_MAX_PEOPLE / 3)) return false;
-  const seen = new Set<number>();
-  for (const p of v) {
-    if (!Array.isArray(p) || p.length !== 2) return false;
-    const [a, b] = p;
-    if (!isInt(a, 1, GROUP_SEAT_MAX) || !isInt(b, 1, GROUP_SEAT_MAX) || a === b) return false;
-    if (seen.has(a) || seen.has(b)) return false;
-    seen.add(a);
-    seen.add(b);
-  }
-  return true;
-}
-
-/** Read the draw's settings without trusting their shape (`null` when they
- *  aren't settings). */
-export function parseDrawSettings(v: unknown): DrawSettings | null {
-  if (!isRecord(v)) return null;
-  const name = v["name"] ?? "";
-  const budget = v["budget"] ?? "";
-  const day = v["day"] ?? null;
-  const pairs = v["pairs"] ?? [];
-  if (!oneLine(name, DRAW_NAME_MAX) || !oneLine(budget, DRAW_BUDGET_MAX)) return null;
-  if (day !== null && !isDrawDay(day)) return null;
-  if (!isPairs(pairs)) return null;
-  return { name, budget, day, pairs: pairs.map(([a, b]) => [a, b] as [number, number]) };
-}
-
-function parseHomes(v: unknown): DrawHome[] | undefined {
-  if (!Array.isArray(v)) return undefined;
-  const out: DrawHome[] = [];
-  for (const row of v.slice(0, DRAW_MAX_PEOPLE)) {
-    if (!isRecord(row) || !Array.isArray(row["seats"])) continue;
-    const seats = row["seats"].filter((s): s is number => isInt(s, 1, GROUP_SEAT_MAX));
-    if (seats.length > 0) out.push({ seats: [...new Set(seats)] });
-  }
-  return out;
-}
-
-/**
- * Read a draw's state as the host sends it, without trusting its shape:
- * `undefined` when it isn't one. Reads the bridge's camelCase and core's
- * snake_case alike. A result — whom anybody gives to — is never read, even
- * if a host sent one.
- */
-export function parseDrawStatus(v: unknown): DrawStatus | undefined {
-  if (!isRecord(v)) return undefined;
-  const id = v["id"];
-  const state = v["state"];
-  if (!isGroupId(id) || typeof state !== "string" || !DRAW_STATES.includes(state)) return undefined;
-  const round = v["round"];
-  const again = v["again"];
-  const of = v["of"];
-  if (!isInt(round, 0, 1000) || !isInt(again, 0, 1000) || !isInt(of, 0, GROUP_SEAT_MAX)) return undefined;
-  const wish = v["wish"] ?? "";
-  if (typeof wish !== "string" || [...wish].length > DRAW_WISH_MAX_CHARS) return undefined;
-  const out: DrawStatus = {
-    id,
-    state: state as DrawState,
-    round,
-    again,
-    of,
-    settings: parseDrawSettings(v["settings"]),
-    wish,
-    hasResult: field(v, "hasResult", "has_result") === true,
-    isHost: field(v, "isHost", "is_host") === true,
-  };
-  const reason = optText(v["reason"], 40);
-  if (state === "failed" && reason) out.reason = reason;
-  const done = v["done"];
-  if (isInt(done, 0, GROUP_SEAT_MAX)) out.done = done;
-  const waiting = parseHomes(field(v, "waitingFor", "waiting_for"));
-  if (waiting && waiting.length > 0) out.waitingFor = waiting;
-  const blamed = parseHomes(v["blamed"]);
-  if (blamed && blamed.length > 0) out.blamed = blamed;
-  return out;
-}
-
-/** Read the `event` of one draw push (`undefined` when malformed or unknown). */
-export function parseDrawEvent(v: unknown): DrawEvent | undefined {
-  if (!isRecord(v) || v["type"] !== "status") return undefined;
-  const id = v["id"];
-  const status = parseDrawStatus(v["status"]);
-  if (!isGroupId(id) || !status || status.id !== id) return undefined;
-  return { type: "status", id, status };
-}
-
-/** Check a `draw.configure` patch before anything is sent (`null` clears a field). */
-function checkSettingsInput(s: unknown): Record<string, unknown> {
-  if (!isRecord(s)) throw new ShError("invalid", "settings must be an object.");
-  const out: Record<string, unknown> = {};
-  if (s["name"] !== undefined) {
-    if (s["name"] !== null && !oneLine(s["name"], DRAW_NAME_MAX)) throw new ShError("invalid", `name: one line, at most ${DRAW_NAME_MAX} characters.`);
-    out["name"] = s["name"];
-  }
-  if (s["budget"] !== undefined) {
-    if (s["budget"] !== null && !oneLine(s["budget"], DRAW_BUDGET_MAX)) throw new ShError("invalid", `budget: one line, at most ${DRAW_BUDGET_MAX} characters.`);
-    out["budget"] = s["budget"];
-  }
-  if (s["day"] !== undefined) {
-    if (s["day"] !== null && !isDrawDay(s["day"])) throw new ShError("invalid", "day must be YYYY-MM-DD or null.");
-    out["day"] = s["day"];
-  }
-  if (s["pairs"] !== undefined) {
-    const pairs = s["pairs"];
-    if (pairs === null) out["pairs"] = null;
-    else if (!isPairs(pairs)) throw new ShError("invalid", "pairs must be different seats, each in one pair at most.");
-    else out["pairs"] = pairs.map(([a, b]) => [a, b]);
-  }
-  return out;
-}
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const CALL_TIMEOUT_MS = 15_000;
-/** `people.pick` waits for a person to choose: give them time. */
-const PICK_TIMEOUT_MS = 30 * 60_000;
 
 // ---------------------------------------------------------------------------
 // Client implementation
@@ -1153,10 +475,8 @@ export class SocialHomeClient {
   private readonly _messageSubs = new Set<(msg: AppMessage) => void>();
   private readonly _sessionSubs = new Set<(msg: AppMessage) => void>();
   private readonly _contextSubs = new Set<(look: AppLook) => void>();
-  private readonly _groupSubs = new Set<(event: GroupEvent) => void>();
-  private readonly _drawSubs = new Set<(event: DrawEvent) => void>();
-  /** The `seq`s of each table already handed to the app (dedupe). */
-  private readonly _groupSeen = new Map<string, Set<number>>();
+  /** Host pushes the SDK's modules listen to, by `type` ({@link _onPush}). */
+  private readonly _pushSubs = new Map<string, Set<(data: Record<string, unknown>) => void>>();
 
   constructor(targetWindow: Window, parentWindow: Window) {
     this._parent = targetWindow;
@@ -1198,20 +518,13 @@ export class SocialHomeClient {
       return;
     }
 
-    // A table changed, or a message at a table (SDK 1.9).
-    if (data["type"] === GROUP_BRIDGE.event) {
-      this._onGroupPush(data);
-      return;
-    }
-
-    // An engine's news: a gift draw's new state (SDK 1.11).
-    if (data["type"] === ENGINE_BRIDGE.event) {
-      if (data["engine"] !== ENGINE_BRIDGE.draw.name) return;
-      const event = parseDrawEvent(data["event"]);
-      if (!event) return;
-      for (const cb of this._drawSubs) {
+    // A module's push: a table changed (`group:event`, SDK 1.9), an
+    // engine's news (`engine:event`, SDK 1.11), …
+    const pushSubs = typeof data["type"] === "string" ? this._pushSubs.get(data["type"]) : undefined;
+    if (pushSubs) {
+      for (const cb of pushSubs) {
         try {
-          cb(event);
+          cb(data);
         } catch {
           // Never let a subscriber crash the message loop.
         }
@@ -1252,80 +565,31 @@ export class SocialHomeClient {
     }
   };
 
-  private _emitGroup(event: GroupEvent): void {
-    for (const cb of this._groupSubs) {
-      try {
-        cb(event);
-      } catch {
-        // Never let a subscriber crash the message loop.
-      }
+  /**
+   * @internal For the SDK's own modules: hear every host push of `type`
+   * (`group:event`, `engine:event`, …) — the client knows only its own
+   * pushes, so a module's code lands in an app's bundle only when the app
+   * uses that module.
+   * @returns an unsubscribe function.
+   */
+  _onPush(type: string, cb: (data: Record<string, unknown>) => void): Unsubscribe {
+    let subs = this._pushSubs.get(type);
+    if (!subs) {
+      subs = new Set();
+      this._pushSubs.set(type, subs);
     }
+    subs.add(cb);
+    return () => {
+      subs.delete(cb);
+    };
   }
 
-  /** Mark a message seen; `false` when it already was (a repeat). */
-  private _firstSeen(msg: GroupMessage): boolean {
-    let seen = this._groupSeen.get(msg.id);
-    if (!seen) {
-      seen = new Set();
-      this._groupSeen.set(msg.id, seen);
-    }
-    if (seen.has(msg.seq)) return false;
-    seen.add(msg.seq);
-    if (seen.size > GROUP_SEEN_MAX) {
-      // Forget the oldest; a repeat that old is no longer expected.
-      const oldest = seen.values().next().value;
-      if (oldest !== undefined) seen.delete(oldest);
-    }
-    return true;
-  }
-
-  private _onGroupPush(data: Record<string, unknown>): void {
-    const event = parseGroupEvent(data["event"]);
-    if (!event) return;
-    if (event.type === "message" && !this._firstSeen(event)) return;
-    this._emitGroup(event);
-  }
-
-  /** A `sh.group` call: an older host's `unknown_method` reads as
-   *  `groups_not_supported`. */
-  private _groupCall(method: string, params?: unknown, timeoutMs = CALL_TIMEOUT_MS): Promise<unknown> {
-    return this._call(method, params, timeoutMs).catch((err: unknown) => {
-      if (err instanceof ShError && err.code === "unknown_method") {
-        throw new ShError("groups_not_supported", "This Social Home has no group games.");
-      }
-      throw err;
-    });
-  }
-
-  /** A table reply, else a typed refusal. */
-  private _groupReply(r: unknown): GroupSession {
-    const g = parseGroupSession(r);
-    if (!g) throw new ShError("error", "Social Home answered without a table.");
-    return g;
-  }
-
-  /** An engine call: an older host's `unknown_method` reads as
-   *  `engine_not_supported`. */
-  private _engineCall(method: string, params: Record<string, unknown>): Promise<unknown> {
-    return this._call(method, params).catch((err: unknown) => {
-      if (err instanceof ShError && err.code === "unknown_method") {
-        throw new ShError("engine_not_supported", "This Social Home doesn't run that engine.");
-      }
-      throw err;
-    });
-  }
-
-  /** A gift-draw call; a reply that isn't that table's draw is refused. */
-  private _drawCall(method: string, params: Record<string, unknown>): Promise<DrawStatus> {
-    return this._engineCall(method, params)
-      .then((r) => {
-        const st = parseDrawStatus(r);
-        if (!st || st.id !== params["id"]) throw new ShError("error", "Social Home answered without the draw.");
-        return st;
-      });
-  }
-
-  private _call(method: string, params?: unknown, timeoutMs = CALL_TIMEOUT_MS): Promise<unknown> {
+  /**
+   * @internal For the SDK's own modules ({@link withGroups}, {@link withDraw}):
+   * one call to the host, rejected as an {@link ShError}. Apps use the
+   * namespaces, never this.
+   */
+  _call(method: string, params?: unknown, timeoutMs = CALL_TIMEOUT_MS): Promise<unknown> {
     return new Promise<unknown>((resolve, reject) => {
       const id = this._nextId++;
       const timer = setTimeout(() => {
@@ -1531,268 +795,6 @@ export class SocialHomeClient {
             })
           : [],
       ),
-  };
-
-  /**
-   * Group games — tables of 2–30 players (SDK 1.9, Social Home v_76). The app
-   * never opens anything itself: `open` asks Social Home's sheet, where the
-   * person picks who to play with. The household of the person who opened the
-   * table (the *host household*) keeps the seats and passes every message on,
-   * numbered (`seq`) so every player sees the same order.
-   *
-   * People are **seats**, never usernames: each player is a seat number, a
-   * name and a household name ({@link GroupPlayer}).
-   *
-   * Check {@link AppContext.groups} first: on an older Social Home every call
-   * is refused with {@link ShError} code `"groups_not_supported"` — offer 1:1
-   * games instead.
-   */
-  readonly group = {
-    /**
-     * Ask Social Home to open a table: its sheet asks the person who to play
-     * with (up to {@link GROUP_PICK_MAX_PLAYERS} players, them included,
-     * within the app's `players`), they tap Send, and Social Home invites
-     * them. Resolves with the new table (in `lobby`, the person seated as
-     * host) — `null` when they cancel. Call it from a button the person
-     * pressed. A Social Home without the group sheet yet refuses it
-     * `"unavailable"`.
-     */
-    open: (options: GroupOpenOptions = {}): Promise<GroupSession | null> => {
-      const params: Record<string, unknown> = {};
-      if (options.suggest !== undefined) {
-        if (!Array.isArray(options.suggest) || options.suggest.length > GROUP_PICK_MAX_PLAYERS - 1) {
-          return Promise.reject(
-            new ShError("invalid", `suggest takes at most ${GROUP_PICK_MAX_PLAYERS - 1} people.`),
-          );
-        }
-        params["suggest"] = options.suggest.map(({ instance_id, user_ref, is_local }) => ({
-          instance_id,
-          user_ref,
-          is_local,
-        }));
-      }
-      return this._groupCall(GROUP_BRIDGE.open, params, PICK_TIMEOUT_MS).then((r) =>
-        r === null || r === undefined ? null : this._groupReply(r),
-      );
-    },
-
-    /** The tables the person has a place at in this app (invited, joining,
-     *  seated, or one they left that Social Home still keeps). */
-    list: (): Promise<GroupSession[]> => this._groupCall(GROUP_BRIDGE.list).then(parseGroupSessions),
-
-    /** One table the person has a place at (`"group_not_found"` otherwise). */
-    get: (id: string): Promise<GroupSession> =>
-      this._groupCall(GROUP_BRIDGE.get, { id }).then((r) => this._groupReply(r)),
-
-    /** Host only: start the game once at least `min` players are seated
-     *  (`"group_too_few"` before). Unanswered invites are withdrawn unless the
-     *  app takes late joiners. A table of two starts by itself. */
-    start: (id: string): Promise<GroupSession> =>
-      this._groupCall(GROUP_BRIDGE.start, { id }).then((r) => this._groupReply(r)),
-
-    /**
-     * Send `data` to everyone at the table, or only to the seats in `to`
-     * (sealed to their households: nobody else — not even the host's
-     * household — can read it). Resolves once the person's household took it,
-     * with its `seq` when this household is the host's (else `null`: the host
-     * numbers it). Your own message is not echoed back: apply it yourself.
-     *
-     * A closed app gets only **each player's latest message** when it opens
-     * (`group.held`): send state, not steps (≤ 16 KiB to be kept; up to
-     * 64 KiB goes out live only, `"too_large"` above). For many players
-     * answering at once (a quiz), send answers **to the host's seat only** and
-     * let the host send one result to everyone — the table has a send budget
-     * (`"group_busy"`, {@link ShError.retryAfterMs}).
-     *
-     * `turn` names the seat this message hands the turn to: while their app
-     * is closed Social Home shows them "Your turn". `to` / `turn` seats must
-     * be seated now (`"group_seat"`). `final: true` on the game's last
-     * message ends the table (`endReason: "finished"`) once it is delivered.
-     * An `ended` event can reach the other player before that last message:
-     * take `group.held` and later messages before you call a game
-     * unfinished when its table ended `"finished"`.
-     */
-    send: (id: string, data: unknown, options: GroupSendOptions = {}): Promise<number | null> => {
-      const params: Record<string, unknown> = { id, data };
-      if (options.to !== undefined) {
-        const to = options.to;
-        if (
-          !Array.isArray(to) ||
-          to.length === 0 ||
-          to.length >= GROUP_MAX_PLAYERS ||
-          !to.every((s) => isInt(s, 1, GROUP_SEAT_MAX)) ||
-          new Set(to).size !== to.length
-        ) {
-          return Promise.reject(new ShError("invalid", "to must name one or more different seats."));
-        }
-        params["to"] = [...to];
-      }
-      if (options.turn !== undefined) {
-        if (!isInt(options.turn, 1, GROUP_SEAT_MAX)) {
-          return Promise.reject(new ShError("invalid", "turn must be a seat number."));
-        }
-        params["turn"] = options.turn;
-      }
-      if (options.final !== undefined) {
-        if (typeof options.final !== "boolean") {
-          return Promise.reject(new ShError("invalid", "final must be true or false."));
-        }
-        if (options.final) params["final"] = true;
-      }
-      return this._groupCall(GROUP_BRIDGE.send, params).then((r) => {
-        const seq = isRecord(r) ? r["seq"] : undefined;
-        return isInt(seq, 1, Number.MAX_SAFE_INTEGER) ? seq : null;
-      });
-    },
-
-    /** Leave a table (before Start the seat is free again; a host who leaves
-     *  a lobby closes it, after Start the host passes on). */
-    leave: (id: string): Promise<void> =>
-      this._groupCall(GROUP_BRIDGE.leave, { id }).then(() => {
-        this._groupSeen.delete(id);
-      }),
-
-    /** Host only: take the player in `seat` out; they can't come back. */
-    remove: (id: string, seat: number): Promise<GroupSession> => {
-      if (!isInt(seat, 1, GROUP_SEAT_MAX)) {
-        return Promise.reject(new ShError("invalid", "seat must be a seat number."));
-      }
-      return this._groupCall(GROUP_BRIDGE.remove, { id, seat }).then((r) => this._groupReply(r));
-    },
-
-    /** Host only: close the table for everyone (it ends `cancelled`). */
-    close: (id: string): Promise<void> =>
-      this._groupCall(GROUP_BRIDGE.close, { id }).then(() => undefined),
-
-    /**
-     * Messages at tables that arrived while the app was closed: **each
-     * player's latest message** per table, oldest `seq` first, minus any the
-     * app already got live. Social Home hands them over once per open, so
-     * call it once your own state is loaded, with `context({ pullHeld: true })`
-     * — without it they arrive as `message` events right after `context()`.
-     */
-    held: (): Promise<GroupMessage[]> =>
-      this._groupCall(GROUP_BRIDGE.held).then((r) => {
-        const msgs: GroupMessage[] = [];
-        for (const row of Array.isArray(r) ? r : []) {
-          if (isRecord(row) && row["type"] !== undefined && row["type"] !== "message") continue;
-          const m = parseGroupMessage(row);
-          if (m) msgs.push(m);
-        }
-        // Tables in the order the host gave them, each table by seq.
-        const order = [...new Set(msgs.map((m) => m.id))];
-        msgs.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id) || a.seq - b.seq);
-        return msgs.filter((m) => this._firstSeen(m));
-      }),
-
-    /**
-     * Hear what happens at tables: messages, people joining and leaving, the
-     * start, a new host, the end — see {@link GroupEvent}. A message the app
-     * already got (by `seq`) is not passed on twice.
-     * @returns an unsubscribe function.
-     */
-    onEvent: (cb: (event: GroupEvent) => void): Unsubscribe => {
-      this._groupSubs.add(cb);
-      return () => {
-        this._groupSubs.delete(cb);
-      };
-    },
-  };
-
-  /**
-   * Engines — work Social Home does itself at a table (SDK 1.11). An app
-   * declares the engines it uses in its manifest (`"engines": ["draw"]`;
-   * otherwise `"engine_not_declared"`) and checks
-   * {@link AppContext.engines} before offering them.
-   */
-  readonly engines = {
-    /**
-     * The gift draw at a table (Social Home v_78) — Social Home
-     * draws the names, the app only asks. Every person draws one other person
-     * to give a gift to; couples the organiser lists don't draw each other.
-     * **The app never learns whom anybody gives to**: `reveal` opens Social
-     * Home's own sheet, outside the app, and no call returns a result.
-     *
-     * Check `ctx.engines?.includes("draw")` first: on an older Social Home
-     * every call is refused `"engine_not_supported"`. Every call needs the `people`
-     * permission and the table's `id`; the person must be seated there.
-     * Refusals: see {@link ShErrorCode}.
-     */
-    draw: {
-      /**
-       * Organiser only, before the names are drawn (or after a draw gave up):
-       * change the settings. A **patch**: only the fields given change, and
-       * `null` clears one. Other
-       * households get them only when the names are drawn, so share them
-       * with `sh.group.send` if people should see them before.
-       */
-      configure: (id: string, settings: DrawSettingsInput): Promise<DrawStatus> => {
-        if (!isGroupId(id)) return Promise.reject(new ShError("invalid", "id must be a table id."));
-        let clean: Record<string, unknown>;
-        try {
-          clean = checkSettingsInput(settings);
-        } catch (err) {
-          return Promise.reject(err);
-        }
-        return this._drawCall(ENGINE_BRIDGE.draw.configure, { id, settings: clean });
-      },
-
-      /**
-       * The person's own wish list (≤ {@link DRAW_WISH_MAX_CHARS} characters;
-       * the whole card must also fit 1 KiB, else `"wish_too_long"`). After
-       * the reveal it reaches their giver, at most
-       * {@link DRAW_WISH_UPDATES_MAX} times (`"wish_updates"`).
-       */
-      setWishes: (id: string, text: string): Promise<DrawStatus> => {
-        if (!isGroupId(id)) return Promise.reject(new ShError("invalid", "id must be a table id."));
-        if (typeof text !== "string") return Promise.reject(new ShError("invalid", "text must be a string."));
-        if ([...text.trim()].length > DRAW_WISH_MAX_CHARS) {
-          return Promise.reject(new ShError("wish_too_long", `At most ${DRAW_WISH_MAX_CHARS} characters.`));
-        }
-        return this._drawCall(ENGINE_BRIDGE.draw.setWishes, { id, text });
-      },
-
-      /**
-       * Organiser only: draw names (starts the table if it still waits for
-       * people; at least three seated, `"too_few"`). `{again: true}` after
-       * everyone has their name draws again for everyone still in — everyone
-       * is told, at most {@link DRAW_AGAIN_MAX} times, until the exchange day.
-       */
-      start: (id: string, options: { again?: boolean } = {}): Promise<DrawStatus> => {
-        if (!isGroupId(id)) return Promise.reject(new ShError("invalid", "id must be a table id."));
-        const params: Record<string, unknown> = { id };
-        if (options.again === true) params["again"] = true;
-        return this._drawCall(ENGINE_BRIDGE.draw.start, params);
-      },
-
-      /** The draw's state now. */
-      status: (id: string): Promise<DrawStatus> => {
-        if (!isGroupId(id)) return Promise.reject(new ShError("invalid", "id must be a table id."));
-        return this._drawCall(ENGINE_BRIDGE.draw.status, { id });
-      },
-
-      /**
-       * Show the person whom they give to — in Social Home's own sheet,
-       * outside the app. Resolves with nothing once the sheet is open; the
-       * app never sees the name. Call it from a button the person pressed.
-       */
-      reveal: (id: string): Promise<void> => {
-        if (!isGroupId(id)) return Promise.reject(new ShError("invalid", "id must be a table id."));
-        return this._engineCall(ENGINE_BRIDGE.draw.reveal, { id }).then(() => undefined);
-      },
-
-      /**
-       * Hear a draw's new state (names being drawn, ready, failed, a home
-       * the draw waits for). Never a result.
-       * @returns an unsubscribe function.
-       */
-      onEvent: (cb: (event: DrawEvent) => void): Unsubscribe => {
-        this._drawSubs.add(cb);
-        return () => {
-          this._drawSubs.delete(cb);
-        };
-      },
-    },
   };
 
   /**
