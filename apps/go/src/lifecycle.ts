@@ -446,3 +446,34 @@ export function removeCopy(entry: GameEntry): ConfirmCopy {
     cancel: t("remove.cancel"),
   };
 }
+
+/**
+ * Whether a game with this person is still going: one being played, our
+ * invite they haven't answered, or theirs we haven't. No Rematch is offered
+ * with them then — the game they have is the one to play.
+ */
+export function hasLiveGameWith(games: Iterable<GameEntry>, instanceId: string, userRef: string): boolean {
+  if (!userRef) return false; // an open game in a space names no person
+  for (const e of games) {
+    if (e.opponentInstanceId === instanceId && e.opponentRef === userRef && !isOver(e)) return true;
+  }
+  return false;
+}
+
+/**
+ * "Played before": the people Social Home lists for this app (never yourself)
+ * with no game in the list. A finished game's card carries its own Rematch;
+ * a game still going offers none.
+ */
+export function playedBefore(
+  contacts: readonly Contact[],
+  games: Iterable<GameEntry>,
+  selfUserId: string | undefined,
+): Contact[] {
+  const list = [...games];
+  return contacts.filter(
+    (c) =>
+      c.user_ref !== selfUserId &&
+      !list.some((e) => e.opponentInstanceId === c.instance_id && e.opponentRef === c.user_ref),
+  );
+}

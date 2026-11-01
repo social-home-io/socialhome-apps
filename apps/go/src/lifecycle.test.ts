@@ -29,6 +29,8 @@ import {
   stateOf,
   targetFor,
   toStored,
+  hasLiveGameWith,
+  playedBefore,
 } from "./lifecycle.js";
 import type { GameEntry } from "./lifecycle.js";
 import type { Entry } from "./game.js";
@@ -281,5 +283,31 @@ describe("handicap and clock entries", () => {
       expect(showClaimOffer(hidden, late)).toBe(false);
       expect(showClaimOffer(waiting({ claimHiddenAt: 0 }), late)).toBe(true);
     });
+  });
+});
+
+describe("rematch only when no game with that person is going", () => {
+  const ben: Contact = { instance_id: "inst-b", user_ref: "bob", is_local: false, display_name: "Bob", online: true };
+  const ann: Contact = { instance_id: "inst-c", user_ref: "ann", is_local: false, display_name: "Ann", online: false };
+  const me: Contact = { instance_id: "inst-a", user_ref: "me", is_local: true, display_name: "Me", online: true };
+  
+  const running = entry();
+  const finished = entry({ sessionId: "s2", log: ["resign-w"] });
+
+  it("a game being played (or an invite) blocks a rematch with that person", () => {
+    expect(hasLiveGameWith(games(running).values(), "inst-b", "bob")).toBe(true);
+    expect(hasLiveGameWith(games(running, finished).values(), "inst-b", "bob")).toBe(true);
+  });
+  it("only finished games, or another person, leave it open", () => {
+    expect(hasLiveGameWith(games(finished).values(), "inst-b", "bob")).toBe(false);
+    expect(hasLiveGameWith(games(running).values(), "inst-b", "ann")).toBe(false);
+  });
+  it("an open game in a space names nobody", () => {
+    expect(hasLiveGameWith(games(entry({ opponentRef: "" })).values(), "inst-b", "")).toBe(false);
+  });
+  it("Played before leaves out yourself and anyone with a game in the list", () => {
+    expect(playedBefore([ben, ann, me], games(running).values(), "me")).toEqual([ann]);
+    expect(playedBefore([ben, ann, me], games(finished).values(), "me")).toEqual([ann]);
+    expect(playedBefore([ben, ann, me], games().values(), "me")).toEqual([ben, ann]);
   });
 });

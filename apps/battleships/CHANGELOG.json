@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.11.1.1",
+    "date": "2026-11-01",
+    "notes": {
+      "en": "Rematch is offered only once your game with that person is over: while one with them is still going, or an invite to or from them waits, the game in your list is the one to play. Played before now lists only people with no game in your list.",
+      "de": "Revanche gibt es erst, wenn deine Partie mit dieser Person vorbei ist: Solange noch eine läuft oder eine Einladung von dir oder an dich wartet, spielst du die Partie in deiner Liste. „Schon gespielt mit“ zeigt jetzt nur noch Leute, mit denen keine Partie in deiner Liste steht.",
+      "nl": "Revanche krijg je pas als je partij met die persoon voorbij is: zolang er nog een loopt, of een uitnodiging van of aan die persoon wacht, speel je de partij in je lijst. Eerder gespeeld toont nu alleen mensen met wie geen partij in je lijst staat.",
+      "fr": "La revanche n’est proposée qu’une fois votre partie avec cette personne terminée : tant qu’une partie est en cours, ou qu’une invitation de sa part ou de la vôtre attend, c’est la partie de votre liste qu’il faut jouer. Déjà joué avec ne montre plus que les personnes sans partie dans votre liste.",
+      "es": "La revancha solo aparece cuando tu partida con esa persona ha terminado: mientras haya una en curso, o espere una invitación tuya o suya, la partida de tu lista es la que toca jugar. Ya jugaste con ahora solo muestra a quien no tiene una partida en tu lista."
+    }
+  },
+  {
     "version": "2026.11.1",
     "date": "2026-11-01",
     "notes": {

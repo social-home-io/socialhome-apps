@@ -63,6 +63,8 @@ import {
   personName,
   pickFailure,
   rematchOf,
+  hasLiveGameWith,
+  playedBefore,
   remember,
   removeCopy,
   resignCopy,
@@ -459,7 +461,7 @@ function renderLobby(): void {
   section("lobby.waiting", groups.waiting);
   section("lobby.finished", groups.finished);
 
-  const played = ui.contacts.filter((c) => c.user_ref !== ui.selfUserId);
+  const played = playedBefore(ui.contacts, ui.games.values(), ui.selfUserId);
   if (played.length > 0) {
     r.appendChild(make("h2", { cls: "section-title", text: t("lobby.playedBefore") }));
     const list = make("ul", { cls: "people" });
@@ -569,7 +571,9 @@ function gameCard(entry: GameEntry): HTMLElement {
   if (stateOf(entry)?.phase === "over") {
     // A rematch goes through the invite sheet: not for an open game in a
     // space (Social Home gives an app seats there, never people).
-    if (!entry.table) acts.append(button(t("btn.rematch"), "", () => void rematch(entry), { "aria-label": t("btn.rematchWho", { name }) }));
+    if (!entry.table && !hasLiveGameWith(ui.games.values(), entry.opponentInstanceId, entry.opponentRef)) {
+      acts.append(button(t("btn.rematch"), "", () => void rematch(entry), { "aria-label": t("btn.rematchWho", { name }) }));
+    }
     acts.append(button(t("btn.remove"), "ghost", () => void removeGame(entry), { "aria-label": t("btn.removeWith", { name }) }));
   }
   li.appendChild(acts);
@@ -736,7 +740,9 @@ function sidePanel(entry: GameEntry, st: GameState, name: string): { info: HTMLE
   if (st.phase === "over") {
     side.appendChild(resultCard(entry, st));
     const row = make("div", { cls: "row acts" });
-    if (!entry.table) row.append(button(t("btn.rematch"), "primary", () => void rematch(entry)));
+    if (!entry.table && !hasLiveGameWith(ui.games.values(), entry.opponentInstanceId, entry.opponentRef)) {
+      row.append(button(t("btn.rematch"), "primary", () => void rematch(entry)));
+    }
     row.append(button(t("btn.backToGames"), entry.table ? "primary" : "", toLobby));
     lower.appendChild(row);
     lower.appendChild(fairDice());

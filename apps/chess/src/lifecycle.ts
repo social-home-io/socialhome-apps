@@ -398,3 +398,16 @@ export function continueCopy(entry: GameEntry): ConfirmCopy {
     primary: true,
   };
 }
+
+/**
+ * Whether a game with this person is still going: one being played, our
+ * invite they haven't answered, or theirs we haven't. No Rematch is offered
+ * with them then — the game they have is the one to play.
+ */
+export function hasLiveGameWith(games: Iterable<GameEntry>, instanceId: string, userRef: string): boolean {
+  if (!userRef) return false; // an open game in a space names no person
+  for (const e of games) {
+    if (e.opponentInstanceId === instanceId && e.opponentRef === userRef && e.state.result === null) return true;
+  }
+  return false;
+}
