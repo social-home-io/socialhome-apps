@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.11.1.1",
+    "date": "2026-11-01",
+    "notes": {
+      "en": "People can still join a gift draw until the names are drawn.",
+      "de": "Man kann beim Wichteln noch mitmachen, bis die Namen gezogen sind.",
+      "nl": "Je kunt nog meedoen met lootjes trekken tot de lootjes getrokken zijn.",
+      "fr": "Vous pouvez encore rejoindre un Père Noël secret jusqu'au tirage des noms.",
+      "es": "Puedes unirte a un amigo invisible hasta que se sorteen los nombres."
+    }
+  },
+  {
     "version": "2026.11.1",
     "date": "2026-11-01",
     "notes": {
