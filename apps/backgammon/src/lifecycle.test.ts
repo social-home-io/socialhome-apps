@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { ShError } from "@socialhome/app-sdk";
-import type { AppMessage, PickedPerson } from "@socialhome/app-sdk";
+import type { AppMessage, Contact, PickedPerson } from "@socialhome/app-sdk";
 import {
   adoptOwnCopy,
   classifySessionEvent,
@@ -20,6 +20,9 @@ import {
   routeInbound,
   stateOf,
   toStored,
+  hasLiveGameWith,
+  isOver,
+  playedBefore,
 } from "./lifecycle.js";
 import type { GameEntry } from "./lifecycle.js";
 import { toB64url } from "./dice.js";
@@ -201,5 +204,34 @@ describe("two screens of one person answering the same invite", () => {
     const { a, b } = startGame({ seeds: [64, 65] });
     const forged = { ...JSON.parse(JSON.stringify(b.message())), tips: { ...b.message().tips, [a.color!]: toB64url(seedOf(66)) } };
     expect(a.receive(forged)).toEqual({ kind: "refuse", reason: "setup" });
+  });
+});
+
+describe("rematch only when no game with that person is going", () => {
+  const ben: Contact = { instance_id: "inst-x", user_ref: "x", is_local: false, display_name: "Bob", online: true };
+  const ann: Contact = { instance_id: "inst-c", user_ref: "ann", is_local: false, display_name: "Ann", online: false };
+  const me: Contact = { instance_id: "inst-a", user_ref: "me", is_local: true, display_name: "Me", online: true };
+  
+  const { a } = startGame();
+  const running = entryOf(a);
+  const finished = entryOf(a, { sessionId: "s-2", log: [...a.log, "resign-b"] });
+
+  it("a game being played (or an invite) blocks a rematch with that person", () => {
+    expect(isOver(running)).toBe(false);
+    expect(hasLiveGameWith(games(running).values(), "inst-x", "x")).toBe(true);
+    expect(hasLiveGameWith(games(running, finished).values(), "inst-x", "x")).toBe(true);
+  });
+  it("only finished games, or another person, leave it open", () => {
+    expect(isOver(finished)).toBe(true);
+    expect(hasLiveGameWith(games(finished).values(), "inst-x", "x")).toBe(false);
+    expect(hasLiveGameWith(games(running).values(), "inst-x", "ann")).toBe(false);
+  });
+  it("an open game in a space names nobody", () => {
+    expect(hasLiveGameWith(games(entryOf(a, { opponentRef: "" })).values(), "inst-x", "")).toBe(false);
+  });
+  it("Played before leaves out yourself and anyone with a game in the list", () => {
+    expect(playedBefore([ben, ann, me], games(running).values(), "me")).toEqual([ann]);
+    expect(playedBefore([ben, ann, me], games(finished).values(), "me")).toEqual([ann]);
+    expect(playedBefore([ben, ann, me], games().values(), "me")).toEqual([ben, ann]);
   });
 });

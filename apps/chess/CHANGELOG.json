@@ -1,5 +1,16 @@
 [
   {
+    "version": "2026.11.1.1",
+    "date": "2026-11-01",
+    "notes": {
+      "en": "A finished game no longer offers Rematch while another game with the same person is still going: play that one first.",
+      "de": "Eine beendete Partie bietet keine Revanche mehr an, solange noch eine andere Partie mit derselben Person läuft: Spiel zuerst die.",
+      "nl": "Een afgelopen partij biedt geen revanche meer aan zolang er nog een andere partij met dezelfde persoon loopt: speel die eerst.",
+      "fr": "Une partie terminée ne propose plus de revanche tant qu’une autre partie avec la même personne est en cours : jouez d’abord celle-là.",
+      "es": "Una partida terminada ya no ofrece revancha mientras siga otra partida con la misma persona: juega esa primero."
+    }
+  },
+  {
     "version": "2026.11.1",
     "date": "2026-11-01",
     "notes": {

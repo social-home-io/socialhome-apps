@@ -30,6 +30,7 @@ import {
   isAwaitingOpponent,
   senderOf,
   withdrawnMessage,
+  hasLiveGameWith,
 } from "./lifecycle.js";
 import type { GameEntry } from "./lifecycle.js";
 
@@ -514,5 +515,23 @@ describe("the inviter picks the colours (White / Black / Random)", () => {
   it("pliesBy counts moves and actions per side", () => {
     expect(pliesBy(stateAfter(["e2", "e4"], ["e7", "e5"], ["g1", "f3"]), "w")).toBe(2);
     expect(pliesBy(stateAfter(["e2", "e4"], ["e7", "e5"], ["g1", "f3"]), "b")).toBe(1);
+  });
+});
+
+describe("rematch only when no game with that person is going", () => {
+  const running = entry();
+  const finished = entry({ sessionId: "s2", state: { ...initialState(), result: "draw" } });
+
+  it("a game being played (or an invite) blocks a rematch with that person", () => {
+    expect(hasLiveGameWith(games(running).values(), "inst-b", "bob")).toBe(true);
+    expect(hasLiveGameWith(games(running, finished).values(), "inst-b", "bob")).toBe(true);
+  });
+  it("only finished games, or another person, leave it open", () => {
+    expect(hasLiveGameWith(games(finished).values(), "inst-b", "bob")).toBe(false);
+    expect(hasLiveGameWith(games(running).values(), "inst-b", "ann")).toBe(false);
+    expect(hasLiveGameWith(games(running).values(), "inst-z", "bob")).toBe(false);
+  });
+  it("an open game in a space names nobody", () => {
+    expect(hasLiveGameWith(games(entry({ opponentRef: "" })).values(), "inst-b", "")).toBe(false);
   });
 });

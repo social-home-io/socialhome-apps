@@ -37,6 +37,8 @@ import {
   personName,
   routeInbound,
   targetFor,
+  hasLiveGameWith,
+  playedBefore,
 } from "./lifecycle.js";
 import type { ConfirmCopy, GameEntry } from "./lifecycle.js";
 import {
@@ -465,7 +467,7 @@ function renderLobby(): void {
     r.appendChild(list);
   }
 
-  const played = ui.contacts.filter((c) => c.user_ref !== ui.selfUserId);
+  const played = playedBefore(ui.contacts, ui.games.values(), ui.selfUserId);
   if (played.length > 0) {
     r.appendChild(make("h2", { cls: "section", text: t("lobby.playedBefore") }));
     const list = make("ul", { cls: "people" });
@@ -505,7 +507,7 @@ function gameCard(entry: GameEntry): HTMLElement {
   if (g.outcome) {
     // A rematch goes through the invite sheet: not for an open game in a
     // space (Social Home gives an app seats there, never people).
-    if (!entry.table) {
+    if (!entry.table && !hasLiveGameWith(ui.games.values(), entry.opponentInstanceId, entry.opponentRef)) {
       const contact = contactFor(entry);
       acts.append(button(t("btn.rematch"), "", () => startNewGame(contact), { "aria-label": t("btn.rematchWho", { name }) }));
     }
@@ -993,7 +995,9 @@ function renderGame(): void {
   // Fire bar / end actions
   const bar = make("div", { cls: phase(g) === "my-turn" ? "firebar playing" : "firebar" });
   if (over) {
-    if (!entry.table) bar.append(button(t("btn.rematch"), "primary", () => startNewGame(contactFor(entry))));
+    if (!entry.table && !hasLiveGameWith(ui.games.values(), entry.opponentInstanceId, entry.opponentRef)) {
+      bar.append(button(t("btn.rematch"), "primary", () => startNewGame(contactFor(entry))));
+    }
     bar.append(button(t("btn.backToGames"), entry.table ? "primary" : "", toLobby));
   } else if (isWaitingForPlayer(entry)) {
     bar.append(button(t("btn.closeTable"), "ghost", () => void closeTable(entry)));

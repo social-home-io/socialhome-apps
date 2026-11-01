@@ -18,6 +18,8 @@ import {
   routeInbound,
   senderOf,
   targetFor,
+  hasLiveGameWith,
+  playedBefore,
 } from "./lifecycle.js";
 import type { GameEntry } from "./lifecycle.js";
 import { fire, lockIn, newGame, resign } from "./game.js";
@@ -183,5 +185,33 @@ describe("failures and confirms", () => {
   it("a fired game is no longer an unanswered invite", () => {
     const g = game("invitee", { theirLeaves: "x", theirRoot: "r" });
     expect(isUnansweredInvite(entry(fire(g, 5)))).toBe(false);
+  });
+});
+
+describe("rematch only when no game with that person is going", () => {
+  const ben: Contact = { instance_id: "inst-b", user_ref: "bob", is_local: false, display_name: "Bob", online: true };
+  const ann: Contact = { instance_id: "inst-c", user_ref: "ann", is_local: false, display_name: "Ann", online: false };
+  const me: Contact = { instance_id: "inst-a", user_ref: "me", is_local: true, display_name: "Me", online: true };
+  
+  const running = entry(game("challenger"));
+  const finished = { ...entry(resign(game("invitee"))), sessionId: "s2" };
+
+  it("a game being played (or an invite) blocks a rematch with that person", () => {
+    expect(hasLiveGameWith(games(running).values(), "inst-b", "bob")).toBe(true);
+    expect(hasLiveGameWith(games(running, finished).values(), "inst-b", "bob")).toBe(true);
+  });
+  it("only finished games, or another person, leave it open", () => {
+    expect(hasLiveGameWith(games(finished).values(), "inst-b", "bob")).toBe(false);
+    expect(hasLiveGameWith(games(running).values(), "inst-b", "someone-else")).toBe(false);
+    expect(hasLiveGameWith(games(running).values(), "inst-z", "bob")).toBe(false);
+  });
+  it("an open game in a space names nobody", () => {
+    const open = { ...running, opponentRef: "" };
+    expect(hasLiveGameWith(games(open).values(), "inst-b", "")).toBe(false);
+  });
+  it("Played before leaves out yourself and anyone with a game in the list", () => {
+    expect(playedBefore([ben, ann, me], games(running).values(), "me")).toEqual([ann]);
+    expect(playedBefore([ben, ann, me], games(finished).values(), "me")).toEqual([ann]);
+    expect(playedBefore([ben, ann, me], games().values(), "me")).toEqual([ben, ann]);
   });
 });

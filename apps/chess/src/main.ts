@@ -59,6 +59,7 @@ import {
   colorFromInviter,
   launchAction,
   rematchColor,
+  hasLiveGameWith,
   resolveColor,
   senderOf,
   withdrawnMessage,
@@ -640,7 +641,7 @@ function buildGameRow(entry: GameEntry): HTMLElement {
   } else {
     // A rematch goes through the invite sheet: not for an open game in a
     // space (Social Home gives an app seats there, never people).
-    if (isOver && !entry.table && !ui.legacyPicker && !inviteWaitingFor(entry.opponentInstanceId, entry.opponentRef)) {
+    if (isOver && !entry.table && !ui.legacyPicker && !hasLiveGameWith(ui.games.values(), entry.opponentInstanceId, entry.opponentRef)) {
       // A rematch swaps colours.
       const rematch = make("button", {
         cls: "btn btn-ghost",
