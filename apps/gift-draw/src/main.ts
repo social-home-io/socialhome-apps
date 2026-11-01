@@ -56,8 +56,6 @@ import {
   listOrder,
   livePairs,
   namesOf,
-  oneHousehold,
-  twoHouseholds,
   organiserName,
   phaseOf,
   progressOf,
@@ -188,17 +186,13 @@ function message(title: string, body: string): HTMLElement {
   return el("section", { class: "card" }, el("h2", {}, title), el("p", {}, body));
 }
 
-function about(people?: ReturnType<typeof seatedPeople>): HTMLElement {
+function about(): HTMLElement {
   return el(
     "details",
     { class: "about" },
     el("summary", {}, t("about.title")),
     el("p", {}, t("about.how")),
-    el("p", {}, t("about.oneHome")),
-    el("p", {}, t("about.twoHomes")),
     el("p", {}, t("about.limits")),
-    people && oneHousehold(people) && people.length >= 3 ? el("p", { class: "callout" }, t("about.oneHomeNow")) : null,
-    people && twoHouseholds(people) ? el("p", { class: "callout" }, t("about.twoHomesNow")) : null,
   );
 }
 
@@ -423,11 +417,13 @@ function tableScreen(id: string): HTMLElement {
     out.append(el("p", {}, isHost ? t("failedRules.fix") : t("failed.wait", { name: organiserName(table) })));
   } else if (ph === "failedTooFew") {
     out.append(el("h2", { class: "title" }, t("failedTooFew.title")), el("p", { class: "lead" }, t("failedTooFew.body")));
+  } else if (ph === "failedBroken") {
+    out.append(el("h2", { class: "title" }, t("failedBroken.title")), el("p", { class: "lead" }, isHost ? t("failedBroken.fix") : t("failed.wait", { name: organiserName(table) })));
   } else if (ph === "failed") {
     out.append(el("h2", { class: "title" }, t("failed.title")), el("p", { class: "lead" }, isHost ? t("failed.fix") : t("failed.wait", { name: organiserName(table) })));
   }
   for (const names of blamedHomes(table, st)) {
-    out.append(el("p", { class: "callout" }, t("blamed", { names: list(names) })));
+    out.append(el("p", { class: "callout" }, t(isHost ? "blamed" : "blamed.others", { names: list(names) })));
   }
 
   // Who started it, and the details.
@@ -442,7 +438,7 @@ function tableScreen(id: string): HTMLElement {
   }
 
   // Draw names / Draw again.
-  if (editable) out.append(drawNamesBlock(id, table, pairs));
+  if (editable) out.append(drawNamesBlock(id, table, pairs, st.state === "failed"));
   else if (ph === "gathering") out.append(el("p", { class: "muted" }, t("draw.wait", { name: organiserName(table) })));
   if (ph === "ready" || ph === "readyNoName") {
     if (canDrawAgain(st, todayIso())) out.append(drawAgainBlock(id, st));
@@ -455,7 +451,7 @@ function tableScreen(id: string): HTMLElement {
     out.append(wishBlock(id, st, true));
   }
 
-  out.append(peopleBlock(table), about(people));
+  out.append(peopleBlock(table), about());
   return out;
 }
 
@@ -528,13 +524,15 @@ function pairsEditor(id: string, table: GroupSession, pairs: Pair[]): HTMLElemen
   return box;
 }
 
-function drawNamesBlock(id: string, table: GroupSession, pairs: Pair[]): HTMLElement {
+/** Draw names — or, after a draw gave up, try again (Social Home counts
+ *  that as a Draw again: its count and the exchange day). */
+function drawNamesBlock(id: string, table: GroupSession, pairs: Pair[], retry: boolean): HTMLElement {
   const block = drawBlock(table, pairs);
-  const hint = block === "few" ? t("draw.few") : block === "pairs" ? t("draw.pairs") : t("draw.noJoin");
+  const hint = block === "few" ? t("draw.few") : block === "pairs" ? t("draw.pairs") : retry ? t("draw.retryHint") : t("draw.noJoin");
   return el(
     "div",
     { class: "actions" },
-    button(t("draw.btn"), () => void drawNames(id, pairs), { class: "btn pri lg block-m", id: "draw-names", disabled: state.busy || block !== null, "aria-describedby": "draw-hint" }),
+    button(retry ? t("again.btn") : t("draw.btn"), () => void drawNames(id, pairs), { class: "btn pri lg block-m", id: "draw-names", disabled: state.busy || block !== null, "aria-describedby": "draw-hint" }),
     el("p", { class: "help", id: "draw-hint" }, hint),
   );
 }

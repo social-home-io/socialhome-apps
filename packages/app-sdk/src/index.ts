@@ -967,7 +967,9 @@ export interface DrawHome {
 export interface DrawStatus {
   id: string;
   state: DrawState;
-  /** Why it failed: `"rules"` (the pairs never fit) or `"too_few"`. */
+  /** Why it failed: `"rules"` (the pairs never fit), `"too_few"`, or
+   *  `"broken"` (someone's home kept breaking the draw; the organiser can
+   *  try again later). Treat another value as a plain failure. */
   reason?: string;
   /** The round of the current draw (a round is redone when a home proves
    *  something went wrong). */
@@ -980,8 +982,9 @@ export interface DrawStatus {
   done?: number;
   /** Organiser only, after an hour: the homes the draw waits for. */
   waitingFor?: DrawHome[];
-  /** Organiser only: homes that broke a round — stopped it without proof,
-   *  or sent a key nobody could seal to. */
+  /** Homes that broke a round — stopped it without proof, or sent a key
+   *  nobody could seal to — as each household proved itself. Shown to
+   *  everyone at the table. */
   blamed?: DrawHome[];
   /** The settings — `null` until the organiser saved them (or, for
    *  everyone else, until the names are drawn). */

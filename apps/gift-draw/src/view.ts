@@ -26,6 +26,7 @@ export type Phase =
   | "readyNoName" // names are drawn, but not for this person
   | "failedRules" // the pairs never fit
   | "failedTooFew" // fewer than three people left
+  | "failedBroken" // someone's home kept breaking the draw
   | "failed"; // gave up for a reason this app doesn't know
 
 export function phaseOf(table: GroupSession, status: DrawStatus | undefined, loadFailed = false): Phase {
@@ -44,6 +45,7 @@ export function phaseOf(table: GroupSession, status: DrawStatus | undefined, loa
     case "failed":
       if (status.reason === "rules") return "failedRules";
       if (status.reason === "too_few") return "failedTooFew";
+      if (status.reason === "broken") return "failedBroken";
       return "failed";
   }
 }
@@ -78,18 +80,6 @@ export function seatSet(table: GroupSession): Set<number> {
 /** How many homes the seated people come from. */
 export function homesCount(people: readonly Person[]): number {
   return new Set(people.map((p) => p.household ?? "\u0000own")).size;
-}
-
-/** Whether everyone in the draw lives in one household (the About text's limit). */
-export function oneHousehold(people: readonly Person[]): boolean {
-  return people.length > 0 && homesCount(people) === 1;
-}
-
-/** Whether everyone in the draw lives in exactly two households: each
- *  household's server can largely work out the circle (the About text's
- *  second limit). */
-export function twoHouseholds(people: readonly Person[]): boolean {
-  return homesCount(people) === 2;
 }
 
 /** The names at *seats* (anyone at the table, seated or not), in that order. */
@@ -146,10 +136,11 @@ export function waitingHomes(table: GroupSession, status: DrawStatus): { seats: 
     .filter((h) => h.names.length > 0);
 }
 
-/** Organiser only: homes blamed for breaking a round (stopped it without
- *  proof, or sent a key nobody could seal to), by their people's names. */
+/** Homes blamed for breaking a round (stopped it without proof, or sent a
+ *  key nobody could seal to), by their people's names. Social Home shows
+ *  them to everyone at the table; the app words it gently for all but the
+ *  organiser. */
 export function blamedHomes(table: GroupSession, status: DrawStatus): string[][] {
-  if (!status.isHost) return [];
   return (status.blamed ?? []).map((h) => namesOf(table, h.seats)).filter((n) => n.length > 0);
 }
 
@@ -172,6 +163,7 @@ export function chipOf(phase: Phase): Chip {
       return "over";
     case "failedRules":
     case "failedTooFew":
+    case "failedBroken":
     case "failed":
       return "failed";
     case "readyNoName":

@@ -437,11 +437,15 @@ d.onEvent((e) => show(e.status));                        // { type: 'status', id
 | `engines.draw.onEvent(cb)` | The draw's new state. |
 
 "Draw without them" for a home the draw waits for (`status.waitingFor`) is
-`sh.group.remove(id, seat)` for each of its seats. `status.blamed` (the
-organiser only) names homes that broke a round: stopped it without proof,
-or sent a key nobody could seal to. Say both limits in your app: when
-everyone is in one household, that household's Social Home holds every key;
-with only two households, each can largely work out the circle. Don't close the table
+`sh.group.remove(id, seat)` for each of its seats; a household that broke
+two rounds is named there at once, and a removal once the circle is known
+counts as a Draw again. `status.blamed` (shown to everyone at the table)
+names homes that broke a round: stopped it without proof, or sent a key
+nobody could seal to. `status.reason` for a failed draw is `rules`,
+`too_few` or `broken` (someone's home kept breaking the draw — the
+organiser can try again later; starting afresh counts as a Draw again).
+What the draw does and doesn't guarantee is in Social Home's
+`docs/protocol/app-engines.md`. Don't close the table
 before the exchange day: the names go with it. Refusals: `not_host`,
 `host_elsewhere`, `state`, `too_few`, `pairs`, `settings`, `wish_too_long`,
 `wish_updates`, `household_too_old`, `again_limit`, `past_day`,
@@ -625,9 +629,7 @@ draws the names (`sh.engines.draw`). The organiser shares the details with
 the table (`share.ts`, taken only from the organiser's seat) until Social
 Home has them; the app keeps only those details and an unsent form
 (`persist.ts`), never a result (`privacy.test.mjs`), and never closes a
-gift draw. Its About text states both limits: when everyone is in one
-household, that household's Social Home holds every key, and with only two
-households each can largely work out the circle.
+gift draw.
 
 ## Security model
 

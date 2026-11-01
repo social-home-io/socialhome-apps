@@ -9,8 +9,6 @@ import {
   listOrder,
   livePairs,
   namesOf,
-  oneHousehold,
-  twoHouseholds,
   organiserName,
   phaseOf,
   progressOf,
@@ -35,6 +33,7 @@ describe("phaseOf: every state of a gift draw", () => {
     ["ready without a name", table({ state: "playing" }), status({ state: "ready" }), "readyNoName"],
     ["failed: rules", table({ state: "playing" }), status({ state: "failed", reason: "rules" }), "failedRules"],
     ["failed: too few", table({ state: "playing" }), status({ state: "failed", reason: "too_few" }), "failedTooFew"],
+    ["failed: someone's home kept breaking it", table({ state: "playing" }), status({ state: "failed", reason: "broken" }), "failedBroken"],
     ["failed: a reason we don't know", table({ state: "playing" }), status({ state: "failed", reason: "later" }), "failed"],
   ] as const)("%s", (_what, tb, st, want) => {
     expect(phaseOf(tb, st)).toBe(want);
@@ -57,17 +56,6 @@ describe("the people", () => {
     expect(namesOf(tb, [3, 9, 1])).toEqual(["Lena", "Anna"]);
   });
 
-  it("knows when everyone is in one household (the About text's limit)", () => {
-    const local = [ANNA, { ...BEN, household: null }, { ...LENA, household: null }];
-    expect(oneHousehold(seatedPeople(table({ players: local })))).toBe(true);
-    expect(oneHousehold(seatedPeople(table()))).toBe(false);
-    expect(oneHousehold([])).toBe(false);
-  });
-
-  it("knows when everyone is in two households (the About text's second limit)", () => {
-    expect(twoHouseholds(seatedPeople(table({ players: [ANNA, BEN, LENA] })))).toBe(true);
-    expect(twoHouseholds(seatedPeople(table()))).toBe(false);
-  });
 });
 
 describe("details and pairs", () => {
@@ -115,14 +103,15 @@ describe("while names are drawn (the organiser only)", () => {
     expect(waitingHomes(table(), { ...drawing, isHost: false })).toEqual([]);
     expect(waitingHomes(table(), { ...drawing, state: "ready" })).toEqual([]);
     expect(blamedHomes(table(), drawing)).toEqual([["Cleo"]]);
-    expect(blamedHomes(table(), { ...drawing, isHost: false })).toEqual([]);
+    // Social Home shows blamed homes to everyone at the table.
+    expect(blamedHomes(table(), { ...drawing, isHost: false })).toEqual([["Cleo"]]);
   });
 });
 
 describe("the list", () => {
   it("has a chip for every phase", () => {
-    const all: Phase[] = ["invited", "joining", "gone", "ended", "loading", "error", "gathering", "drawing", "ready", "readyNoName", "failedRules", "failedTooFew", "failed"];
-    expect(all.map(chipOf)).toEqual(["invited", "invited", "over", "over", null, null, "gathering", "drawing", "ready", "noName", "failed", "failed", "failed"]);
+    const all: Phase[] = ["invited", "joining", "gone", "ended", "loading", "error", "gathering", "drawing", "ready", "readyNoName", "failedRules", "failedTooFew", "failedBroken", "failed"];
+    expect(all.map(chipOf)).toEqual(["invited", "invited", "over", "over", null, null, "gathering", "drawing", "ready", "noName", "failed", "failed", "failed", "failed"]);
   });
 
   it("puts names to see first and finished ones last", () => {

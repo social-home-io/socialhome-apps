@@ -65,6 +65,21 @@ describe("string catalogs", () => {
     }
   });
 
+  it("doesn't point out the one- or two-household limits (owner decision; the protocol docs cover them)", () => {
+    expect(EN_KEYS.filter((k) => k.startsWith("about."))).toEqual(["about.how", "about.limits", "about.title"]);
+    for (const l of LOCALES) {
+      // "All from one home" under Who's in only counts homes.
+      for (const key of EN_KEYS.filter((k) => k !== "people.oneHome")) {
+        expect(CATALOGS[l][key], `${l} ${key}`).not.toMatch(/one household|two households|einem Haushalt|zwei Haushalten|één huishouden|twee huishoudens|seul foyer|deux foyers|mismo hogar|dos hogares/);
+      }
+    }
+  });
+
+  it("words a blamed home gently for everyone but the organiser", () => {
+    expect(CATALOGS.en["blamed.others"]).toBe("The home of {names} had trouble with a round, so the names are being drawn again.");
+    expect(CATALOGS.en["failedBroken.title"]).toBe("Someone's home kept breaking the draw");
+  });
+
   it("French puts a no-break space before : ; ! ?", () => {
     for (const key of EN_KEYS) expect(CATALOGS.fr[key], key).not.toMatch(/ [:;!?]/);
   });
