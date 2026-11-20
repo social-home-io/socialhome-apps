@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Coin toss">
+  <rect width="64" height="64" rx="12" fill="#3b6fd8"/>
+  <ellipse cx="32" cy="57" rx="13" ry="2.5" fill="#1d3f8a" opacity=".6"/>
+  <circle cx="32" cy="29" r="21" fill="#f2c443" stroke="#a8790f" stroke-width="2.5"/>
+  <circle cx="32" cy="29" r="16.5" fill="none" stroke="#a8790f" stroke-width="1" stroke-dasharray="1.5 2"/>
+  <path d="M32 17.5 L35.4 24.6 L43.2 25.5 L37.4 30.8 L38.9 38.5 L32 34.6 L25.1 38.5 L26.6 30.8 L20.8 25.5 L28.6 24.6 Z" fill="#e0a81c" stroke="#8a6209" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M9 14 Q6 8 11 5M55 14 Q58 8 53 5" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" opacity=".85"/>
+</svg>
